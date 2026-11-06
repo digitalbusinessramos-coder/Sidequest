@@ -1,0 +1,113 @@
+import { Fragment, useState } from 'react';
+import { t } from '../i18n.js';
+import { ActivityCard, Avatar, ChoiceChips, Empty, ErrorState, Icon, Loading, SampleBadge, Sheet, Stamp, useApp } from '../components.jsx';
+import { useApi } from '../util.js';
+import { DAYS, PARTS, slotLabel, categoryLabel } from '../../shared/catalog.js';
+
+function SlotPicker({ value, onChange }) {
+  const toggle = (s) => onChange(value.includes(s) ? value.filter((x) => x !== s) : [...value, s]);
+  return (
+    <div className="slot-grid" role="group" aria-label="When are you usually free?">
+      <span />{PARTS.map(([p]) => <span key={p} className="tiny muted" style={{ textAlign: 'center' }}>{p}</span>)}
+      {DAYS.map(([d, name]) => (
+        <Fragment key={d}>
+          <span className="tiny" style={{ fontWeight: 650 }}>{name.slice(0, 3)}</span>
+          {PARTS.map(([p]) => {
+            const s = `${d}_${p}`;
+            return <button key={s} type="button" aria-pressed={value.includes(s)} aria-label={`${name} ${p}`} onClick={() => toggle(s)}>{value.includes(s) ? '✓' : ''}</button>;
+          })}
+        </Fragment>
+      ))}
+    </div>
+  );
+}
+
+export default function Buddies() {
+  const { meta, api, toast } = useApp();
+  const wishes = useApi('/wishes');
+  const sugg = useApi('/wishes/suggestions', { poll: 30000 });
+  const inv = useApi('/invitations', { poll: 15000 });
+  const [form, setForm] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const add = async (e) => {
+    e.preventDefault(); setBusy(true);
+    try { await api.post('/wishes', form); setForm(null); toast('Wish saved. We’ll show people with the same wish.'); wishes.reload(); sugg.reload(); } catch (x) { toast(x.message, true); } finally { setBusy(false); }
+  };
+  const remove = async (id) => {
+    try { await api.del(`/wishes/${id}`); wishes.reload(); sugg.reload(); } catch (x) { toast(x.message, true); }
+  };
+  const tplFor = (cat) => meta.templates.find((x) => x.category === cat)?.key;
+
+  return (
+    <div className="page">
+      <div className="stack-sm"><span className="eyebrow">Same wish, same time</span><h1>{t('buddies.title')}</h1>
+        <p className="small muted">{t('buddies.lead')}</p></div>
+
+      {inv.data?.invitations.length > 0 && (
+        <section className="stack" aria-labelledby="inv-h">
+          <h2 id="inv-h">Invitations for you</h2>
+          {inv.data.invitations.map((a) => <ActivityCard key={a.id} a={a} />)}
+        </section>
+      )}
+
+      <section className="stack" aria-labelledby="sug-h">
+        <h2 id="sug-h">{t('buddies.suggestions')}</h2>
+        {sugg.loading && !sugg.data ? <Loading rows={1} /> : sugg.error ? <ErrorState error={sugg.error} onRetry={sugg.reload} />
+          : sugg.data.suggestions.length === 0 ? <p className="small muted">{wishes.data?.wishes.length ? t('buddies.noSuggestions') : 'Add a wish below to see people who want the same thing.'}</p>
+            : sugg.data.suggestions.map((s) => (
+              <div key={`${s.wish_id}-${s.other_wish_id}`} className="card card-pad stack-sm">
+                <div className="row">
+                  <Avatar person={s.user} />
+                  <a href={`#/person/${s.user.id}`} style={{ flex: 1, color: 'inherit' }}><strong>{s.user.first_name}</strong> {s.user.is_demo && <SampleBadge />}
+                    <div className="tiny muted">{categoryLabel(s.category)}{s.other_note ? ` · “${s.other_note}”` : ''}</div></a>
+                </div>
+                <p style={{ fontWeight: 600 }}>{s.reason}</p>
+                {s.extras.length > 0 && <p className="small muted">{s.extras.join(' ')}</p>}
+                <a className="btn btn-primary btn-sm" href={`#/create?template=${tplFor(s.category) || 'other'}&category=${s.category}&invite=${s.user.id}`}><Icon name="plus" size={16} />{t('buddies.propose')}</a>
+              </div>
+            ))}
+        <p className="tiny muted"><Icon name="info" size={13} /> {t('buddies.ruleNote')}</p>
+      </section>
+
+      <section className="stack" aria-labelledby="w-h">
+        <div className="section-title"><h2 id="w-h">{t('buddies.wishes')}</h2>
+          <button className="btn btn-secondary btn-sm" onClick={() => setForm({ category: '', note: '', slots: [], budget: 'any' })}><Icon name="plus" size={16} />{t('buddies.addWish')}</button></div>
+        {wishes.loading && !wishes.data ? <Loading rows={1} /> : wishes.error ? <ErrorState error={wishes.error} onRetry={wishes.reload} />
+          : wishes.data.wishes.length === 0 ? <Empty icon="star" title={t('buddies.noWishes')} hint="For example: “Visit a museum, Thursday afternoons, free or cheap.”" />
+            : wishes.data.wishes.map((w) => (
+              <div key={w.id} className="card card-pad row">
+                <Stamp category={w.category} />
+                <div style={{ flex: 1 }}>
+                  <strong>{categoryLabel(w.category)}</strong>{w.note && <span className="muted"> · {w.note}</span>}
+                  <div className="tiny muted">{w.slots.length ? w.slots.map(slotLabel).join(', ') : 'Flexible timing'} · {meta.budgets.find((b) => b.key === w.budget)?.label}</div>
+                </div>
+                <button className="icon-btn" aria-label={`Delete wish: ${categoryLabel(w.category)}`} onClick={() => remove(w.id)}><Icon name="trash" /></button>
+              </div>
+            ))}
+      </section>
+
+      {form && (
+        <Sheet title={t('buddies.addWish')} onClose={() => setForm(null)}>
+          <form className="stack" onSubmit={add}>
+            <div className="field"><span className="label">I’d like to…</span>
+              <ChoiceChips label="Activity" value={form.category} onChange={(category) => setForm({ ...form, category })} options={meta.categories.map((c) => ({ key: c.key, label: c.label }))} />
+            </div>
+            <label className="field"><span>Details (optional)</span>
+              <input className="input" maxLength={140} value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder="e.g. Modern art, or anything in the old town" />
+            </label>
+            <div className="field"><span className="label">When are you usually free?</span>
+              <span className="hint">Leave empty if you’re flexible.</span>
+              <SlotPicker value={form.slots} onChange={(slots) => setForm({ ...form, slots })} />
+            </div>
+            <div className="field"><span className="label">Budget</span>
+              <ChoiceChips label="Budget" value={form.budget} onChange={(budget) => setForm({ ...form, budget: budget || 'any' })} options={meta.budgets} />
+            </div>
+            <p className="small muted">Others with a compatible wish see your first name, languages and this wish. Pause this any time in Profile.</p>
+            <button className="btn btn-primary btn-block" disabled={busy || !form.category}>Save wish</button>
+          </form>
+        </Sheet>
+      )}
+    </div>
+  );
+}

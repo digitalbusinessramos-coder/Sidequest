@@ -1,0 +1,216 @@
+import { useState } from 'react';
+import { t } from '../i18n.js';
+import { Avatar, ErrorState, Icon, Loading, ReportSheet, SampleBadge, Sheet, Stamp, StatusBadge, TopBar, useApp } from '../components.jsx';
+import { fmtCost, fmtDuration, fmtWhen, tzLabel, useApi } from '../util.js';
+
+export default function ActivityDetail({ id }) {
+  const { api, toast, reloadMe, meta } = useApp();
+  const { data, error, loading, reload } = useApi(`/activities/${id}`, { poll: 10000 });
+  const [busy, setBusy] = useState(false);
+  const [joinOpen, setJoinOpen] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
+  const [report, setReport] = useState(null);
+
+  if (loading && !data) return <><TopBar title="" /><div className="page"><Loading rows={2} /></div></>;
+  if (error && !data) return <><TopBar title="" /><div className="page"><ErrorState error={error} onRetry={reload} /></div></>;
+  const a = data.activity;
+  const isOrg = a.my_status === 'organiser';
+  const insider = isOrg || a.my_status === 'accepted';
+  const closed = a.state === 'cancelled' || a.state === 'past';
+
+  const act = async (fn, okText) => {
+    setBusy(true);
+    try { await fn(); if (okText) toast(okText); await reload(true); reloadMe().catch(() => {}); return true; } catch (x) { toast(x.message, true); await reload(true); return false; } finally { setBusy(false); }
+  };
+
+  const join = async (e) => {
+    e.preventDefault();
+    if (await act(() => api.post(`/activities/${a.id}/requests`, { message: msg }), 'Request sent. You’ll see the answer in My Plans.')) { setJoinOpen(false); setMsg(''); }
+  };
+  const leave = () => {
+    const text = a.my_status === 'accepted' ? 'Leave this activity? You will lose access to its chat.' : 'Withdraw your request?';
+    if (confirm(text)) act(() => api.del(`/activities/${a.id}/requests/mine`), a.my_status === 'accepted' ? 'You left the activity.' : 'Request withdrawn.');
+  };
+  const manage = (uid, action, name) => {
+    if (action === 'remove' && !confirm(`Remove ${name} from this activity? They will lose access to the chat.`)) return;
+    act(() => api.post(`/activities/${a.id}/members/${uid}/${action}`), action === 'accept' ? `${name} is confirmed.` : action === 'decline' ? 'Request declined.' : `${name} was removed.`);
+  };
+  const cancel = async (e) => {
+    e.preventDefault();
+    if (await act(() => api.post(`/activities/${a.id}/cancel`, { reason: cancelReason }), 'Activity cancelled. Participants can see it in the chat.')) setCancelOpen(false);
+  };
+  const invitation = (action) => act(() => api.post(`/activities/${a.id}/invitation/${action}`), action === 'accept' ? 'You’re in! Say hello in the chat.' : 'Invitation declined.');
+
+  const notice = {
+    cancelled: ['coral', 'x', `${t('act.cancelledNote')}${a.cancel_reason ? ` Reason: ${a.cancel_reason}` : ''}`],
+    past: ['', 'clock', t('act.pastNote')],
+  }[a.state] || {
+    pending: ['', 'clock', t('act.pendingNote')],
+    accepted: ['lime', 'check', t('act.acceptedNote')],
+    invited: ['blue', 'heart', t('act.invitedNote', { name: a.organiser.first_name })],
+    declined: ['', 'info', 'The organiser didn’t accept this request. There are plenty of other plans in Explore.'],
+    removed: ['', 'info', 'You are no longer part of this activity.'],
+  }[a.my_status] || (a.state === 'full' && !isOrg ? ['', 'group', t('act.fullNote')] : null);
+
+  return (
+    <>
+      <TopBar title={a.title}>
+        {!isOrg && <button className="icon-btn" aria-label="Report this activity" onClick={() => setReport({ type: 'activity', id: a.id, label: 'activity' })}><Icon name="flag" /></button>}
+      </TopBar>
+      <div className="page">
+        <div className="detail-head">
+          <Stamp category={a.category} size="lg" />
+          <div className="stack-sm" style={{ flex: 1 }}>
+            <div className="row wrap" style={{ gap: 6 }}>
+              {a.is_sample && <SampleBadge />}
+              <StatusBadge status={closed ? a.state : a.my_status || (a.state === 'full' ? 'full' : null)} />
+              {a.solo_format && <span className="badge badge-solo">{t('card.solo')}</span>}
+            </div>
+            <h1 style={{ fontSize: '1.45rem' }}>{a.title}</h1>
+            <a href={`#/person/${a.organiser.id}`} className="row small" style={{ textDecoration: 'none', color: 'var(--ink-2)' }}>
+              <Avatar person={a.organiser} size="sm" />Organised by <strong>{isOrg ? 'you' : a.organiser.first_name}</strong>{a.organiser.is_demo && !isOrg && <SampleBadge />}
+            </a>
+          </div>
+        </div>
+
+        {notice && <div className={`notice ${notice[0]}`} role="status"><Icon name={notice[1]} />{notice[2]}</div>}
+
+        <div className="card card-pad facts-list">
+          <Icon name="clock" /><div><strong>{fmtWhen(a.starts_at, a.timezone)}</strong> · {fmtDuration(a.duration_min)}<div className="tiny muted">{tzLabel(a.timezone)}</div></div>
+          <Icon name="pin" /><div><strong>{a.meeting_area}</strong>{!insider && <div className="tiny muted">{t('act.meetPointHidden')}</div>}</div>
+          <Icon name="euro" /><div><strong>{fmtCost(a.cost_eur)}</strong>{a.cost_eur > 0 && <div className="tiny muted">Estimated by the organiser. Everyone pays their own share directly; nothing is paid in the app.</div>}</div>
+          <Icon name="group" /><div><strong>{a.max_participants === 2 ? 'One buddy (2 people)' : `Up to ${a.max_participants} people`}</strong>, including the organiser · {a.going} going · {a.spots_left} left</div>
+          {a.languages.length > 0 && <><Icon name="globe" /><div>{a.languages.join(', ')}</div></>}
+          {(a.beginner_friendly || a.pace) && <><Icon name="sprout" /><div>{[a.beginner_friendly && 'Beginners welcome', a.pace && `Pace: ${a.pace}`].filter(Boolean).join(' · ')}</div></>}
+          {a.transport && <><Icon name="bus" /><div>{a.transport}</div></>}
+        </div>
+
+        {a.event && (
+          <a href={`#/event/${a.event.id}`} className="notice blue" style={{ textDecoration: 'none' }}>
+            <Icon name="flag" /><span>This group is going to <strong>{a.event.title}</strong>. {t('event.separate')}</span>
+          </a>
+        )}
+
+        {a.description && <p>{a.description}</p>}
+
+        {(a.solo_format || a.welcome_plan || a.recognise_tip) && (
+          <section className="card card-pad stack-sm" aria-label="How it starts">
+            <h3>How it starts</h3>
+            {a.solo_format && <p className="small">{t('act.soloExplainer')}</p>}
+            {a.welcome_plan && <p className="small"><strong>{t('act.welcome')}:</strong> {a.welcome_plan}</p>}
+            {a.recognise_tip && <p className="small"><strong>{t('act.recognise')}:</strong> {a.recognise_tip}</p>}
+          </section>
+        )}
+
+        {insider && (
+          <section className="meetup stack-sm" aria-label={t('act.meetup')}>
+            <h3><Icon name="pin" />{t('act.meetup')}</h3>
+            <p><strong>{fmtWhen(a.starts_at, a.timezone)}</strong></p>
+            <p>{a.meeting_point || <span className="muted">No exact meeting point yet. Agree on a public place in the chat{isOrg ? ' and add it with Edit' : ''}.</span>}</p>
+            <p className="tiny muted">{t('act.public')}</p>
+            <a className="btn btn-primary btn-sm" href={`#/activity/${a.id}/chat`}><Icon name="chat" />{t('act.chat')}</a>
+          </section>
+        )}
+
+        <section className="stack-sm" aria-labelledby="who-h">
+          <h2 id="who-h">{t('act.who')}</h2>
+          {a.participants ? (
+            <div className="card card-pad" style={{ paddingTop: 4, paddingBottom: 4 }}>
+              <div className="person-row"><Avatar person={a.organiser} /><span style={{ flex: 1 }}><strong>{a.organiser.first_name}</strong> <span className="tiny muted">organiser</span></span></div>
+              {a.participants.map((p) => (
+                <div key={p.id} className="person-row">
+                  <Avatar person={p} />
+                  <a href={`#/person/${p.id}`} style={{ flex: 1, color: 'inherit' }}>{p.hidden ? 'Blocked person' : <strong>{p.first_name}</strong>}{p.is_demo && <> <SampleBadge /></>}</a>
+                  {isOrg && !closed && <button className="btn btn-ghost btn-sm" onClick={() => manage(p.id, 'remove', p.first_name)} disabled={busy}>{t('act.remove')}</button>}
+                </div>
+              ))}
+              {a.participants.length === 0 && <p className="small muted" style={{ padding: '10px 0' }}>Nobody confirmed yet.</p>}
+            </div>
+          ) : <p className="small muted">{a.going} going. {t('act.whoHidden')}</p>}
+        </section>
+
+        {isOrg && (
+          <section className="stack-sm" aria-labelledby="req-h">
+            <h2 id="req-h">{t('act.requests')}</h2>
+            {a.requests.length === 0 ? <p className="small muted">{t('act.noRequests')}</p> : a.requests.map((r) => (
+              <div key={r.user.id} className="card card-pad stack-sm">
+                <div className="row">
+                  <Avatar person={r.user} />
+                  <a href={`#/person/${r.user.id}`} style={{ flex: 1, color: 'inherit' }}><strong>{r.user.first_name}</strong>{r.user.is_demo && <> <SampleBadge /></>}
+                    <div className="tiny muted">{r.user.languages.join(', ')}</div></a>
+                  <StatusBadge status={r.status} />
+                </div>
+                {r.message && <p className="small">“{r.message}”</p>}
+                {r.user.intro && <p className="tiny muted">{r.user.intro}</p>}
+                {r.status === 'pending' && !closed && (
+                  <div className="row">
+                    <button className="btn btn-primary btn-sm" disabled={busy || a.state === 'full'} onClick={() => manage(r.user.id, 'accept', r.user.first_name)}><Icon name="check" size={16} />{t('act.accept')}</button>
+                    <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => manage(r.user.id, 'decline', r.user.first_name)}>{t('act.decline')}</button>
+                  </div>
+                )}
+                {r.status === 'pending' && a.state === 'full' && <p className="tiny muted">The activity is full. Increase the group size with Edit to accept more people.</p>}
+                {r.status === 'invited' && !closed && <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => manage(r.user.id, 'decline', r.user.first_name)}>Withdraw invitation</button>}
+              </div>
+            ))}
+            {!closed && (
+              <div className="row">
+                <a className="btn btn-secondary btn-sm" href={`#/activity/${a.id}/edit`}><Icon name="edit" size={16} />{t('act.edit')}</a>
+                <button className="btn btn-danger btn-sm" onClick={() => setCancelOpen(true)}>{t('act.cancel')}</button>
+              </div>
+            )}
+          </section>
+        )}
+
+        {!isOrg && !closed && (
+          <div className="sticky-actions">
+            {!a.my_status || ['left', 'withdrawn'].includes(a.my_status) ? (
+              a.state === 'full'
+                ? <button className="btn btn-secondary btn-block" disabled>{t('status.full')}</button>
+                : <button className="btn btn-primary btn-block" onClick={() => setJoinOpen(true)} disabled={busy}>{t('act.request')}</button>
+            ) : a.my_status === 'pending' ? (
+              <button className="btn btn-secondary btn-block" onClick={leave} disabled={busy}>{t('act.withdraw')}</button>
+            ) : a.my_status === 'invited' ? (
+              <div className="row">
+                <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => invitation('accept')} disabled={busy || a.state === 'full'}>{t('act.acceptInvite')}</button>
+                <button className="btn btn-secondary" onClick={() => invitation('decline')} disabled={busy}>{t('act.declineInvite')}</button>
+              </div>
+            ) : a.my_status === 'accepted' ? (
+              <div className="row">
+                <a className="btn btn-primary" style={{ flex: 1 }} href={`#/activity/${a.id}/chat`}><Icon name="chat" />{t('act.chat')}</a>
+                <button className="btn btn-ghost" onClick={leave} disabled={busy}>Leave</button>
+              </div>
+            ) : null}
+          </div>
+        )}
+        {insider && closed && <a className="btn btn-secondary" href={`#/activity/${a.id}/chat`}><Icon name="chat" />View chat (read-only)</a>}
+      </div>
+
+      {joinOpen && (
+        <Sheet title={t('act.request')} onClose={() => setJoinOpen(false)}>
+          <form className="stack" onSubmit={join}>
+            <p className="small">{a.organiser.first_name} will see your first name, introduction and languages, and can accept or decline. You are <strong>not confirmed</strong> until they accept.</p>
+            {a.event && <div className="notice blue"><Icon name="info" />{t('event.separate')}</div>}
+            <label className="field"><span>{t('act.requestMsg')}</span>
+              <textarea className="textarea" maxLength={280} placeholder={t('act.requestPlaceholder')} value={msg} onChange={(e) => setMsg(e.target.value)} />
+            </label>
+            <button className="btn btn-primary btn-block" disabled={busy}>Send request</button>
+          </form>
+        </Sheet>
+      )}
+      {cancelOpen && (
+        <Sheet title={t('act.cancel')} onClose={() => setCancelOpen(false)}>
+          <form className="stack" onSubmit={cancel}>
+            <p className="small">Everyone confirmed or waiting will see that it’s cancelled. The chat stays readable but nobody can post.</p>
+            <label className="field"><span>Reason (optional, shown to participants)</span>
+              <input className="input" maxLength={200} value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder="e.g. Rain forecast, let’s reschedule" />
+            </label>
+            <button className="btn btn-danger btn-block" disabled={busy}>Cancel activity</button>
+          </form>
+        </Sheet>
+      )}
+      {report && <ReportSheet target={report} onClose={() => setReport(null)} meta={meta} />}
+    </>
+  );
+}

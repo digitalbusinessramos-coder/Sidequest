@@ -1,0 +1,21 @@
+# Render blueprint (optional). A persistent disk is required so the SQLite file survives restarts and deploys.
+services:
+  - type: web
+    name: sidequest
+    runtime: node
+    plan: starter
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: APP_NAME
+        value: SIDEQUEST
+      - key: DB_PATH
+        value: /var/data/sidequest.db
+      - key: DEMO_MODE
+        value: "on"
+    disk:
+      name: data
+      mountPath: /var/data
+      sizeGB: 1

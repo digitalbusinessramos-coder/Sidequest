@@ -1,0 +1,140 @@
+import { useState } from 'react';
+import { getAppName, t } from '../i18n.js';
+import { Avatar, Icon, SampleBadge, Sheet, TopBar, useApp } from '../components.jsx';
+import { areaName, nearestArea, useApi } from '../util.js';
+import { categoryLabel } from '../../shared/catalog.js';
+import { ProfileFields, profileDefaults } from './Onboarding.jsx';
+
+function EditProfile() {
+  const { me, meta, city, api, reloadMe, toast } = useApp();
+  const [v, setV] = useState(profileDefaults(me));
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const save = async (e) => {
+    e.preventDefault(); setBusy(true); setErr('');
+    try { await api.put('/me/profile', { ...v, city: city.slug }); await reloadMe(); toast('Profile saved.'); location.hash = '#/profile'; } catch (x) { setErr(x.message); } finally { setBusy(false); }
+  };
+  return (
+    <>
+      <TopBar title={t('profile.edit')} />
+      <form className="page" onSubmit={save}>
+        <ProfileFields v={v} set={(p) => setV((x) => ({ ...x, ...p }))} city={city} meta={meta} />
+        {err && <div className="form-error" role="alert">{err}</div>}
+        <button className="btn btn-primary btn-block" disabled={busy}>{t('common.save')}</button>
+      </form>
+    </>
+  );
+}
+
+export default function Profile({ sub }) {
+  const { me, city, api, reloadMe, toast } = useApp();
+  const blocks = useApi('/me/blocks');
+  const [busy, setBusy] = useState(false);
+  const [del, setDel] = useState(null);
+  const [geoMsg, setGeoMsg] = useState('');
+  if (sub === 'edit') return <EditProfile />;
+
+  const privacy = async (patch, ok) => {
+    setBusy(true);
+    try { await api.put('/me/privacy', patch); await reloadMe(); if (ok) toast(ok); } catch (x) { toast(x.message, true); } finally { setBusy(false); }
+  };
+
+  const toggleNearby = (on) => {
+    if (!on) return privacy({ nearby_enabled: false }, 'Nearby discovery is off.');
+    if (!navigator.geolocation) { setGeoMsg('Your browser does not support location. Choose your area manually instead.'); return undefined; }
+    setGeoMsg('Asking your browser for your location once…');
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        // The nearest neighbourhood is worked out here on your device. Only its name is sent to the server.
+        const area = nearestArea(city.areas, pos.coords.latitude, pos.coords.longitude);
+        setGeoMsg(`Set to ${area.name}. Your coordinates were not sent or stored.`);
+        privacy({ nearby_enabled: true, area: area.key }, 'Nearby discovery is on.');
+      },
+      () => setGeoMsg('Location permission was not given. Nothing changed. You can still choose your area manually.'),
+      { enableHighAccuracy: false, maximumAge: 600000, timeout: 10000 },
+    );
+    return undefined;
+  };
+
+  const logout = async () => { await api.post('/auth/logout'); await reloadMe(); location.hash = '#/explore'; };
+  const unblock = async (id) => { try { await api.del(`/users/${id}/block`); blocks.reload(); } catch (x) { toast(x.message, true); } };
+  const doDelete = async (e) => {
+    e.preventDefault(); setBusy(true);
+    try { await api.del('/me', { password: del.password }); await reloadMe(); location.hash = '#/explore'; } catch (x) { setDel({ ...del, err: x.message }); } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="page">
+      <div className="row" style={{ gap: 16 }}>
+        <Avatar person={me} size="lg" />
+        <div className="stack-sm" style={{ flex: 1 }}>
+          <h1>{me.first_name}</h1>
+          <div className="row wrap" style={{ gap: 6 }}>{me.is_demo && <SampleBadge />}<span className="small muted">{city.name}</span></div>
+        </div>
+        <a className="btn btn-secondary btn-sm" href="#/profile/edit"><Icon name="edit" size={16} />{t('profile.edit')}</a>
+      </div>
+      {me.intro && <p>{me.intro}</p>}
+      <div className="card card-pad facts-list">
+        <Icon name="globe" /><div>{me.languages.join(', ') || 'No languages yet'}</div>
+        <Icon name="heart" /><div>{me.interests.map(categoryLabel).join(', ') || 'No interests yet'}</div>
+        <Icon name="pin" /><div>{areaName(city.areas, me.area) || 'Area not set'}</div>
+        {me.university && <><Icon name="school" /><div>{me.university} <span className="tiny muted">{me.show_university ? '(shown on profile)' : '(hidden)'}</span></div></>}
+      </div>
+      <p className="tiny muted"><Icon name="info" size={13} /> {t('profile.emailUnverified')}</p>
+
+      <section className="stack-sm" aria-labelledby="priv-h">
+        <h2 id="priv-h" className="row"><Icon name="shield" />{t('profile.privacy')}</h2>
+        <div className="card card-pad" style={{ paddingTop: 0, paddingBottom: 0 }}>
+          <label className="switch"><span><strong>{t('profile.visible')}</strong><br /><span className="hint">{t('profile.visibleHint')}</span></span>
+            <input type="checkbox" role="switch" checked={me.visible} disabled={busy} onChange={(e) => privacy({ visible: e.target.checked }, e.target.checked ? 'You’re visible again.' : 'Visibility paused.')} /></label>
+          <label className="switch"><span><strong>{t('profile.nearby')}</strong><br /><span className="hint">{t('profile.nearbyHint')}</span></span>
+            <input type="checkbox" role="switch" checked={me.nearby_enabled} disabled={busy} onChange={(e) => toggleNearby(e.target.checked)} /></label>
+          {geoMsg && <p className="small" role="status" style={{ padding: '8px 0' }}>{geoMsg}</p>}
+          <label className="field" style={{ padding: '14px 0', borderBottom: '1px solid var(--line)' }}><span>{t('profile.area')}</span>
+            <select className="select" value={me.area || ''} disabled={busy} onChange={(e) => privacy({ area: e.target.value || null }, 'Area updated.')}>
+              <option value="">Prefer not to say</option>
+              {city.areas.map((a) => <option key={a.key} value={a.key}>{a.name}</option>)}
+            </select>
+          </label>
+          <label className="switch" style={{ borderBottom: 0 }}><span><strong>{t('profile.sample')}</strong><br /><span className="hint">{t('profile.sampleHint')}</span></span>
+            <input type="checkbox" role="switch" checked={me.show_sample} disabled={busy} onChange={(e) => privacy({ show_sample: e.target.checked })} /></label>
+        </div>
+      </section>
+
+      <section className="stack-sm" aria-labelledby="bl-h">
+        <h2 id="bl-h">{t('profile.blocked')}</h2>
+        {blocks.data?.blocked.length ? (
+          <div className="card card-pad" style={{ paddingTop: 0, paddingBottom: 0 }}>
+            {blocks.data.blocked.map((p) => (
+              <div key={p.id} className="person-row"><Avatar person={p} size="sm" /><span style={{ flex: 1 }}>{p.first_name}</span>
+                <button className="btn btn-ghost btn-sm" onClick={() => unblock(p.id)}>{t('person.unblock')}</button></div>
+            ))}
+          </div>
+        ) : <p className="small muted">{t('profile.noBlocked')}</p>}
+      </section>
+
+      <section className="stack-sm" aria-labelledby="about-h">
+        <h2 id="about-h">About {getAppName()}</h2>
+        <p className="small muted">A student project prototype from Las Palmas. Recommendations use simple, visible rules, not AI. Sample profiles and events are fictional and always labelled. We are not affiliated with ESN or any university.</p>
+      </section>
+
+      <div className="stack-sm">
+        <button className="btn btn-secondary btn-block" onClick={logout}><Icon name="logout" />{t('profile.logout')}</button>
+        {!me.is_demo && <button className="btn btn-danger btn-block" onClick={() => setDel({ password: '' })}><Icon name="trash" />{t('profile.delete')}</button>}
+      </div>
+
+      {del && (
+        <Sheet title={t('profile.delete')} onClose={() => setDel(null)}>
+          <form className="stack" onSubmit={doDelete}>
+            <p className="small">{t('profile.deleteHint')}</p>
+            <label className="field"><span>Confirm with your password</span>
+              <input className="input" type="password" autoComplete="current-password" required value={del.password} onChange={(e) => setDel({ ...del, password: e.target.value })} />
+            </label>
+            {del.err && <div className="form-error" role="alert">{del.err}</div>}
+            <button className="btn btn-danger btn-block" disabled={busy}>Delete my account permanently</button>
+          </form>
+        </Sheet>
+      )}
+    </div>
+  );
+}

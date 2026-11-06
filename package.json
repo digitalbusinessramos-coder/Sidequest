@@ -1,0 +1,28 @@
+{
+  "name": "sidequest",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Find company for activities - Erasmus & international students (working name SIDEQUEST)",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "dev": "concurrently -k \"node --no-warnings --watch server/index.js\" \"vite\"",
+    "build": "vite build",
+    "start": "node --no-warnings server/index.js",
+    "seed": "node server/seed.js",
+    "test": "node --test --no-warnings test/*.test.js",
+    "test:browser": "node test/e2e.browser.cjs"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "@vitejs/plugin-react": "^4.3.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "vite": "^6.0.7"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
