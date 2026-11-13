@@ -3,7 +3,7 @@ const B = process.env.BASE_URL || 'http://localhost:3000/';
 const S = (process.env.SHOTS || require('os').tmpdir()) + '/';
 (async () => {
   const browser = await chromium.launch();
-  const mk = async () => { const c = await browser.newContext({ ...devices['iPhone 13'], deviceScaleFactor: 1 }); const p = await c.newPage(); const errs = []; p.on('console', m => m.type() === 'error' && errs.push(m.text())); p.on('pageerror', e => errs.push(e.message)); return { p, errs }; };
+  const mk = async () => { const c = await browser.newContext({ ...devices['iPhone 13'], deviceScaleFactor: 1 }); await c.addInitScript(() => { try { localStorage.setItem('sq_wants_login', '1'); localStorage.setItem('sq_tour_done', '1'); } catch {} }); const p = await c.newPage(); const errs = []; p.on('console', m => m.type() === 'error' && errs.push(m.text())); p.on('pageerror', e => errs.push(e.message)); return { p, errs }; };
   const A = await mk(), Bu = await mk();
   async function signup(x, email, name) {
     await x.p.goto(B); await x.p.getByLabel('Email').fill(email); await x.p.getByLabel('Password').fill('password123');

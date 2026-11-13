@@ -39,6 +39,7 @@ export function createApi(db) {
   const authLimit = rateLimiter(Number(process.env.AUTH_RATE_LIMIT || 100), 10 * 60e3); // per IP; generous because classmates may share one campus IP
   const msgLimit = rateLimiter(30, 60e3);
   const verifyLimit = rateLimiter(5, 60 * 60e3);
+  const guestLimit = rateLimiter(Number(process.env.GUEST_RATE_LIMIT || 60), 60 * 60e3);
 
   // ---------- email verification ----------
   const sha = (x) => crypto.createHash('sha256').update(x).digest('hex');
@@ -59,7 +60,7 @@ export function createApi(db) {
   // ---------- helpers ----------
   const cityById = (id) => db.prepare('SELECT * FROM cities WHERE id = ?').get(id);
   const cityBySlug = (slug) => db.prepare('SELECT * FROM cities WHERE slug = ?').get(slug || config.defaultCity);
-  const profileOf = (uid) => db.prepare('SELECT p.*, u.is_demo, u.email_verified_at FROM profiles p JOIN users u ON u.id = p.user_id WHERE p.user_id = ?').get(uid);
+  const profileOf = (uid) => db.prepare('SELECT p.*, u.is_demo, u.is_guest, u.email_verified_at FROM profiles p JOIN users u ON u.id = p.user_id WHERE p.user_id = ?').get(uid);
 
   /** Users I blocked or who blocked me. Hidden from each other everywhere. */
   const blockedSet = (uid) => new Set(
@@ -68,7 +69,7 @@ export function createApi(db) {
   );
 
   const personSummary = (p) => p && ({
-    id: p.user_id, first_name: p.first_name || 'Someone', is_demo: !!p.is_demo, avatar_hue: p.avatar_hue,
+    id: p.user_id, first_name: p.first_name || 'Someone', is_demo: !!p.is_demo, is_guest: !!p.is_guest, avatar_hue: p.avatar_hue,
     photo: p.photo_v ? `/api/users/${p.user_id}/photo?v=${p.photo_v}` : null,
     languages: J(p.languages), role: p.role,
   });
@@ -191,6 +192,46 @@ export function createApi(db) {
     res.json({ ok: true });
   });
 
+  // Guest access: one click, no email. Each visitor gets their own temporary account so permissions stay per person.
+  // Guests are hidden from other people's buddy lists and are removed automatically after GUEST_DAYS.
+  r.post('/auth/guest', (req, res) => {
+    if (!config.demoMode) fail(403, 'demo_off', 'Guest access is switched off.');
+    if (req.user) return res.json({ ok: true, existing: true });
+    if (!guestLimit(req.ip)) fail(429, 'rate', 'Too many guest visits from this network. Please wait a little or create an account.');
+    const city = cityBySlug();
+    const uid = tx(db, () => {
+      const { lastInsertRowid } = db.prepare('INSERT INTO users (email, password_hash, is_guest) VALUES (?, ?, 1)')
+        .run(`guest-${crypto.randomBytes(9).toString('hex')}@guest.invalid`, `nologin$${crypto.randomBytes(8).toString('hex')}`);
+      const id = Number(lastInsertRowid);
+      db.prepare(`INSERT INTO profiles (user_id, first_name, intro, city_id, area, role, languages, interests, visible, onboarded, avatar_hue)
+        VALUES (?, 'Guest', '', ?, 'santacatalina', 'exchange', '["English","Spanish"]', '["beach","coffee","nightout","hiking"]', 0, 1, ?)`).run(id, city.id, Math.floor(Math.random() * 360));
+      // Two starter wishes so the Buddies tab shows how matching works straight away. Guests can delete them.
+      const w = db.prepare('INSERT INTO wishes (user_id, city_id, category, note, slots, budget) VALUES (?,?,?,?,?,?)');
+      w.run(id, city.id, 'hiking', '', JSON.stringify(['sat_morning', 'sun_morning']), 'any');
+      w.run(id, city.id, 'beach', '', JSON.stringify(['sat_afternoon', 'sun_afternoon', 'fri_evening']), 'free');
+      return id;
+    });
+    createSession(db, res, uid);
+    res.status(201).json({ ok: true });
+  });
+
+  // Turn a guest account into a normal account, keeping everything the guest did.
+  r.post('/auth/claim', auth, async (req, res) => {
+    if (!req.user.is_guest) fail(400, 'invalid', 'This account already has an email address.');
+    if (!authLimit(req.ip)) fail(429, 'rate', 'Too many attempts. Please wait a few minutes.');
+    const email = str(req.body.email, 200, 'Email', { required: true }).toLowerCase();
+    const password = String(req.body.password || '');
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || /@(sample|guest)\.invalid$/.test(email)) fail(400, 'invalid', 'Please enter a valid email address.');
+    if (password.length < 8) fail(400, 'invalid', 'Password must be at least 8 characters.');
+    if (db.prepare('SELECT 1 FROM users WHERE email = ?').get(email)) fail(409, 'exists', 'An account with this email already exists. Try logging in.');
+    const first = str(req.body.first_name, 40, 'First name');
+    db.prepare('UPDATE users SET email = ?, password_hash = ?, is_guest = 0 WHERE id = ?').run(email, hashPassword(password), req.user.id);
+    if (first) db.prepare('UPDATE profiles SET first_name = ? WHERE user_id = ?').run(first, req.user.id);
+    db.prepare('UPDATE profiles SET visible = 1 WHERE user_id = ?').run(req.user.id);
+    const mail = await startVerification(req, req.user.id, email);
+    res.json({ ok: true, verification_sent: mail.sent });
+  });
+
   r.post('/auth/verify/send', auth, async (req, res) => {
     const u = db.prepare('SELECT email, email_verified_at, is_demo FROM users WHERE id = ?').get(req.user.id);
     if (u.is_demo) fail(403, 'demo', 'Sample personas have no email address.');
@@ -227,7 +268,7 @@ export function createApi(db) {
       WHERE m.user_id = ? AND m.status = 'invited' AND a.status = 'active' AND a.starts_at > ?`).get(req.user.id, now()).n;
     res.json({
       user: {
-        id: req.user.id, email: req.user.email, is_demo: req.user.is_demo, email_verified: !!p.email_verified_at, email_service: emailConfigured(), lang: p.lang,
+        id: req.user.id, email: req.user.is_guest ? null : req.user.email, is_demo: req.user.is_demo, is_guest: req.user.is_guest, email_verified: !!p.email_verified_at, email_service: emailConfigured(), lang: p.lang,
         ...publicProfile(p), university: p.university, show_university: !!p.show_university,
         visible: !!p.visible, nearby_enabled: !!p.nearby_enabled, show_sample: !!p.show_sample, onboarded: !!p.onboarded,
         city: city && { slug: city.slug, name: city.name, timezone: city.timezone },
@@ -267,12 +308,9 @@ export function createApi(db) {
     res.json({ ok: true });
   });
 
-  r.delete('/me', auth, (req, res) => {
-    const u = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
-    if (!u.is_demo && !verifyPassword(req.body?.password || '', u.password_hash)) fail(403, 'credentials', 'Password is not correct.');
-    if (u.is_demo) fail(403, 'demo', 'Sample personas cannot be deleted. Log out instead.');
+  /** Remove a person's data (account deletion and expired guests). */
+  function eraseUser(uid) {
     tx(db, () => {
-      const uid = u.id;
       const own = db.prepare("SELECT id FROM activities WHERE organiser_id = ? AND status = 'active'").all(uid);
       for (const a of own) {
         systemMsg(a.id, 'This activity was cancelled because the organiser deleted their account.');
@@ -300,8 +338,36 @@ export function createApi(db) {
       db.prepare("UPDATE profiles SET first_name='Deleted user', intro='', photo_v=0, area=NULL, university=NULL, show_university=0, exchange_start=NULL, exchange_end=NULL, languages='[]', interests='[]', visible=0 WHERE user_id = ?").run(uid);
       db.prepare("UPDATE users SET email = ?, password_hash = 'deleted' WHERE id = ?").run(`deleted-${uid}@deleted.invalid`, uid);
     });
+  }
+
+  r.delete('/me', auth, (req, res) => {
+    const u = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+    if (!u.is_demo && !u.is_guest && !verifyPassword(req.body?.password || '', u.password_hash)) fail(403, 'credentials', 'Password is not correct.');
+    if (u.is_demo) fail(403, 'demo', 'Sample personas cannot be deleted. Log out instead.');
+    eraseUser(u.id);
     res.clearCookie('sq_session', { path: '/' });
     res.json({ ok: true });
+  });
+
+  // ---------- students in the city ----------
+  // Everyone who chose to be visible, with shared interests first. Plain rules, explained in the response.
+  r.get('/people', auth, (req, res) => {
+    const me = profileOf(req.user.id);
+    const blocked = blockedSet(req.user.id);
+    const mine = new Set(J(me.interests));
+    const city = cityById(me.city_id);
+    const areaName = (k) => J(city.areas).find((a) => a.key === k)?.name || null;
+    const rows = db.prepare(`SELECT p.*, u.is_demo, u.is_guest FROM profiles p JOIN users u ON u.id = p.user_id
+      WHERE p.city_id = ? AND p.visible = 1 AND p.onboarded = 1 AND u.is_guest = 0 AND p.user_id != ? AND p.first_name != 'Deleted user'`).all(me.city_id, req.user.id);
+    const people = rows
+      .filter((p) => !blocked.has(p.user_id) && (me.show_sample || !p.is_demo))
+      .map((p) => {
+        const interests = J(p.interests);
+        const plans = db.prepare(`SELECT COUNT(*) AS n FROM activities WHERE organiser_id = ? AND status = 'active' AND starts_at > ?`).get(p.user_id, now()).n;
+        return { ...personSummary(p), intro: p.intro, interests, area: areaName(p.area), shared: interests.filter((i) => mine.has(i)), open_plans: plans };
+      })
+      .sort((a, b) => (a.is_demo - b.is_demo) || (b.shared.length - a.shared.length) || (b.open_plans - a.open_plans));
+    res.json({ people });
   });
 
   // ---------- people, blocking, reporting ----------
@@ -697,7 +763,7 @@ export function createApi(db) {
       id: e.id, title: e.title, description: e.description, category: e.category, starts_at: e.starts_at,
       starts_local: utcToLocalInput(e.starts_at, city.timezone), timezone: city.timezone,
       duration_min: e.duration_min, venue: e.venue, organiser_name: e.organiser_name, official_url: e.official_url,
-      price_note: e.price_note, is_sample: !!e.is_sample, status: e.status,
+      price_note: e.price_note, is_sample: !!e.is_sample, status: e.status, photo_key: e.photo_key || null,
       state: e.status === 'cancelled' ? 'cancelled' : isPast(e) ? 'past' : 'open',
       seeking_count: seekers.filter((s) => s.user_id !== uid).length,
       approx: e.lat != null ? { lat: e.lat, lng: e.lng, area: e.venue } : approxSpot(city, e.venue),
@@ -1005,11 +1071,12 @@ export function createApi(db) {
   const MC = MARKET_CATEGORIES.map((c) => c.key);
   const getListing = (id) => db.prepare('SELECT * FROM listings WHERE id = ?').get(Number(id)) || fail(404, 'not_found', 'This listing no longer exists.');
   const listingView = (l, uid, full = false) => {
-    const ev = l.event_id ? db.prepare('SELECT id, title, starts_at, is_sample FROM events WHERE id = ?').get(l.event_id) : null;
+    const ev = l.event_id ? db.prepare('SELECT id, title, starts_at, is_sample, photo_key FROM events WHERE id = ?').get(l.event_id) : null;
     const v = {
       id: l.id, kind: l.kind, category: l.category, title: l.title, price_eur: l.price_eur, face_value_eur: l.face_value_eur,
       description: full ? l.description : l.description.slice(0, 140), area: l.area, status: l.status, is_sample: !!l.is_sample, created_at: l.created_at,
-      photo: l.photo_mime ? `/api/market/${l.id}/photo?v=${encodeURIComponent(l.updated_at)}` : null,
+      // Tickets without their own picture show the event's city photo.
+      photo: l.photo_mime ? `/api/market/${l.id}/photo?v=${encodeURIComponent(l.updated_at)}` : ev?.photo_key && /^[a-z]+$/.test(ev.photo_key) ? `/photos/${ev.photo_key}.jpg` : null,
       event: ev, seller: personSummary(profileOf(l.user_id)), mine: l.user_id === uid,
       saved: !!db.prepare('SELECT 1 FROM listing_saves WHERE listing_id = ? AND user_id = ?').get(l.id, uid),
       approx: approxSpot(cityById(l.city_id), l.area),
@@ -1170,6 +1237,17 @@ export function createApi(db) {
     const city = cityBySlug(req.query.city) || fail(404, 'not_found', 'Unknown city.');
     res.json({ city: city.name, items: db.prepare('SELECT section, kind, title, summary, url, source_name, checked_at FROM guide_items WHERE city_id = ? ORDER BY sort, id').all(city.id) });
   });
+
+  // Expired guest accounts are erased in the background.
+  const guestDays = Number(process.env.GUEST_DAYS || 7);
+  const cleanupGuests = () => {
+    const cutoff = new Date(Date.now() - guestDays * 864e5).toISOString();
+    for (const g of db.prepare("SELECT id FROM users WHERE is_guest = 1 AND created_at < ?").all(cutoff)) {
+      try { eraseUser(g.id); db.prepare('UPDATE users SET is_guest = 0 WHERE id = ?').run(g.id); } catch (e) { console.error('guest cleanup', e.message); }
+    }
+  };
+  cleanupGuests();
+  setInterval(cleanupGuests, 6 * 3600e3).unref();
 
   return r;
 }

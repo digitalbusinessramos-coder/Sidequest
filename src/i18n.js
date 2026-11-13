@@ -14,7 +14,7 @@ const en = {
   'welcome.signup': 'Create account',
   'welcome.login': 'Log in',
   'welcome.demoTitle': 'Explore with a sample persona',
-  'welcome.demoHint': 'These are fictional demo profiles for testing and presentations. They are not real students.',
+  'welcome.demoHint': 'Try the app as one of the example students made up for this preview.',
   'welcome.emailNote': 'We don’t verify email addresses yet. Your email is never shown to other users.',
 
   'explore.eyebrow': 'Las Palmas, today and this week',
@@ -59,7 +59,7 @@ const en = {
   'act.public': 'Always meet in a public place. You can leave at any time.',
 
   'event.register': 'Register on the official site',
-  'event.registerSample': 'Sample event: there is no real registration',
+  'event.registerSample': 'Example event: no real registration',
   'event.separate': 'Finding company here does not register you for the event or buy a ticket.',
   'event.find': 'Find someone to go with',
   'event.seekers': 'People also looking for company',
@@ -89,7 +89,7 @@ const en = {
   'profile.title': 'Profile', 'profile.edit': 'Edit profile', 'profile.privacy': 'Privacy and safety',
   'profile.visible': 'Show me to people looking for company', 'profile.visibleHint': 'Turn off to pause. You’ll still see your own plans.',
   'profile.nearby': 'Approximate nearby discovery', 'profile.nearbyHint': 'Off by default. Uses your location once to pick the nearest neighbourhood. We store only the neighbourhood name, never coordinates.',
-  'profile.sample': 'Show sample content', 'profile.sampleHint': 'Fictional demo profiles and events, always labelled “Sample”.',
+  'profile.sample': 'Show example content', 'profile.sampleHint': 'Example students, plans and events made up for this preview, marked “Example”.',
   'profile.area': 'Your approximate area', 'profile.blocked': 'Blocked people', 'profile.noBlocked': 'You haven’t blocked anyone.',
   'profile.logout': 'Log out', 'profile.delete': 'Delete account',
   'profile.deleteHint': 'Removes your profile, wishes, requests and messages. Activities you organise are cancelled. This cannot be undone.',
@@ -103,7 +103,7 @@ const en = {
   'report.note': 'If you are in danger, call 112 (EU emergency number).',
 
   'common.save': 'Save', 'common.cancel': 'Cancel', 'common.back': 'Back', 'common.retry': 'Try again', 'common.close': 'Close',
-  'common.loading': 'Loading…', 'common.error': 'Something went wrong.', 'common.sample': 'Sample', 'common.next': 'Next',
+  'common.loading': 'Loading…', 'common.error': 'Something went wrong.', 'common.sample': 'Example', 'common.next': 'Next',
   'common.offline': 'Can’t reach the server. Check your connection.',
 };
 

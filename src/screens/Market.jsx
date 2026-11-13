@@ -32,7 +32,7 @@ function ListingCard({ l }) {
       <span className="listing-body">
         <strong className="listing-price">{fmtPrice(l)}</strong>
         <span className="listing-title">{l.title}</span>
-        <span className="tiny muted">{l.kind === 'ticket' ? tx('Ticket') : l.area || ''}{l.is_sample ? ` · ${tx('Sample')}` : ''}</span>
+        <span className="tiny muted">{l.kind === 'ticket' ? tx('Ticket') : l.area || ''}{l.is_sample ? ` · ${tx('Example')}` : ''}</span>
       </span>
     </a>
   );

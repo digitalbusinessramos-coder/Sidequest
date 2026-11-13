@@ -3,7 +3,7 @@ import { ErrorState, Icon, Loading, PhotoHero, useApp } from '../components.jsx'
 import Tips from './Tips.jsx';
 import { FeedbackSheet } from './Market.jsx';
 import { useState } from 'react';
-import { PHOTOS } from '../../shared/photos.js';
+import { MARKET_PHOTOS, PHOTOS } from '../../shared/photos.js';
 import { useApi } from '../util.js';
 
 // Student tips now have their own section with likes and saves, so the old "students" placeholder is not shown.
@@ -58,7 +58,7 @@ export default function Guide() {
       <details className="tiny muted">
         <summary>{tx('Photo credits')}</summary>
         <ul style={{ paddingLeft: 18 }}>
-          {PHOTOS.map((p) => <li key={p.key}>{tx(p.alt)}: {p.author}, <a href={p.license_url} target="_blank" rel="noopener noreferrer">{p.license}</a>, <a href={p.source} target="_blank" rel="noopener noreferrer">{tx('source')}</a>{tx(' (resized)')}</li>)}
+          {[...PHOTOS, ...MARKET_PHOTOS].map((p) => <li key={p.key}>{tx(p.alt)}: {p.author}, <a href={p.license_url} target="_blank" rel="noopener noreferrer">{p.license}</a>, <a href={p.source} target="_blank" rel="noopener noreferrer">{tx('source')}</a>{tx(' (resized)')}</li>)}
           <li>{tx('Sample profile pictures are drawn avatars (“Notionists” by Zoish, CC0, via DiceBear), not photos of real people.')}</li>
           <li>{tx('Map: © OpenStreetMap contributors, © CARTO.')}</li>
         </ul>

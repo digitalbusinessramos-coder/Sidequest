@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { t, tx } from '../i18n.js';
-import { ActivityCard, Avatar, ChoiceChips, ErrorState, Icon, Loading, SampleBadge, Sheet, Stamp, TopBar, useApp } from '../components.jsx';
+import { ActivityCard, Avatar, ChoiceChips, ErrorState, Icon, Loading, SampleBadge, Sheet, Stamp, TopBar, useApp, DetailPhoto, GoogleMap } from '../components.jsx';
+import { photo, photoFor } from '../../shared/photos.js';
 import { fmtDuration, fmtWhen, tzLabel, useApi } from '../util.js';
 
 const MEET_OPTIONS = ["Meet at the venue entrance", "Meet nearby 20 minutes before", "Walk or take the bus there together"];
@@ -41,6 +42,7 @@ export default function EventDetail({ id }) {
     <>
       <TopBar title={e.title} />
       <div className="page">
+        <DetailPhoto ph={(e.photo_key && photo(e.photo_key)) || photoFor(e.category)} />
         <div className="detail-head">
           <Stamp category={e.category} size="lg" />
           <div className="stack-sm" style={{ flex: 1 }}>
@@ -49,13 +51,14 @@ export default function EventDetail({ id }) {
             <p className="small muted">{tx('By {name}', { name: e.organiser_name })}</p>
           </div>
         </div>
-        {e.is_sample && <div className="notice"><Icon name="info" />{tx("This is fictional sample content for demonstration. It is not a real event and is not provided by or endorsed by ESN or any other organisation.")}</div>}
+        {e.is_sample && <div className="notice"><Icon name="info" />{tx("Example event for this preview. A real listing would come from the organiser, with their own registration page. Not linked to ESN or any other organisation.")}</div>}
         <div className="card card-pad facts-list">
           <Icon name="clock" /><div><strong>{fmtWhen(e.starts_at, e.timezone)}</strong> · {fmtDuration(e.duration_min)}<div className="tiny muted">{tzLabel(e.timezone)}</div></div>
           <Icon name="pin" /><div>{e.venue}</div>
           {e.price_note && <><Icon name="euro" /><div className="small">{e.price_note}</div></>}
         </div>
         <p>{e.description}</p>
+        <GoogleMap query={e.venue.replace(/ area$/, '')} title={tx('Map of {place}', { place: e.venue })} />
 
         <section className="card card-pad stack" aria-label={tx("Two separate steps")}>
           <div className="stack-sm">

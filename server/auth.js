@@ -44,14 +44,14 @@ export function sessionUser(db, req) {
   const token = readCookie(req, COOKIE);
   if (!token) return null;
   const row = db.prepare(
-    'SELECT u.id, u.email, u.is_demo, s.expires_at FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?'
+    'SELECT u.id, u.email, u.is_demo, u.is_guest, s.expires_at FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?'
   ).get(sha(token));
   if (!row) return null;
   if (row.expires_at < new Date().toISOString()) {
     db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(sha(token));
     return null;
   }
-  return { id: row.id, email: row.email, is_demo: !!row.is_demo };
+  return { id: row.id, email: row.email, is_demo: !!row.is_demo, is_guest: !!row.is_guest };
 }
 
 /** Tiny in-memory rate limiter: at most `limit` hits per `windowMs` per key. */

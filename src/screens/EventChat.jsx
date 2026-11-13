@@ -68,7 +68,7 @@ export default function EventChat({ id }) {
           <div key={m.id} className={`msg-row ${m.mine ? 'mine' : ''}`}>
             {!m.mine && <Avatar person={m.author} size="xs" />}
             <div className={`msg ${m.mine ? 'mine' : ''} ${m.hidden ? 'hidden' : ''}`}>
-              {!m.mine && <div className="who">{m.author?.first_name}{m.author?.is_demo ? ` (${tx('sample')})` : ''}</div>}
+              {!m.mine && <div className="who">{m.author?.first_name}</div>}
               <div>{m.hidden ? tx('Message hidden because you blocked this person.') : m.body}</div>
               <div className="row tiny" style={{ justifyContent: 'flex-end', opacity: 0.75, gap: 6 }}>
                 {fmtWhen(m.created_at, city.timezone, { withDay: false })}

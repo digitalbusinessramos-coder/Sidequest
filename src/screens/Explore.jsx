@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { t, tx } from '../i18n.js';
 import { ExploreSwitch } from './Market.jsx';
-import { ActivityCard, ChoiceChips, Empty, ErrorState, EventCard, Icon, Loading, PhotoHero, Sheet, useApp } from '../components.jsx';
+import { ActivityCard, ChoiceChips, Empty, ErrorState, EventCard, Icon, Loading, PeopleStrip, PhotoHero, Sheet, useApp } from '../components.jsx';
 
 const MapView = lazy(() => import('../MapView.jsx'));
 const HERO = ['canteras', 'vegueta', 'cathedral', 'auditorio', 'roque', 'dunes'];
@@ -25,7 +25,7 @@ function reasonFor(a, me, myAreaName) {
 }
 
 export default function Explore() {
-  const { me, meta, city } = useApp();
+  const { me, meta, city, openTour } = useApp();
   const [when, setWhen] = useState('any');
   const [quick, setQuick] = useState({ free: false, beginner: false, solo: false });
   const [more, setMore] = useState({ category: '', size: '', lang: '', budget: '', open: false });
@@ -69,6 +69,7 @@ export default function Explore() {
     return out;
   }, [sorted, evs.data, tips.data, showEvents, showTips]);
   const heroKey = HERO[new Date().getDate() % HERO.length];
+  const people = useApi('/people');
 
   return (
     <div className="page">
@@ -76,7 +77,14 @@ export default function Explore() {
       <PhotoHero photoKey={heroKey} height={190}>
         <span className="eyebrow">{t('explore.eyebrow')}</span>
         <h1 style={{ marginTop: 6 }}>{t('explore.title')}</h1>
+        <button className="btn btn-sm hero-help" onClick={openTour}><Icon name="info" size={15} />{tx('How it works')}</button>
       </PhotoHero>
+      {people.data?.people.length > 0 && (
+        <section className="stack-sm" aria-labelledby="ppl-h">
+          <div className="section-title"><h2 id="ppl-h">{tx('Students looking for company')}</h2><a className="small" href="#/buddies">{tx('See all')}</a></div>
+          <PeopleStrip people={people.data.people.slice(0, 10)} />
+        </section>
+      )}
       <form className="search" role="search" onSubmit={(e) => e.preventDefault()}>
         <label className="sr-only" htmlFor="q">{t('explore.search')}</label>
         <input id="q" type="search" placeholder={tx("Surf, night out, coffee…")} value={q} onChange={(e) => setQ(e.target.value)} />
@@ -108,7 +116,7 @@ export default function Explore() {
 
       {view === 'map' && (
         <Suspense fallback={<Loading rows={2} />}>
-          <MapView items={mapItems} center={[28.12, -15.43]} />
+          <MapView items={mapItems} center={[28.12, -15.43]} height={window.innerWidth >= 1000 ? 620 : 460} />
         </Suspense>
       )}
 
@@ -120,7 +128,7 @@ export default function Explore() {
           </div>
           {evs.loading && !evs.data ? <Loading rows={1} /> : evs.error ? <ErrorState error={evs.error} onRetry={evs.reload} />
             : evs.data.events.length === 0 ? <p className="small muted">{tx("No upcoming events listed for this time.")}</p>
-              : evs.data.events.slice(0, 3).map((e) => <EventCard key={e.id} e={e} />)}
+              : <div className="card-list">{evs.data.events.slice(0, 4).map((e) => <EventCard key={e.id} e={e} />)}</div>}
         </section>
       )}
 
@@ -137,7 +145,7 @@ export default function Explore() {
                 <a className="btn btn-primary btn-sm" href="#/create">{tx("Create a plan")}</a>
               </div>
             </Empty>
-          ) : sorted.map((a) => <ActivityCard key={a.id} a={a} reason={a.my_status ? null : reasonFor(a, me, myArea)} />)}
+          ) : <div className="card-list">{sorted.map((a) => <ActivityCard key={a.id} a={a} reason={a.my_status ? null : reasonFor(a, me, myArea)} />)}</div>}
       </section>}
 
       <a href="#/create" className="btn btn-primary fab"><Icon name="plus" />{t('explore.create')}</a>

@@ -56,7 +56,7 @@ function EditProfile() {
 }
 
 export default function Profile({ sub }) {
-  const { me, city, api, reloadMe, toast, lang } = useApp();
+  const { me, city, api, reloadMe, toast, lang, openTour, openAccount } = useApp();
   const blocks = useApi('/me/blocks');
   const [busy, setBusy] = useState(false);
   const [del, setDel] = useState(null);
@@ -102,7 +102,7 @@ export default function Profile({ sub }) {
         : tx('Email sending is not set up on this server yet, so no email was sent. The project team can switch it on.'));
     } catch (x) { setMailMsg(tx(x.message)); } finally { setBusy(false); }
   };
-  const logout = async () => { await api.post('/auth/logout'); await reloadMe(); location.hash = '#/explore'; };
+  const logout = async () => { try { localStorage.setItem('sq_wants_login', '1'); } catch { /* ignore */ } await api.post('/auth/logout'); await reloadMe(); location.hash = '#/explore'; };
   const unblock = async (id) => { try { await api.del(`/users/${id}/block`); blocks.reload(); } catch (x) { toast(x.message, true); } };
   const doDelete = async (e) => {
     e.preventDefault(); setBusy(true);
@@ -126,7 +126,17 @@ export default function Profile({ sub }) {
         <Icon name="pin" /><div>{areaName(city.areas, me.area) || tx("Area not set")}</div>
         {me.university && <><Icon name="school" /><div>{me.university} <span className="tiny muted">{me.show_university ? tx('(shown on profile)') : tx('(hidden)')}</span></div></>}
       </div>
-      {!me.is_demo && (
+      {me.is_guest && (
+        <section className="card card-pad stack-sm guest-card" aria-labelledby="guest-h">
+          <h3 id="guest-h">{tx('You’re a guest right now')}</h3>
+          <p className="small">{tx('Everything works without an account. Create one to keep your plans and chats, and so other students can find your profile.')}</p>
+          <div className="row wrap">
+            <button className="btn btn-primary btn-sm" onClick={() => openAccount('signup')}>{tx('Save my account')}</button>
+            <button className="btn btn-ghost btn-sm" onClick={() => openAccount('login')}>{tx('I already have one')}</button>
+          </div>
+        </section>
+      )}
+      {!me.is_demo && !me.is_guest && (
         <section className="card card-pad stack-sm" aria-labelledby="mail-h">
           <div className="row"><h3 id="mail-h" style={{ flex: 1 }}>{tx('Email')}</h3>{me.email_verified && <EmailBadge />}</div>
           <p className="small">{me.email} <span className="tiny muted">{tx('(never shown to others)')}</span></p>
@@ -187,11 +197,12 @@ export default function Profile({ sub }) {
 
       <section className="stack-sm" aria-labelledby="about-h">
         <h2 id="about-h">{tx('About {app}')}</h2>
-        <p className="small muted">{tx("A student project prototype from Las Palmas. Recommendations use simple, visible rules, not AI. Sample profiles and events are fictional and always labelled. We are not affiliated with ESN or any university.")}</p>
+        <p className="small muted">{tx("A student project prototype from Las Palmas. Recommendations use simple, visible rules, not AI. The students, plans and events marked “Example” are made up for this preview. We are not affiliated with ESN or any university.")}</p>
+        <button className="btn btn-secondary btn-sm" style={{ alignSelf: 'flex-start' }} onClick={openTour}><Icon name="info" size={16} />{tx('How it works')}</button>
       </section>
 
       <div className="stack-sm">
-        <button className="btn btn-secondary btn-block" onClick={logout}><Icon name="logout" />{t('profile.logout')}</button>
+        {!me.is_guest && <button className="btn btn-secondary btn-block" onClick={logout}><Icon name="logout" />{t('profile.logout')}</button>}
         {!me.is_demo && <button className="btn btn-danger btn-block" onClick={() => setDel({ password: '' })}><Icon name="trash" />{t('profile.delete')}</button>}
       </div>
 
@@ -199,9 +210,9 @@ export default function Profile({ sub }) {
         <Sheet title={t('profile.delete')} onClose={() => setDel(null)}>
           <form className="stack" onSubmit={doDelete}>
             <p className="small">{t('profile.deleteHint')}</p>
-            <label className="field"><span>{tx("Confirm with your password")}</span>
+            {!me.is_guest && <label className="field"><span>{tx("Confirm with your password")}</span>
               <input className="input" type="password" autoComplete="current-password" required value={del.password} onChange={(e) => setDel({ ...del, password: e.target.value })} />
-            </label>
+            </label>}
             {del.err && <div className="form-error" role="alert">{del.err}</div>}
             <button className="btn btn-danger btn-block" disabled={busy}>{tx("Delete my account permanently")}</button>
           </form>

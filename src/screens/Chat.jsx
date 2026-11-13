@@ -81,7 +81,7 @@ export default function Chat({ id }) {
           <div key={m.id} className="msg system">{m.body}</div>
         ) : (
           <div key={m.id} className={`msg ${m.mine ? 'mine' : ''} ${m.hidden ? 'hidden' : ''}`}>
-            {!m.mine && <div className="who">{m.author?.first_name}{m.author?.is_demo ? ` (${tx('sample')})` : ''}</div>}
+            {!m.mine && <div className="who">{m.author?.first_name}</div>}
             <div>{m.hidden ? tx("Message hidden because you blocked this person.") : m.body}</div>
             <div className="row tiny" style={{ justifyContent: 'flex-end', opacity: 0.75, gap: 6 }}>
               {a && fmtWhen(m.created_at, a.timezone, { withDay: false })}
