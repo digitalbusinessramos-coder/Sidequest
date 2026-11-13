@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { getAppName, t, tx } from '../i18n.js';
-import { Avatar, Icon, LanguageSwitch, SampleBadge, useApp } from '../components.jsx';
+import { Avatar, Icon, LanguageSwitch, PhotoHero, SampleBadge, useApp } from '../components.jsx';
 
 export default function Welcome() {
   const { meta, api, reloadMe } = useApp();
@@ -29,11 +29,11 @@ export default function Welcome() {
   return (
     <main className="welcome">
       <LanguageSwitch />
-      <div className="stack-sm">
+      <PhotoHero photoKey="canteras" height={230}>
         <span className="eyebrow">{tx("Las Palmas de Gran Canaria")}</span>
-        <div className="logo">{name.length > 6 ? <>{name.slice(0, -5)}<span>{name.slice(-5)}</span></> : name}</div>
-        <p style={{ fontSize: '1.1rem' }}>{t('welcome.tagline')}</p>
-      </div>
+        <div className="logo logo-on-photo">{name.length > 6 ? <>{name.slice(0, -5)}<span>{name.slice(-5)}</span></> : name}</div>
+      </PhotoHero>
+      <p style={{ fontSize: '1.1rem' }}>{t('welcome.tagline')}</p>
       <ol className="journey" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
         {['welcome.step1', 'welcome.step2', 'welcome.step3'].map((k, i) => (
           <li key={k}><span className="n">{i + 1}</span>{t(k)}</li>

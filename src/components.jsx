@@ -1,12 +1,13 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { LANGUAGE_OPTIONS, t, tx } from './i18n.js';
 import { fmtCost, fmtWhen } from './util.js';
+import { PHOTOS } from '../shared/photos.js';
 
 export const AppCtx = createContext(null);
 export const useApp = () => useContext(AppCtx);
 
 // ---------- icons (simple stroke icons, 24px grid) ----------
-const P = {
+export const P = {
   explore: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm3.5 5.5-2 5-5 2 2-5 5-2Z',
   buddies: 'M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Zm-6 9c0-3.3 2.7-6 6-6s6 2.7 6 6M16 4.5a3.5 3.5 0 0 1 0 6.5M18 14c2 .6 3.5 2.9 3.5 6',
   plans: 'M4 6.5A1.5 1.5 0 0 1 5.5 5h13A1.5 1.5 0 0 1 20 6.5v12a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-12ZM4 10h16M8 3v4M16 3v4M8 14h3',
@@ -51,6 +52,18 @@ const P = {
   sports: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm-6.4 2.6C9 8 10 12 9.5 20.6M18.4 5.6C15 8 14 12 14.5 20.6M3 12c5-1.5 13-1.5 18 0',
   daytrip: 'M4 19h16M6 19V9l6-5 6 5v10M10 19v-5h4v5',
   study: 'M4 5h7a2 2 0 0 1 2 2v13a2 2 0 0 0-2-2H4V5Zm16 0h-7a2 2 0 0 0-2 2v13a2 2 0 0 1 2-2h7V5Z',
+  nightout: 'M8 3h8l-4 7-4-7Zm4 7v7m-4 3h8M18.5 4.5a3 3 0 1 0 2 5.2 3.6 3.6 0 0 1-2-5.2Z',
+  food: 'M7 3v8m-2.5-8v4.5a2.5 2.5 0 0 0 5 0V3M7 11v10m10-18c-2 0-3 2.5-3 6s1 4 3 4v8',
+  wellness: 'M12 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm-7 6c2 0 4.5-1 7-1s5 1 7 1M12 11v4m-5 6 5-6 5 6',
+  games: 'M6 9h12a3 3 0 0 1 3 3v3a3 3 0 0 1-5.4 1.8L14 15h-4l-1.6 1.8A3 3 0 0 1 3 15v-3a3 3 0 0 1 3-3Zm2 2v3m-1.5-1.5h3M15.5 12h.01M17.5 14h.01',
+  shopping: 'M5 8h14l-1 12H6L5 8Zm4 0V6a3 3 0 0 1 6 0v2',
+  photo: 'M4 8h3l2-3h6l2 3h3v11H4V8Zm8 9a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z',
+  map: 'M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2V6Zm6-2v14m6-12v14',
+  list: 'M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01',
+  calendar: 'M4 6.5A1.5 1.5 0 0 1 5.5 5h13A1.5 1.5 0 0 1 20 6.5v12a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-12ZM4 10h16M8 3v4M16 3v4',
+  bookmark: 'M6 4h12v17l-6-4-6 4V4Z',
+  camera: 'M4 8h3l2-3h6l2 3h3v11H4V8Zm8 9a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z',
+  bolt: 'M13 3 5 13h6l-1 8 8-10h-6l1-8Z',
   other: 'M12 4l2 5 5 .5-3.8 3.4 1.1 5.1L12 15.5 7.7 18l1.1-5.1L5 9.5l5-.5 2-5Z',
 };
 
@@ -63,9 +76,10 @@ export function Icon({ name, size = 20, label, className, style }) {
   );
 }
 
-const CAT_COLOR = {
+export const CAT_COLOR = {
   coffee: '#a8321f', museum: '#1a2fd0', culture: '#7a2fb0', hiking: '#3a6b00', beach: '#a35400',
   surf: '#0f6a8a', sports: '#1a2fd0', daytrip: '#3a5200', study: '#4a4f61', other: '#4a4f61',
+  nightout: '#6b21a8', food: '#a8321f', wellness: '#0f6a5a', games: '#9a3412', shopping: '#a35400', photo: '#1e3a8a',
 };
 export function Stamp({ category, size }) {
   return (
@@ -77,10 +91,25 @@ export function Stamp({ category, size }) {
 
 export function Avatar({ person, size = '' }) {
   const hue = person?.avatar_hue ?? 220;
+  if (person?.photo) return <img className={`avatar photo ${size}`} src={person.photo} alt="" loading="lazy" />;
   return (
     <span className={`avatar ${size}`} style={{ background: `hsl(${hue} 55% 38%)` }} aria-hidden="true">
       {(person?.first_name || '?').slice(0, 1).toUpperCase()}
     </span>
+  );
+}
+
+/** A Las Palmas photo with a readable overlay and its required credit line. */
+export function PhotoHero({ photoKey, children, height = 200 }) {
+  const ph = PHOTOS.find((p) => p.key === photoKey) || PHOTOS[0];
+  return (
+    <figure className="photo-hero" style={{ minHeight: height }}>
+      <img src={ph.src} alt={tx(ph.alt)} loading="lazy" />
+      <div className="photo-hero-body">{children}</div>
+      <figcaption className="photo-credit">
+        {tx(ph.alt)} · {tx('Photo')}: {ph.author}, <a href={ph.license_url} target="_blank" rel="noopener noreferrer">{ph.license}</a>, <a href={ph.source} target="_blank" rel="noopener noreferrer">Wikimedia Commons</a>
+      </figcaption>
+    </figure>
   );
 }
 
@@ -136,6 +165,7 @@ export function ActivityCard({ a, reason }) {
             {a.state === 'full' ? t('card.full') : a.max_participants === 2 ? tx("One buddy") : t('card.spots', { n: a.spots_left, max: a.max_participants })}
           </span>
           {a.solo_format && <span className="badge badge-solo">{t('card.solo')}</span>}
+          {a.join_mode === 'open' && <span className="badge badge-open"><Icon name="bolt" size={12} />{tx('Join directly')}</span>}
           {a.beginner_friendly && <span className="badge badge-official" style={{ background: 'var(--paper-2)', color: 'var(--ink-2)' }}>{tx("Beginners welcome")}</span>}
           {a.unread > 0 && <span className="badge badge-invited"><Icon name="chat" size={13} />{tx(a.unread === 1 ? '1 new message' : '{n} new messages', { n: a.unread })}</span>}
           {a.organiser?.id && a.my_status === 'organiser' && a.pending_count > 0 && (

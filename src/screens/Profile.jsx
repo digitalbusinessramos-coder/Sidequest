@@ -1,9 +1,55 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { getAppName, t, tx } from '../i18n.js';
 import { Avatar, EmailBadge, Icon, LanguageSwitch, SampleBadge, Sheet, TopBar, useApp } from '../components.jsx';
 import { areaName, nearestArea, useApi } from '../util.js';
 import { categoryLabel } from '../../shared/catalog.js';
 import { ProfileFields, profileDefaults } from './Onboarding.jsx';
+
+/** Resize in the browser (max 512 px, JPEG) so uploads stay small, then send as JSON. */
+function resizeToJpeg(file, max = 512) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const side = Math.min(img.width, img.height); // square crop from the centre
+      const out = Math.min(max, side);
+      const c = document.createElement('canvas'); c.width = out; c.height = out;
+      c.getContext('2d').drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, out, out);
+      URL.revokeObjectURL(url);
+      resolve(c.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error(tx('That file does not look like a picture.'))); };
+    img.src = url;
+  });
+}
+
+function PhotoPicker() {
+  const { me, api, reloadMe, toast } = useApp();
+  const [busy, setBusy] = useState(false);
+  const input = useRef(null);
+  const pick = async (e) => {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    setBusy(true);
+    try { await api.put('/me/photo', { data: await resizeToJpeg(f) }); await reloadMe(); toast(tx('Profile picture updated.')); } catch (x) { toast(x.message, true); } finally { setBusy(false); }
+  };
+  const remove = async () => {
+    setBusy(true);
+    try { await api.del('/me/photo'); await reloadMe(); toast(tx('Profile picture removed.')); } catch (x) { toast(x.message, true); } finally { setBusy(false); }
+  };
+  if (me.is_demo) return <Avatar person={me} size="lg" />;
+  return (
+    <div className="stack-sm" style={{ alignItems: 'center', gap: 4 }}>
+      <button type="button" className="photo-pick" onClick={() => input.current?.click()} disabled={busy} aria-label={me.photo ? tx('Change profile picture') : tx('Add a profile picture')}>
+        <Avatar person={me} size="lg" />
+        <span className="photo-pick-badge"><Icon name="camera" size={14} /></span>
+      </button>
+      <input ref={input} type="file" accept="image/jpeg,image/png,image/webp" onChange={pick} hidden />
+      {me.photo && <button type="button" className="btn btn-ghost btn-sm" style={{ minHeight: 28, padding: '0 6px' }} onClick={remove} disabled={busy}>{tx('Remove')}</button>}
+    </div>
+  );
+}
 
 function EditProfile() {
   const { me, meta, city, api, reloadMe, toast } = useApp();
@@ -82,7 +128,7 @@ export default function Profile({ sub }) {
   return (
     <div className="page">
       <div className="row" style={{ gap: 16 }}>
-        <Avatar person={me} size="lg" />
+        <PhotoPicker />
         <div className="stack-sm" style={{ flex: 1 }}>
           <h1>{me.first_name}</h1>
           <div className="row wrap" style={{ gap: 6 }}>{me.is_demo && <SampleBadge />}<span className="small muted">{city.name}</span></div>

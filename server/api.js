@@ -5,7 +5,7 @@ import { tx } from './db.js';
 import { config } from './config.js';
 import { hashPassword, verifyPassword, createSession, destroySession, sessionUser, rateLimiter } from './auth.js';
 import { localToUtcIso, utcToLocalInput, slotOf } from './time.js';
-import { CATEGORIES, TEMPLATES, LANGUAGES, BUDGETS, REPORT_REASONS, categoryPhrase, slotLabel } from '../shared/catalog.js';
+import { CATEGORIES, TEMPLATES, LANGUAGES, BUDGETS, REPORT_REASONS, REC_CATEGORIES, categoryPhrase, slotLabel } from '../shared/catalog.js';
 
 export class HttpError extends Error {
   constructor(status, code, message) { super(message); this.status = status; this.code = code; }
@@ -69,6 +69,7 @@ export function createApi(db) {
 
   const personSummary = (p) => p && ({
     id: p.user_id, first_name: p.first_name || 'Someone', is_demo: !!p.is_demo, avatar_hue: p.avatar_hue,
+    photo: p.photo_v ? `/api/users/${p.user_id}/photo?v=${p.photo_v}` : null,
     languages: J(p.languages), role: p.role,
   });
 
@@ -102,6 +103,13 @@ export function createApi(db) {
     return db.prepare("SELECT COUNT(*) AS n FROM messages WHERE activity_id = ? AND id > ? AND kind = 'user' AND user_id != ?").get(aid, last, uid).n;
   };
 
+  /** Approximate map position: the centre of the named neighbourhood, never an exact meeting point. */
+  const approxSpot = (city, text) => {
+    const t = String(text || '').toLowerCase();
+    const area = J(city.areas).find((x) => t.includes(x.name.toLowerCase()) || x.name.toLowerCase().split(/[ /]+/).some((w) => w.length > 4 && t.includes(w)));
+    return area ? { lat: area.lat, lng: area.lng, area: area.name } : null;
+  };
+
   function activityView(a, viewerId) {
     const city = cityById(a.city_id);
     const going = goingCount(a.id);
@@ -121,6 +129,7 @@ export function createApi(db) {
       organiser: personSummary(profileOf(a.organiser_id)), event: ev,
       my_status: isOrg ? 'organiser' : m?.status || null,
       welcome_plan: a.welcome_plan, recognise_tip: a.recognise_tip,
+      join_mode: a.join_mode === 'open' ? 'open' : 'request', approx: approxSpot(city, a.meeting_area),
     };
     if (isOrg || m?.status === 'accepted') v.unread = unreadChat(a.id, viewerId);
     if (isOrg) v.pending_count = db.prepare("SELECT COUNT(*) AS n FROM memberships WHERE activity_id = ? AND status = 'pending'").get(a.id).n;
@@ -142,7 +151,7 @@ export function createApi(db) {
     const personas = config.demoMode
       ? db.prepare("SELECT p.user_id AS id, p.first_name, p.intro, p.avatar_hue FROM profiles p JOIN users u ON u.id = p.user_id WHERE u.is_demo = 1 ORDER BY p.user_id").all()
       : [];
-    res.json({ appName: config.appName, demoMode: config.demoMode, cities, personas, categories: CATEGORIES, templates: TEMPLATES, languages: LANGUAGES, budgets: BUDGETS.map(({ key, label }) => ({ key, label })), reportReasons: REPORT_REASONS });
+    res.json({ appName: config.appName, demoMode: config.demoMode, cities, personas, categories: CATEGORIES, recCategories: REC_CATEGORIES, templates: TEMPLATES, languages: LANGUAGES, budgets: BUDGETS.map(({ key, label }) => ({ key, label })), reportReasons: REPORT_REASONS });
   });
 
   // ---------- auth ----------
@@ -276,10 +285,15 @@ export function createApi(db) {
       db.prepare('DELETE FROM messages WHERE user_id = ?').run(uid);
       db.prepare('DELETE FROM wishes WHERE user_id = ?').run(uid);
       db.prepare('DELETE FROM event_interests WHERE user_id = ?').run(uid);
+      db.prepare('DELETE FROM event_messages WHERE user_id = ?').run(uid);
+      db.prepare('DELETE FROM photos WHERE user_id = ?').run(uid);
+      db.prepare('DELETE FROM recommendations WHERE user_id = ?').run(uid);
+      db.prepare('DELETE FROM rec_likes WHERE user_id = ?').run(uid);
+      db.prepare('DELETE FROM rec_saves WHERE user_id = ?').run(uid);
       db.prepare('DELETE FROM blocks WHERE blocker_id = ? OR blocked_id = ?').run(uid, uid);
       db.prepare('DELETE FROM sessions WHERE user_id = ?').run(uid);
       // Keep an anonymous row only so cancelled activities still reference an organiser; all personal data is removed.
-      db.prepare("UPDATE profiles SET first_name='Deleted user', intro='', area=NULL, university=NULL, show_university=0, exchange_start=NULL, exchange_end=NULL, languages='[]', interests='[]', visible=0 WHERE user_id = ?").run(uid);
+      db.prepare("UPDATE profiles SET first_name='Deleted user', intro='', photo_v=0, area=NULL, university=NULL, show_university=0, exchange_start=NULL, exchange_end=NULL, languages='[]', interests='[]', visible=0 WHERE user_id = ?").run(uid);
       db.prepare("UPDATE users SET email = ?, password_hash = 'deleted' WHERE id = ?").run(`deleted-${uid}@deleted.invalid`, uid);
     });
     res.clearCookie('sq_session', { path: '/' });
@@ -320,7 +334,7 @@ export function createApi(db) {
   });
 
   r.post('/reports', auth, (req, res) => {
-    const type = ['user', 'activity', 'message'].includes(req.body.target_type) ? req.body.target_type : fail(400, 'invalid', 'Unknown report type.');
+    const type = ['user', 'activity', 'message', 'recommendation', 'event_message'].includes(req.body.target_type) ? req.body.target_type : fail(400, 'invalid', 'Unknown report type.');
     const reason = REPORT_REASONS.includes(req.body.reason) ? req.body.reason : fail(400, 'invalid', 'Please choose a reason.');
     db.prepare('INSERT INTO reports (reporter_id, target_type, target_id, reason, details) VALUES (?,?,?,?,?)')
       .run(req.user.id, type, Number(req.body.target_id) || 0, reason, str(req.body.details, 1000, 'Details'));
@@ -421,6 +435,7 @@ export function createApi(db) {
       solo_format: b.solo_format ? 1 : 0,
       welcome_plan: str(b.welcome_plan, 300, 'Welcome plan'),
       recognise_tip: str(b.recognise_tip, 160, 'How to recognise the group'),
+      join_mode: b.join_mode === 'open' ? 'open' : 'request',
     };
   }
 
@@ -430,11 +445,11 @@ export function createApi(db) {
     const d = readActivityInput(req.body, city, null);
     const id = tx(db, () => {
       const { lastInsertRowid } = db.prepare(`INSERT INTO activities (city_id, organiser_id, template, category, title, description, starts_at, duration_min,
-        meeting_area, meeting_point, cost_eur, max_participants, beginner_friendly, pace, transport, languages, solo_format, welcome_plan, recognise_tip, is_sample)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+        meeting_area, meeting_point, cost_eur, max_participants, beginner_friendly, pace, transport, languages, solo_format, welcome_plan, recognise_tip, is_sample, join_mode)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
         city.id, req.user.id, d.template, d.category, d.title, d.description, d.starts_at, d.duration_min, d.meeting_area, d.meeting_point,
         d.cost_eur, d.max_participants, d.beginner_friendly, d.pace, d.transport, d.languages, d.solo_format, d.welcome_plan, d.recognise_tip,
-        req.user.is_demo ? 1 : 0);
+        req.user.is_demo ? 1 : 0, d.join_mode);
       systemMsg(lastInsertRowid, `${p.first_name} created this activity. Confirmed participants can chat here.`);
       return Number(lastInsertRowid);
     });
@@ -455,9 +470,9 @@ export function createApi(db) {
       const d = readActivityInput(req.body, cityById(a.city_id), a);
       if (d.max_participants < goingCount(a.id)) fail(409, 'capacity', `${goingCount(a.id)} people are already going. Remove someone before lowering the group size.`);
       db.prepare(`UPDATE activities SET template=?, category=?, title=?, description=?, starts_at=?, duration_min=?, meeting_area=?, meeting_point=?, cost_eur=?,
-        max_participants=?, beginner_friendly=?, pace=?, transport=?, languages=?, solo_format=?, welcome_plan=?, recognise_tip=?, updated_at=? WHERE id=?`).run(
+        max_participants=?, beginner_friendly=?, pace=?, transport=?, languages=?, solo_format=?, welcome_plan=?, recognise_tip=?, join_mode=?, updated_at=? WHERE id=?`).run(
         d.template, d.category, d.title, d.description, d.starts_at, d.duration_min, d.meeting_area, d.meeting_point, d.cost_eur, d.max_participants,
-        d.beginner_friendly, d.pace, d.transport, d.languages, d.solo_format, d.welcome_plan, d.recognise_tip, now(), a.id);
+        d.beginner_friendly, d.pace, d.transport, d.languages, d.solo_format, d.welcome_plan, d.recognise_tip, d.join_mode, now(), a.id);
       const changes = [];
       if (d.starts_at !== a.starts_at) changes.push('time');
       if (d.meeting_point !== a.meeting_point || d.meeting_area !== a.meeting_area) changes.push('meeting point');
@@ -493,17 +508,23 @@ export function createApi(db) {
       if (goingCount(a.id) >= a.max_participants) fail(409, 'full', 'This activity is full.');
       const m = membershipOf(a.id, uid);
       const msg = str(req.body.message, 280, 'Message');
+      const open = a.join_mode === 'open';
+      const status = open ? 'accepted' : 'pending';
       if (m) {
         if (m.status === 'pending') fail(409, 'duplicate', 'You already asked to join. Waiting for the organiser.');
         if (m.status === 'accepted') fail(409, 'duplicate', 'You are already going.');
         if (m.status === 'invited') fail(409, 'invited', 'You were invited. Accept the invitation instead.');
         if (m.status === 'declined' || m.status === 'removed') fail(403, 'not_allowed', 'The organiser has not accepted you for this activity.');
-        db.prepare("UPDATE memberships SET status='pending', message=?, created_at=?, updated_at=? WHERE id=?").run(msg, now(), now(), m.id);
+        db.prepare('UPDATE memberships SET status=?, message=?, created_at=?, updated_at=? WHERE id=?').run(status, msg, now(), now(), m.id);
       } else {
-        db.prepare("INSERT INTO memberships (activity_id, user_id, status, message) VALUES (?, ?, 'pending', ?)").run(a.id, uid, msg);
+        db.prepare('INSERT INTO memberships (activity_id, user_id, status, message) VALUES (?, ?, ?, ?)').run(a.id, uid, status, msg);
       }
-      notify(a.organiser_id, 'request_received', a.id, uid);
-      return { status: 'pending' };
+      if (open) {
+        // Open plans: no approval step. The organiser can still remove someone afterwards.
+        systemMsg(a.id, `${nameOf(uid)} joined.`);
+        notify(a.organiser_id, 'joined', a.id, uid);
+      } else notify(a.organiser_id, 'request_received', a.id, uid);
+      return { status };
     });
     res.status(201).json(result);
   });
@@ -655,6 +676,9 @@ export function createApi(db) {
     const byTime = (x, y) => x.starts_at.localeCompare(y.starts_at);
     for (const k of Object.keys(out)) out[k].sort(byTime);
     out.history.reverse();
+    out.events = db.prepare(`SELECT e.* FROM events e JOIN event_interests i ON i.event_id = e.id WHERE i.user_id = ?
+      AND datetime(e.starts_at, '+' || e.duration_min || ' minutes') > datetime('now') ORDER BY e.starts_at`).all(uid)
+      .map((e) => { const { _seekers, ...v } = eventView(e, uid); return v; });
     res.json(out);
   });
 
@@ -672,6 +696,8 @@ export function createApi(db) {
       price_note: e.price_note, is_sample: !!e.is_sample, status: e.status,
       state: e.status === 'cancelled' ? 'cancelled' : isPast(e) ? 'past' : 'open',
       seeking_count: seekers.filter((s) => s.user_id !== uid).length,
+      approx: e.lat != null ? { lat: e.lat, lng: e.lng, area: e.venue } : approxSpot(city, e.venue),
+      chat_count: db.prepare('SELECT COUNT(*) AS n FROM event_messages WHERE event_id = ?').get(e.id).n,
       i_am_seeking: seekers.some((s) => s.user_id === uid) || !!db.prepare('SELECT 1 FROM event_interests WHERE event_id=? AND user_id=?').get(e.id, uid),
       _seekers: seekers,
     };
@@ -845,6 +871,115 @@ export function createApi(db) {
   });
 
   // ---------- city guide ----------
+  // ---------- profile pictures ----------
+  const PHOTO_TYPES = { 'image/jpeg': [0xff, 0xd8, 0xff], 'image/png': [0x89, 0x50, 0x4e, 0x47], 'image/webp': [0x52, 0x49, 0x46, 0x46] };
+  r.put('/me/photo', auth, (req, res) => {
+    const m = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(req.body?.data || ''));
+    if (!m) fail(400, 'invalid', 'Please choose a JPEG, PNG or WebP picture.');
+    const buf = Buffer.from(m[2], 'base64');
+    if (buf.length > 600 * 1024) fail(413, 'too_large', 'That picture is too large. Please choose a smaller one.');
+    if (!PHOTO_TYPES[m[1]].every((b, i) => buf[i] === b)) fail(400, 'invalid', 'That file does not look like a picture.');
+    db.prepare(`INSERT INTO photos (user_id, mime, data, updated_at) VALUES (?,?,?,?)
+      ON CONFLICT(user_id) DO UPDATE SET mime=excluded.mime, data=excluded.data, updated_at=excluded.updated_at`).run(req.user.id, m[1], buf, now());
+    db.prepare('UPDATE profiles SET photo_v = photo_v + 1 WHERE user_id = ?').run(req.user.id);
+    res.json({ ok: true });
+  });
+  r.delete('/me/photo', auth, (req, res) => {
+    db.prepare('DELETE FROM photos WHERE user_id = ?').run(req.user.id);
+    db.prepare('UPDATE profiles SET photo_v = 0 WHERE user_id = ?').run(req.user.id);
+    res.json({ ok: true });
+  });
+  // Only logged-in people can see pictures, and never someone who blocked them.
+  r.get('/users/:id/photo', auth, (req, res) => {
+    const id = Number(req.params.id);
+    if (blockedSet(req.user.id).has(id)) fail(404, 'not_found', 'Not found.');
+    const ph = db.prepare('SELECT mime, data FROM photos WHERE user_id = ?').get(id) || fail(404, 'not_found', 'Not found.');
+    res.set('Content-Type', ph.mime);
+    res.set('Cache-Control', 'private, max-age=86400');
+    res.set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
+    res.send(Buffer.from(ph.data));
+  });
+
+  // ---------- student recommendations ----------
+  const REC_KEYS = REC_CATEGORIES.map((c) => c.key);
+  const getRec = (id) => db.prepare('SELECT * FROM recommendations WHERE id = ?').get(Number(id)) || fail(404, 'not_found', 'This recommendation no longer exists.');
+  const recView = (x, uid) => ({
+    id: x.id, category: x.category, title: x.title, body: x.body, area: x.area, url: x.url, is_sample: !!x.is_sample, created_at: x.created_at,
+    author: personSummary(profileOf(x.user_id)), mine: x.user_id === uid,
+    likes: db.prepare('SELECT COUNT(*) AS n FROM rec_likes WHERE rec_id = ?').get(x.id).n,
+    liked: !!db.prepare('SELECT 1 FROM rec_likes WHERE rec_id = ? AND user_id = ?').get(x.id, uid),
+    saved: !!db.prepare('SELECT 1 FROM rec_saves WHERE rec_id = ? AND user_id = ?').get(x.id, uid),
+    approx: approxSpot(cityById(x.city_id), x.area),
+  });
+  r.get('/recommendations', auth, (req, res) => {
+    const uid = req.user.id;
+    const city = cityBySlug(req.query.city) || fail(404, 'not_found', 'Unknown city.');
+    const blocked = blockedSet(uid);
+    const showSample = !!profileOf(uid)?.show_sample;
+    let rows = db.prepare('SELECT * FROM recommendations WHERE city_id = ? ORDER BY id DESC LIMIT 300').all(city.id)
+      .filter((x) => !blocked.has(x.user_id) && (showSample || !x.is_sample || x.user_id === uid));
+    if (req.query.category) rows = rows.filter((x) => x.category === req.query.category);
+    let out = rows.map((x) => recView(x, uid));
+    if (req.query.saved === '1') out = out.filter((x) => x.saved);
+    if (req.query.sort !== 'new') out.sort((a, b) => b.likes - a.likes || b.id - a.id);
+    res.json({ recommendations: out });
+  });
+  r.post('/recommendations', auth, (req, res) => {
+    const b = req.body;
+    const p = profileOf(req.user.id);
+    const url = str(b.url, 300, 'Link');
+    if (url && !/^https?:\/\/[^\s]+$/i.test(url)) fail(400, 'invalid', 'The link must start with http:// or https://');
+    const { lastInsertRowid } = db.prepare('INSERT INTO recommendations (city_id, user_id, category, title, body, area, url, is_sample) VALUES (?,?,?,?,?,?,?,?)').run(
+      p.city_id, req.user.id, REC_KEYS.includes(b.category) ? b.category : fail(400, 'invalid', 'Please choose a category.'),
+      str(b.title, 80, 'Title', { required: true }), str(b.body, 500, 'Your tip'), str(b.area, 80, 'Area') || null, url || null, req.user.is_demo ? 1 : 0);
+    res.status(201).json({ id: Number(lastInsertRowid) });
+  });
+  r.delete('/recommendations/:id', auth, (req, res) => {
+    const x = getRec(req.params.id);
+    if (x.user_id !== req.user.id) fail(403, 'forbidden', 'You can only delete your own recommendations.');
+    db.prepare('DELETE FROM recommendations WHERE id = ?').run(x.id);
+    res.json({ ok: true });
+  });
+  for (const [kind, table] of [['like', 'rec_likes'], ['save', 'rec_saves']]) {
+    r.put(`/recommendations/:id/${kind}`, auth, (req, res) => {
+      const x = getRec(req.params.id);
+      if (blockedSet(req.user.id).has(x.user_id)) fail(404, 'not_found', 'Not available.');
+      db.prepare(`INSERT OR IGNORE INTO ${table} (rec_id, user_id) VALUES (?, ?)`).run(x.id, req.user.id);
+      res.json({ ok: true });
+    });
+    r.delete(`/recommendations/:id/${kind}`, auth, (req, res) => {
+      db.prepare(`DELETE FROM ${table} WHERE rec_id = ? AND user_id = ?`).run(Number(req.params.id), req.user.id);
+      res.json({ ok: true });
+    });
+  }
+
+  // ---------- event group chat (everyone who marked the event) ----------
+  const eventFor = (id) => db.prepare('SELECT * FROM events WHERE id = ?').get(Number(id)) || fail(404, 'not_found', 'Event not found.');
+  const inEvent = (eid, uid) => !!db.prepare('SELECT 1 FROM event_interests WHERE event_id = ? AND user_id = ?').get(eid, uid);
+  r.get('/events/:id/messages', auth, (req, res) => {
+    const e = eventFor(req.params.id);
+    if (!inEvent(e.id, req.user.id)) fail(403, 'forbidden', 'Join the event group first to read this chat.');
+    const blocked = blockedSet(req.user.id);
+    const rows = db.prepare('SELECT * FROM event_messages WHERE event_id = ? AND id > ? ORDER BY id LIMIT 500').all(e.id, Number(req.query.after) || 0);
+    const members = db.prepare('SELECT COUNT(*) AS n FROM event_interests WHERE event_id = ?').get(e.id).n;
+    res.json({
+      title: e.title, is_sample: !!e.is_sample, members, can_post: e.status === 'active' && !isPast(e),
+      messages: rows.map((m) => ({
+        id: m.id, kind: 'user', created_at: m.created_at, mine: m.user_id === req.user.id, author: personSummary(profileOf(m.user_id)),
+        body: blocked.has(m.user_id) ? null : m.body, hidden: blocked.has(m.user_id),
+      })),
+    });
+  });
+  r.post('/events/:id/messages', auth, (req, res) => {
+    if (!msgLimit(String(req.user.id))) fail(429, 'rate', 'You are sending messages too quickly.');
+    const e = eventFor(req.params.id);
+    if (!inEvent(e.id, req.user.id)) fail(403, 'forbidden', 'Join the event group first to write in this chat.');
+    if (e.status !== 'active' || isPast(e)) fail(409, 'state', 'This event is over, so the chat is read-only.');
+    const body = str(req.body.body, 1000, 'Message', { required: true });
+    const { lastInsertRowid } = db.prepare('INSERT INTO event_messages (event_id, user_id, body) VALUES (?, ?, ?)').run(e.id, req.user.id, body);
+    res.status(201).json({ id: Number(lastInsertRowid) });
+  });
+
   r.get('/guide', (req, res) => {
     const city = cityBySlug(req.query.city) || fail(404, 'not_found', 'Unknown city.');
     res.json({ city: city.name, items: db.prepare('SELECT section, kind, title, summary, url, source_name, checked_at FROM guide_items WHERE city_id = ? ORDER BY sort, id').all(city.id) });

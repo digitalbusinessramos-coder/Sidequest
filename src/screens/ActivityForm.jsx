@@ -4,19 +4,37 @@ import { ChoiceChips, ErrorState, Icon, Loading, Stamp, TopBar, useApp } from '.
 import { tzLabel } from '../util.js';
 import { api as rawApi } from '../api.js';
 
-function defaultStart(tz) {
+function defaultStart(tz, hhmm = '17:00') {
   // Tomorrow at 17:00 in the city's time zone, as a wall-clock string for <input type="datetime-local">.
   const d = new Date(Date.now() + 864e5);
   const day = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
-  return `${day}T17:00`;
+  return `${day}T${hhmm}`;
 }
 
 const blank = (tpl, city, me) => ({
-  template: tpl.key, category: tpl.category, title: tpl.title, description: '', starts_local: defaultStart(city.timezone),
-  duration_min: tpl.duration, meeting_area: city.areas.find((a) => a.key === me.area)?.name || '', meeting_point: '',
+  template: tpl.key, category: tpl.category, title: tpl.title, description: '', starts_local: defaultStart(city.timezone, tpl.time),
+  duration_min: tpl.duration, meeting_area: city.areas.find((a) => a.key === me.area)?.name || city.areas[0]?.name || '', meeting_point: '', join_mode: 'request',
   cost_eur: tpl.cost, max_participants: tpl.max, beginner_friendly: !!tpl.beginner, pace: tpl.pace || '', transport: tpl.transport || '',
   languages: me.languages?.slice(0, 2) || [], solo_format: false, welcome_plan: '', recognise_tip: '',
 });
+
+/** Pick a neighbourhood from the list (no typing needed), or type another public place. */
+function AreaPicker({ value, onChange, areas }) {
+  const known = areas.some((a) => a.name === value);
+  const [other, setOther] = useState(!known && !!value);
+  return (
+    <div className="field">
+      <label htmlFor="area-select" className="label">{tx("Meeting area")}</label>
+      <select id="area-select" className="select" value={other ? '__other' : value}
+        onChange={(e) => { if (e.target.value === '__other') { setOther(true); onChange(''); } else { setOther(false); onChange(e.target.value); } }}>
+        {areas.map((a) => <option key={a.key} value={a.name}>{a.name}</option>)}
+        <option value="__other">{tx("Somewhere else…")}</option>
+      </select>
+      {other && <input className="input" aria-label={tx("Other meeting area")} required maxLength={80} value={value} onChange={(e) => onChange(e.target.value)} placeholder={tx("Neighbourhood or landmark")} style={{ marginTop: 8 }} autoFocus />}
+      <span className="hint">{tx("Shown to everyone. Pick a public place.")}</span>
+    </div>
+  );
+}
 
 export default function ActivityForm({ editId, query = {} }) {
   const { meta, city, me, api, toast } = useApp();
@@ -103,11 +121,7 @@ export default function ActivityForm({ editId, query = {} }) {
           </label>
         </div>
         <p className="hint" style={{ marginTop: -10 }}>{tx('Times are in {tz}.', { tz: tx(tzLabel(city.timezone)) })}</p>
-        <label className="field"><span>{tx("Meeting area")}</span>
-          <input className="input" required maxLength={80} list="areas" value={v.meeting_area} onChange={(e) => set({ meeting_area: e.target.value })} placeholder={tx("Neighbourhood or landmark")} />
-          <datalist id="areas">{city.areas.map((a) => <option key={a.key} value={a.name} />)}</datalist>
-          <span className="hint">{tx("Shown to everyone. Pick a public place.")}</span>
-        </label>
+        <AreaPicker value={v.meeting_area} onChange={(meeting_area) => set({ meeting_area })} areas={city.areas} />
         <label className="field"><span>{tx("Exact meeting point (optional)")}</span>
           <input className="input" maxLength={200} value={v.meeting_point} onChange={(e) => set({ meeting_point: e.target.value })} placeholder={tx("e.g. In front of the café at the north end of the beach")} />
           <span className="hint">{tx("Only confirmed participants see this. You can also agree on it later in the chat.")}</span>
@@ -122,6 +136,19 @@ export default function ActivityForm({ editId, query = {} }) {
             <span className="hint">{tx("2 means one buddy.")}</span>
           </label>
         </div>
+        <fieldset className="field" style={{ border: 0, padding: 0, margin: 0 }}>
+          <legend className="label" style={{ marginBottom: 6 }}>{tx("How do people join?")}</legend>
+          <div className="choice-cards">
+            {[['request', 'check', "People ask, you accept", "You decide who comes. Best for small groups."],
+              ['open', 'bolt', "Anyone can join directly", "No waiting. People get a place straight away while there’s space. You can still remove someone."]].map(([key, icon, title, hint]) => (
+              <label key={key} className={`choice-card ${v.join_mode === key ? 'on' : ''}`}>
+                <input type="radio" name="join_mode" value={key} checked={v.join_mode === key} onChange={() => set({ join_mode: key })} />
+                <Icon name={icon} size={20} />
+                <span><strong>{tx(title)}</strong><br /><span className="hint">{tx(hint)}</span></span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
         <label className="check"><input type="checkbox" checked={v.solo_format} onChange={(e) => set({ solo_format: e.target.checked })} />
           <span><strong>{tx("Everyone comes solo")}</strong><br /><span className="hint">{tx("Participants sign up individually and are open to meeting new people. Good for people who don’t know anyone yet.")}</span></span>
         </label>
@@ -155,7 +182,7 @@ export default function ActivityForm({ editId, query = {} }) {
 
         {err && <div className="form-error" role="alert">{err}</div>}
         <button className="btn btn-primary btn-block" disabled={busy}>{editId ? tx("Save changes") : tx("Publish plan")}</button>
-        {!editId && <p className="tiny muted">{tx("You count as one of the group. People ask to join and you decide who comes.")}</p>}
+        {!editId && <p className="tiny muted">{v.join_mode === 'open' ? tx("You count as one of the group. People can join directly until the group is full.") : tx("You count as one of the group. People ask to join and you decide who comes.")}</p>}
       </form>
     </>
   );

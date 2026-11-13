@@ -22,7 +22,7 @@ export default function Person({ id }) {
       <TopBar title={p.first_name} />
       <div className="page">
         <div className="row" style={{ gap: 16 }}>
-          <Avatar person={p} size="lg" />
+          <Avatar person={p} size="xl" />
           <div className="stack-sm">
             <h1>{p.first_name}</h1>
             <div className="row wrap" style={{ gap: 6 }}>{p.is_demo && <SampleBadge />}{p.email_verified && <EmailBadge />}<span className="small muted">{roleLabel}</span></div>

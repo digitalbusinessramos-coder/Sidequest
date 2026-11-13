@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { localToUtcIso, utcToLocalInput, slotOf } from './time.js';
 import { config } from './config.js';
 import { tx } from './db.js';
+import { createAvatar } from '@dicebear/core';
+import { notionists } from '@dicebear/collection';
 
 const TZ = 'Atlantic/Canary';
 const GUIDE_CHECKED = '2026-11-06';
@@ -48,8 +50,22 @@ const PERSONAS = [
   { key: 'aicha', first_name: 'Aïcha', intro: 'Sample profile. Fictional French student, into concerts, coffee and language exchange.', area: 'tafira', languages: ['French', 'English', 'Spanish'], interests: ['culture', 'coffee', 'study'], hue: 300, university: 'ULPGC' },
   { key: 'tomasz', first_name: 'Tomasz', intro: 'Sample profile. Fictional Polish student, happy to plan beginner hikes and day trips.', area: 'schamann', languages: ['Polish', 'English'], interests: ['hiking', 'daytrip', 'sports'], hue: 140 },
   { key: 'ines', first_name: 'Inés', intro: 'Sample profile. Fictional local student who likes showing visitors around.', area: 'isleta', languages: ['Spanish', 'English'], interests: ['culture', 'beach', 'study'], hue: 80, role: 'local' },
+  { key: 'jonas', first_name: 'Jonas', intro: 'Sample profile. Fictional Dutch student, up for nights out, quiz nights and surf.', area: 'santacatalina', languages: ['Dutch', 'English', 'German'], interests: ['nightout', 'games', 'surf'], hue: 30 },
+  { key: 'klara', first_name: 'Klára', intro: 'Sample profile. Fictional Czech student who likes yoga, photo walks and markets.', area: 'canteras', languages: ['Czech', 'English'], interests: ['wellness', 'photo', 'shopping'], hue: 330, university: 'ULPGC' },
+  { key: 'andrei', first_name: 'Andrei', intro: 'Sample profile. Fictional Romanian student, likes study sessions, board games and football.', area: 'tafira', languages: ['Romanian', 'English', 'Spanish'], interests: ['study', 'games', 'sports'], hue: 190 },
+  { key: 'elif', first_name: 'Elif', intro: 'Sample profile. Fictional Turkish student, into tapas evenings, concerts and nights out.', area: 'triana', languages: ['Turkish', 'English'], interests: ['food', 'culture', 'nightout'], hue: 350 },
+  { key: 'nikos', first_name: 'Nikos', intro: 'Sample profile. Fictional Greek student who wants to hike and see the whole island.', area: 'alcaravaneras', languages: ['Greek', 'English'], interests: ['hiking', 'daytrip', 'photo'], hue: 160 },
+  { key: 'carmen', first_name: 'Carmen', intro: 'Sample profile. Fictional local student, happy to do language exchange and show the best tapas spots.', area: 'santacatalina', languages: ['Spanish', 'English'], interests: ['food', 'study', 'nightout'], hue: 45, role: 'local' },
+  { key: 'emma', first_name: 'Emma', intro: 'Sample profile. Fictional Swedish student, loves the beach, yoga and sunsets.', area: 'isleta', languages: ['Swedish', 'English'], interests: ['beach', 'wellness', 'surf'], hue: 230 },
   { key: 'sofia', first_name: 'Sofia', intro: 'Sample profile. Fictional Portuguese student, loves day trips and museums.', area: 'alcaravaneras', languages: ['Portuguese', 'Spanish', 'English'], interests: ['museum', 'daytrip', 'beach'], hue: 260 },
 ];
+
+function hslHex(h) {
+  // Light pastel background for drawn avatars, from the persona's hue.
+  const s = 0.6, l = 0.85, k = (n) => (n + h / 30) % 12, a = s * Math.min(l, 1 - l);
+  const f = (n) => Math.round(255 * (l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1))))).toString(16).padStart(2, '0');
+  return `${f(0)}${f(8)}${f(4)}`;
+}
 
 function localDay(offset) {
   return utcToLocalInput(new Date(Date.now() + offset * 864e5).toISOString(), TZ).slice(0, 10);
@@ -86,9 +102,35 @@ export function seed(db, { force = false } = {}) {
       u = { id: Number(lastInsertRowid) };
     }
     ids[p.key] = u.id;
+    // Drawn avatars (DiceBear "Notionists", CC0) so sample people never use photos of real people.
+    if (!db.prepare('SELECT 1 FROM photos WHERE user_id = ?').get(u.id)) {
+      const svg = createAvatar(notionists, { seed: `sq-${p.key}`, backgroundColor: [hslHex(p.hue)] }).toString();
+      db.prepare('INSERT INTO photos (user_id, mime, data) VALUES (?, ?, ?)').run(u.id, 'image/svg+xml', Buffer.from(svg));
+      db.prepare('UPDATE profiles SET photo_v = 1 WHERE user_id = ?').run(u.id);
+    }
+  }
+
+  // Sample recommendations: written by fictional personas, labelled Sample, about well-known public places. No prices or opening hours.
+  if (!db.prepare('SELECT 1 FROM recommendations WHERE is_sample = 1').get()) {
+    const rec = (k, category, title, body, area, likers = []) => {
+      const id = Number(db.prepare('INSERT INTO recommendations (city_id, user_id, category, title, body, area, is_sample) VALUES (?,?,?,?,?,?,1)')
+        .run(city.id, ids[k], category, title, body, area).lastInsertRowid);
+      for (const l of likers) db.prepare('INSERT OR IGNORE INTO rec_likes (rec_id, user_id) VALUES (?, ?)').run(id, ids[l]);
+    };
+    rec('ines', 'beach', 'Walk the Las Canteras promenade at sunset', 'Start at La Puntilla and walk south towards the Auditorio. Flat, free and you meet half the city on the way.', 'Las Canteras / Guanarteme', ['lena', 'matteo', 'emma', 'klara', 'jonas']);
+    rec('carmen', 'food', 'Try the Vegueta market', 'Good for fruit and a quick snack on a Saturday morning. Go early, it gets busy.', 'Triana / Vegueta', ['elif', 'sofia', 'lena']);
+    rec('lena', 'culture', 'Wander the old town of Vegueta', 'Cobbled streets, the cathedral square and small museums close together. Nice for a slow afternoon.', 'Triana / Vegueta', ['sofia', 'nikos', 'aicha', 'tomasz']);
+    rec('andrei', 'study', 'Study on campus between classes', 'The campus library in Tafira is quiet in the mornings. Bring a jumper, the air con is strong.', 'Tafira (ULPGC campus)', ['aicha']);
+    rec('emma', 'beach', 'Swim at El Confital on a calm day', 'Rocky and wild, at the end of La Isleta. Check the sea conditions first and bring water shoes.', 'La Isleta / El Confital', ['matteo', 'klara']);
+    rec('jonas', 'nightlife', 'Start the evening around Santa Catalina', 'Lots of people meet around the park before heading out. Easy to find each other there.', 'Santa Catalina / Puerto', ['elif', 'carmen']);
+    rec('tomasz', 'practical', 'Get a bus card early', 'Ask about student travel cards on the official Guaguas website (linked in the City Guide). It saves a lot over single tickets.', null, ['nikos', 'lena', 'andrei']);
+    rec('nikos', 'beach', 'See the dunes once', 'A day trip south to the Maspalomas dunes is worth it. Go early before it gets hot.', null, ['emma', 'tomasz']);
   }
 
   const upcoming = db.prepare("SELECT COUNT(*) AS n FROM activities WHERE is_sample = 1 AND status = 'active' AND starts_at > ?").get(new Date().toISOString()).n;
+  // v0.3 added open-join and new-category samples; refresh once on older databases.
+  const current = !!db.prepare("SELECT 1 FROM activities WHERE is_sample = 1 AND join_mode = 'open'").get();
+  if (!current) force = true;
   if (upcoming >= 4 && !force) return;
 
   tx(db, () => {
@@ -97,12 +139,13 @@ export function seed(db, { force = false } = {}) {
     db.prepare('DELETE FROM events WHERE is_sample = 1 AND id NOT IN (SELECT event_id FROM activities WHERE event_id IS NOT NULL)').run();
     db.prepare('DELETE FROM wishes WHERE user_id IN (SELECT id FROM users WHERE is_demo = 1)').run();
     db.prepare('DELETE FROM event_interests WHERE user_id IN (SELECT id FROM users WHERE is_demo = 1)').run();
+    db.prepare('DELETE FROM event_messages WHERE user_id IN (SELECT id FROM users WHERE is_demo = 1)').run();
 
     const act = (o) => {
       const { lastInsertRowid } = db.prepare(`INSERT INTO activities (city_id, organiser_id, event_id, template, category, title, description, starts_at, duration_min, meeting_area, meeting_point,
-        cost_eur, max_participants, beginner_friendly, pace, transport, languages, solo_format, welcome_plan, recognise_tip, is_sample)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)`).run(city.id, ids[o.by], o.event || null, o.template, o.category, o.title, o.description, o.starts, o.duration,
-        o.area, o.point || '', o.cost || 0, o.max, o.beginner ? 1 : 0, o.pace || null, o.transport || null, JSON.stringify(o.languages || []), o.solo ? 1 : 0, o.welcome || '', o.recognise || '');
+        cost_eur, max_participants, beginner_friendly, pace, transport, languages, solo_format, welcome_plan, recognise_tip, is_sample, join_mode)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?)`).run(city.id, ids[o.by], o.event || null, o.template, o.category, o.title, o.description, o.starts, o.duration,
+        o.area, o.point || '', o.cost || 0, o.max, o.beginner ? 1 : 0, o.pace || null, o.transport || null, JSON.stringify(o.languages || []), o.solo ? 1 : 0, o.welcome || '', o.recognise || '', o.open ? 'open' : 'request');
       const id = Number(lastInsertRowid);
       db.prepare("INSERT INTO messages (activity_id, kind, body) VALUES (?, 'system', ?)").run(id, `${PERSONAS.find((p) => p.key === o.by).first_name} created this activity. Confirmed participants can chat here.`);
       for (const k of o.accepted || []) {
@@ -136,11 +179,28 @@ export function seed(db, { force = false } = {}) {
     act({ by: 'sofia', template: 'daytrip', category: 'daytrip', title: 'Day trip to Teror', description: 'Exploring the historic town of Teror. Cost is an estimate for bus and a snack.',
       starts: at(sat + 1, '10:00'), duration: 360, area: 'Alcaravaneras / Ciudad Jardín', cost: 10, max: 5, beginner: true, transport: 'Interurban bus: check the official timetable', languages: ['Portuguese', 'Spanish', 'English'] });
 
+    act({ by: 'jonas', template: 'nightout', category: 'nightout', title: 'Night out: meet first, then decide', description: 'We meet for a drink, then pick where to go together. Leave whenever you like. Open plan: join without waiting for approval.',
+      starts: at(sat - 1 > 0 ? sat - 1 : sat, '22:00'), duration: 240, area: 'Santa Catalina / Puerto', point: 'Benches by the park fountain', cost: 15, max: 8, solo: true, open: true,
+      languages: ['English', 'Spanish', 'Dutch'], welcome: 'Jonas waits at the meeting point until 22:20.', recognise: 'Orange cap.', accepted: ['elif', 'carmen'],
+      chat: [['elif', 'I am in! Is it OK if I come a bit later?'], ['jonas', 'Sure, just message here and we will tell you where we are.']] });
+    act({ by: 'emma', template: 'yoga', category: 'wellness', title: 'Morning yoga on the beach', description: 'Gentle beginner yoga on the sand. Bring a towel. Open plan: just join.',
+      starts: at(2, '08:30'), duration: 60, area: 'Las Canteras / Guanarteme', point: 'Near La Puntilla, on the sand', max: 10, beginner: true, solo: true, open: true,
+      languages: ['English', 'Swedish', 'Spanish'], accepted: ['klara'] });
+    act({ by: 'carmen', template: 'tandem', category: 'study', title: 'Language exchange: Spanish and English', description: 'Half the time in Spanish, half in English. All levels welcome.',
+      starts: at(1, '19:00'), duration: 90, area: 'Triana / Vegueta', cost: 3, max: 6, beginner: true, solo: true, languages: ['Spanish', 'English'], accepted: ['andrei'] });
+    act({ by: 'andrei', template: 'quiz', category: 'games', title: 'Board games evening', description: 'Bring a game if you have one. Easy games first so nobody needs to know the rules.',
+      starts: at(3, '19:30'), duration: 150, area: 'Alcaravaneras / Ciudad Jardín', cost: 5, max: 6, beginner: true, languages: ['English', 'Spanish'], pending: ['nikos'] });
+    act({ by: 'klara', template: 'photowalk', category: 'photo', title: 'Photo walk through the old town', description: 'Any camera or phone is fine. Slow pace, lots of stops.',
+      starts: at(4, '17:00'), duration: 120, area: 'Triana / Vegueta', point: 'Cathedral square', max: 6, beginner: true, open: true, languages: ['English', 'Czech'], accepted: ['nikos'] });
+    act({ by: 'elif', template: 'tapas', category: 'food', title: 'Tapas evening in Triana', description: 'Sharing a few plates and getting to know each other. Cost is an estimate.',
+      starts: at(sat, '20:30'), duration: 120, area: 'Triana / Vegueta', cost: 15, max: 6, beginner: true, languages: ['English', 'Turkish', 'Spanish'], accepted: ['carmen'], pending: ['lena'] });
+
     const ev = (o) => Number(db.prepare(`INSERT INTO events (city_id, title, description, category, starts_at, duration_min, venue, organiser_name, official_url, price_note, is_sample)
       VALUES (?,?,?,?,?,?,?,?,?,?,1)`).run(city.id, o.title, o.description, o.category, o.starts, o.duration, o.venue,
       'Sample organiser (illustrative only, not a real listing)', null, 'The real organiser would show price and registration on their own page.').lastInsertRowid);
     const e1 = ev({ title: 'Sample event: Welcome tapas night', description: 'Illustrative example of a student-association welcome evening. Not a real event.', category: 'coffee', starts: at(4, '21:00'), duration: 150, venue: 'Santa Catalina area' });
     const e2 = ev({ title: 'Sample event: Language exchange evening', description: 'Illustrative example of a language exchange. Not a real event.', category: 'study', starts: at(2, '19:30'), duration: 120, venue: 'Triana area' });
+    const e4 = ev({ title: 'Sample event: Beach clean-up morning', description: 'Illustrative example of a volunteer beach clean-up. Not a real event.', category: 'beach', starts: at(sat + 1, '10:00'), duration: 120, venue: 'Las Canteras area' });
     const e3 = ev({ title: 'Sample event: Summit-area excursion', description: 'Illustrative example of an island excursion by coach. Not a real event.', category: 'hiking', starts: at(sat + 7, '08:00'), duration: 540, venue: 'Departure point in the city centre' });
 
     const interest = (e, k, pref, langs, opt) => db.prepare('INSERT OR IGNORE INTO event_interests (event_id, user_id, group_pref, languages, meeting_option, note) VALUES (?,?,?,?,?,?)')
@@ -150,6 +210,16 @@ export function seed(db, { force = false } = {}) {
     interest(e2, 'aicha', 'buddy', ['French', 'English'], 'Meet at the venue entrance');
     interest(e2, 'ines', 'small', ['Spanish', 'English'], 'Meet at the venue entrance');
     interest(e3, 'tomasz', 'small', ['English', 'Polish'], 'Meet at the departure point');
+    interest(e3, 'nikos', 'small', ['Greek', 'English'], 'Meet at the departure point');
+    interest(e1, 'jonas', 'small', ['Dutch', 'English'], 'Walk there together from Las Canteras');
+    interest(e1, 'elif', 'either', ['Turkish', 'English'], 'Meet at the venue entrance');
+    interest(e2, 'carmen', 'small', ['Spanish', 'English'], 'Meet at the venue entrance');
+    interest(e4, 'emma', 'small', ['Swedish', 'English'], 'Meet at the venue entrance');
+    interest(e4, 'klara', 'either', ['Czech', 'English'], 'Meet at the venue entrance');
+    const evmsg = (e, k, body) => db.prepare('INSERT INTO event_messages (event_id, user_id, body) VALUES (?,?,?)').run(e, ids[k], body);
+    evmsg(e1, 'lena', 'Hi everyone! Anyone want to meet 15 minutes before?');
+    evmsg(e1, 'jonas', 'Yes, I can be there early too.');
+    evmsg(e4, 'emma', 'I will bring extra gloves if anyone needs them.');
 
     const wish = (k, category, slots, note, budget = 'any') => db.prepare('INSERT INTO wishes (user_id, city_id, category, note, slots, budget) VALUES (?,?,?,?,?,?)')
       .run(ids[k], city.id, category, note, JSON.stringify(slots), budget);

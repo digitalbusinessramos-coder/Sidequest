@@ -29,6 +29,11 @@ export default function ActivityDetail({ id }) {
     e.preventDefault();
     if (await act(() => api.post(`/activities/${a.id}/requests`, { message: msg }), tx("Request sent. You’ll see the answer in My Plans."))) { setJoinOpen(false); setMsg(''); }
   };
+  const joinOpenPlan = () => {
+    if (confirm(tx('Join “{title}”? Your first name and picture become visible to the group, and you can chat with them.', { title: a.title }))) {
+      act(() => api.post(`/activities/${a.id}/requests`, { message: '' }), tx("You’re in! Say hello in the chat."));
+    }
+  };
   const leave = () => {
     const text = a.my_status === 'accepted' ? tx("Leave this activity? You will lose access to its chat.") : tx("Withdraw your request?");
     if (confirm(text)) act(() => api.del(`/activities/${a.id}/requests/mine`), a.my_status === 'accepted' ? tx("You left the activity.") : tx("Request withdrawn."));
@@ -67,6 +72,7 @@ export default function ActivityDetail({ id }) {
               {a.is_sample && <SampleBadge />}
               <StatusBadge status={closed ? a.state : a.my_status || (a.state === 'full' ? 'full' : null)} />
               {a.solo_format && <span className="badge badge-solo">{t('card.solo')}</span>}
+          {a.join_mode === 'open' && <span className="badge badge-open"><Icon name="bolt" size={12} />{tx('Join directly')}</span>}
             </div>
             <h1 style={{ fontSize: '1.45rem' }}>{a.title}</h1>
             <a href={`#/person/${a.organiser.id}`} className="row small" style={{ textDecoration: 'none', color: 'var(--ink-2)' }}>
@@ -168,7 +174,9 @@ export default function ActivityDetail({ id }) {
             {!a.my_status || ['left', 'withdrawn'].includes(a.my_status) ? (
               a.state === 'full'
                 ? <button className="btn btn-secondary btn-block" disabled>{t('status.full')}</button>
-                : <button className="btn btn-primary btn-block" onClick={() => setJoinOpen(true)} disabled={busy}>{t('act.request')}</button>
+                : a.join_mode === 'open'
+                  ? <button className="btn btn-primary btn-block" onClick={joinOpenPlan} disabled={busy}><Icon name="bolt" />{tx('Join now')}</button>
+                  : <button className="btn btn-primary btn-block" onClick={() => setJoinOpen(true)} disabled={busy}>{t('act.request')}</button>
             ) : a.my_status === 'pending' ? (
               <button className="btn btn-secondary btn-block" onClick={leave} disabled={busy}>{t('act.withdraw')}</button>
             ) : a.my_status === 'invited' ? (

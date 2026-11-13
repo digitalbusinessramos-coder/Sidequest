@@ -1,17 +1,23 @@
 import { locale, t, tx } from '../i18n.js';
-import { ErrorState, Icon, Loading, useApp } from '../components.jsx';
+import { ErrorState, Icon, Loading, PhotoHero, useApp } from '../components.jsx';
+import Tips from './Tips.jsx';
+import { PHOTOS } from '../../shared/photos.js';
 import { useApi } from '../util.js';
 
-const SECTIONS = [['transport', 'bus'], ['health', 'health'], ['housing', 'home'], ['university', 'school'], ['students', 'star'], ['links', 'link']];
+// Student tips now have their own section with likes and saves, so the old "students" placeholder is not shown.
+const SECTIONS = [['transport', 'bus'], ['health', 'health'], ['housing', 'home'], ['university', 'school'], ['links', 'link']];
 
 export default function Guide() {
   const { city } = useApp();
   const { data, error, loading, reload } = useApi(`/guide?city=${city.slug}`);
   return (
     <div className="page">
-      <div className="stack-sm"><span className="eyebrow">{tx("Settling in")}</span><h1>{t('guide.title')}: {city.name.split(' de ')[0]}</h1>
-        <p className="small muted">{t('guide.lead')}</p></div>
+      <PhotoHero photoKey="cathedral" height={170}>
+        <span className="eyebrow">{tx("Settling in")}</span><h1>{t('guide.title')}: {city.name.split(' de ')[0]}</h1>
+      </PhotoHero>
+      <p className="small muted">{t('guide.lead')}</p>
       <div className="notice coral"><Icon name="shield" /><span><strong>112</strong>: {tx('In an emergency, call 112, the EU-wide emergency number (source: Your Europe, EU portal). This guide is not medical advice.')}</span></div>
+      <Tips />
       <div className="row wrap small" style={{ gap: 8 }}>
         <span className="badge badge-official">{t('guide.official')}</span><span className="muted">{tx("from the organisation itself")}</span>
         <span className="badge badge-community">{t('guide.community')}</span><span className="muted">{tx("from students")}</span>
@@ -46,6 +52,14 @@ export default function Guide() {
           </section>
         );
       })}
+      <details className="tiny muted">
+        <summary>{tx('Photo credits')}</summary>
+        <ul style={{ paddingLeft: 18 }}>
+          {PHOTOS.map((p) => <li key={p.key}>{tx(p.alt)}: {p.author}, <a href={p.license_url} target="_blank" rel="noopener noreferrer">{p.license}</a>, <a href={p.source} target="_blank" rel="noopener noreferrer">{tx('source')}</a>{tx(' (resized)')}</li>)}
+          <li>{tx('Sample profile pictures are drawn avatars (“Notionists” by Zoish, CC0, via DiceBear), not photos of real people.')}</li>
+          <li>{tx('Map: © OpenStreetMap contributors, © CARTO.')}</li>
+        </ul>
+      </details>
       <p className="tiny muted">{tx("We link to official pages instead of copying timetables, prices or medical guidance, because those change. Spotted something outdated? Tell the project team.")}</p>
     </div>
   );
