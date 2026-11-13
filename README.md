@@ -62,7 +62,7 @@ You can also log in as a fictional sample persona from the welcome screen (e.g. 
 | Feedback | Feedback box in Profile and the City Guide; read with `GET /api/admin/feedback` and the `x-admin-token` header (`ADMIN_TOKEN`) | Goes to the project team only |
 | Interns | "Intern / trainee (not studying here)" role with company instead of university | For people on internships in Las Palmas |
 | Joining | Organiser picks "people ask, you accept" or "anyone can join directly" | Open plans skip the wait; the organiser can still remove someone |
-| Map | Leaflet with OpenStreetMap/CARTO tiles; list or map view in Explore | Pins sit at the neighbourhood centre, never the exact meeting point |
+| Map | Leaflet with OpenStreetMap tiles (no API key); Google Maps embed and links on plan and event pages; list or map view in Explore | Pins sit at the neighbourhood centre, never the exact meeting point |
 | Calendar | My Plans can show a week strip and a day timetable | Plans and events you joined, side by side when they overlap |
 | Tips | Students post recommendations, like and save them (City Guide) | Saves are private; blocked people's tips are hidden |
 | Event chat | Group chat for everyone who joins an event's group | Leaving the group removes access |

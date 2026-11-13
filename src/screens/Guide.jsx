@@ -60,7 +60,7 @@ export default function Guide() {
         <ul style={{ paddingLeft: 18 }}>
           {[...PHOTOS, ...MARKET_PHOTOS].map((p) => <li key={p.key}>{tx(p.alt)}: {p.author}, <a href={p.license_url} target="_blank" rel="noopener noreferrer">{p.license}</a>, <a href={p.source} target="_blank" rel="noopener noreferrer">{tx('source')}</a>{tx(' (resized)')}</li>)}
           <li>{tx('Sample profile pictures are drawn avatars (“Notionists” by Zoish, CC0, via DiceBear), not photos of real people.')}</li>
-          <li>{tx('Map: © OpenStreetMap contributors, © CARTO.')}</li>
+          <li>{tx('Map: © OpenStreetMap contributors.')}</li>
         </ul>
       </details>
       <p className="tiny muted">{tx("We link to official pages instead of copying timetables, prices or medical guidance, because those change. Spotted something outdated? Tell the project team.")} <button className="link-btn" onClick={() => setFb(true)}>{tx('Send feedback')}</button></p>

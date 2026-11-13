@@ -17,19 +17,12 @@ export default function MapView({ items, center, height = 460 }) {
 
   useEffect(() => {
     const m = L.map(el.current, { zoomControl: true, attributionControl: true, scrollWheelZoom: false }).setView(center, 13);
-    const carto = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-      maxZoom: 19, subdomains: 'abcd',
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    // OpenStreetMap's own tiles: free with attribution, no key. (CARTO's free tiles now need an API key.)
+    // The page sends no referrer by default; OpenStreetMap's tile policy asks for one, so send the site's origin.
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19, referrerPolicy: 'strict-origin-when-cross-origin',
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     }).addTo(m);
-    // If the CARTO tiles cannot be loaded (network filters, outages), switch to the standard OpenStreetMap tiles.
-    let errors = 0;
-    carto.on('tileerror', () => {
-      errors += 1;
-      if (errors === 4) {
-        m.removeLayer(carto);
-        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' }).addTo(m);
-      }
-    });
     m.on('focus', () => m.scrollWheelZoom.enable());
     m.on('blur', () => m.scrollWheelZoom.disable());
     layer.current = L.layerGroup().addTo(m);
