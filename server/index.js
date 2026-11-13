@@ -17,6 +17,7 @@ export function createApp(db) {
     res.set('X-Frame-Options', 'SAMEORIGIN');
     next();
   });
+  app.use('/api/me/photo', express.json({ limit: '900kb' })); // resized pictures only
   app.use('/api', express.json({ limit: '50kb' }));
   // CSRF protection: state-changing API calls must be JSON (cross-site forms cannot send that without CORS preflight).
   app.use('/api', (req, _res, next) => {

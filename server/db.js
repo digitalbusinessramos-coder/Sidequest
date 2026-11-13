@@ -17,6 +17,9 @@ function migrate(db) {
   const cols = (t) => db.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name);
   if (!cols('users').includes('email_verified_at')) db.exec('ALTER TABLE users ADD COLUMN email_verified_at TEXT');
   if (!cols('profiles').includes('lang')) db.exec("ALTER TABLE profiles ADD COLUMN lang TEXT NOT NULL DEFAULT 'en'");
+  if (!cols('profiles').includes('photo_v')) db.exec('ALTER TABLE profiles ADD COLUMN photo_v INTEGER NOT NULL DEFAULT 0');
+  if (!cols('activities').includes('join_mode')) db.exec("ALTER TABLE activities ADD COLUMN join_mode TEXT NOT NULL DEFAULT 'request'");
+  if (!cols('events').includes('lat')) { db.exec('ALTER TABLE events ADD COLUMN lat REAL'); db.exec('ALTER TABLE events ADD COLUMN lng REAL'); }
 }
 
 /** Run fn inside an IMMEDIATE transaction (takes the write lock first, so capacity checks cannot race). */
@@ -213,6 +216,49 @@ CREATE TABLE IF NOT EXISTS email_tokens (
   email TEXT NOT NULL,
   expires_at TEXT NOT NULL
 );
+
+-- Profile pictures (resized in the browser before upload). Sample personas get drawn avatars, never photos of real people.
+CREATE TABLE IF NOT EXISTS photos (
+  user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  mime TEXT NOT NULL,
+  data BLOB NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
+-- Student recommendations: places and tips, with likes and saves.
+CREATE TABLE IF NOT EXISTS recommendations (
+  id INTEGER PRIMARY KEY,
+  city_id INTEGER NOT NULL REFERENCES cities(id),
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  category TEXT NOT NULL,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL DEFAULT '',
+  area TEXT,
+  url TEXT,
+  is_sample INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE TABLE IF NOT EXISTS rec_likes (
+  rec_id INTEGER NOT NULL REFERENCES recommendations(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  PRIMARY KEY (rec_id, user_id)
+);
+CREATE TABLE IF NOT EXISTS rec_saves (
+  rec_id INTEGER NOT NULL REFERENCES recommendations(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  PRIMARY KEY (rec_id, user_id)
+);
+
+-- Group chat for everyone who marked an event as "I'm going / looking for company".
+CREATE TABLE IF NOT EXISTS event_messages (
+  id INTEGER PRIMARY KEY,
+  event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  body TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_evmsg ON event_messages(event_id, id);
 
 CREATE TABLE IF NOT EXISTS guide_items (
   id INTEGER PRIMARY KEY,

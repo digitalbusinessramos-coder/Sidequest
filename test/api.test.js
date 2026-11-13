@@ -315,3 +315,79 @@ test('email verification: token link confirms the address; badge only after conf
   const reuse = await fetch(`${base}/auth/verify?token=${token}`, { redirect: 'manual' });
   assert.match(reuse.headers.get('location'), /verified=invalid/, 'token works only once');
 });
+
+test('open plans: people join directly up to capacity, organiser is told, request-only plans still need approval', async () => {
+  const org = await user('Olga'); const a = await user('Abel'); const b = await user('Bea'); const c = await user('Cyd');
+  const id = await makeActivity(org, { max_participants: 3, join_mode: 'open' });
+  const r1 = await a.post(`/activities/${id}/requests`, {});
+  assert.equal(r1.body.status, 'accepted');
+  assert.equal((await a.get(`/activities/${id}/messages`)).status, 200); // straight into the chat
+  assert.equal((await b.post(`/activities/${id}/requests`, {})).body.status, 'accepted');
+  assert.equal((await c.post(`/activities/${id}/requests`, {})).status, 409); // full
+  const notes = (await org.get('/notifications')).body.notifications;
+  assert.ok(notes.some((x) => x.kind === 'joined'));
+  assert.equal((await org.post(`/activities/${id}/members/${a.id}/remove`)).status, 200); // organiser can still remove
+  assert.equal((await a.post(`/activities/${id}/requests`, {})).status, 403); // and they cannot rejoin
+  const req = await makeActivity(org);
+  assert.equal((await c.post(`/activities/${req}/requests`, {})).body.status, 'pending');
+  assert.equal((await c.get(`/activities/${req}`)).body.activity.join_mode, 'request');
+});
+
+test('recommendations: post, like once, save privately, delete only your own, hidden when blocked', async () => {
+  const a = await user('Rita'); const b = await user('Sam');
+  const bad = await a.post('/recommendations', { category: 'food', title: 'X', url: 'javascript:alert(1)' });
+  assert.equal(bad.status, 400);
+  const { body: { id } } = await a.post('/recommendations', { category: 'food', title: 'Great churros', body: 'Near the market', area: 'Triana / Vegueta' });
+  await b.put(`/recommendations/${id}/like`); await b.put(`/recommendations/${id}/like`);
+  await b.put(`/recommendations/${id}/save`);
+  let mine = (await b.get('/recommendations?city=las-palmas')).body.recommendations.find((x) => x.id === id);
+  assert.equal(mine.likes, 1); assert.equal(mine.liked, true); assert.equal(mine.saved, true);
+  assert.ok(mine.approx && mine.approx.area === 'Triana / Vegueta');
+  assert.equal((await a.get('/recommendations?city=las-palmas&saved=1')).body.recommendations.length, 0); // saves are personal
+  assert.equal((await b.get('/recommendations?city=las-palmas&saved=1')).body.recommendations.length, 1);
+  assert.equal((await b.del(`/recommendations/${id}`)).status, 403);
+  await b.post(`/users/${a.id}/block`);
+  assert.ok(!(await b.get('/recommendations?city=las-palmas')).body.recommendations.some((x) => x.id === id));
+  assert.equal((await a.del(`/recommendations/${id}`)).status, 200);
+});
+
+test('event group chat: only people in the event group can read or write', async () => {
+  const a = await user('Eva'); const b = await user('Finn');
+  const ev = (await a.get('/events?city=las-palmas')).body.events[0];
+  assert.equal((await a.get(`/events/${ev.id}/messages`)).status, 403);
+  assert.equal((await a.post(`/events/${ev.id}/messages`, { body: 'hi' })).status, 403);
+  await a.put(`/events/${ev.id}/interest`, { group_pref: 'small' });
+  assert.equal((await a.post(`/events/${ev.id}/messages`, { body: 'Meet at the entrance?' })).status, 201);
+  const r = await a.get(`/events/${ev.id}/messages`);
+  assert.ok(r.body.messages.some((m) => m.body === 'Meet at the entrance?' && m.mine));
+  assert.equal((await b.get(`/events/${ev.id}/messages`)).status, 403);
+  await a.del(`/events/${ev.id}/interest`);
+  assert.equal((await a.get(`/events/${ev.id}/messages`)).status, 403); // leaving the group removes access
+  const plans = (await b.get('/plans')).body;
+  assert.ok(Array.isArray(plans.events));
+});
+
+test('profile pictures: only real images, visible to logged-in people, not to someone who blocked you', async () => {
+  const a = await user('Pia'); const b = await user('Quin');
+  assert.equal((await a.put('/me/photo', { data: 'data:image/png;base64,' + Buffer.from('<svg onload=alert(1)>').toString('base64') })).status, 400);
+  const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(100)]);
+  assert.equal((await a.put('/me/photo', { data: 'data:image/jpeg;base64,' + jpeg.toString('base64') })).status, 200);
+  const url = (await a.get('/me')).body.user.photo;
+  assert.match(url, /\/api\/users\/\d+\/photo\?v=1/);
+  const get = async (c) => fetch(base.replace('/api', '') + url, { headers: c ? { cookie: c } : {} });
+  assert.equal((await get()).status, 401); // not public
+  const login = await fetch(base + '/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: b.email, password: 'password123' }) });
+  const cookie = login.headers.get('set-cookie').split(';')[0];
+  const ok = await get(cookie);
+  assert.equal(ok.status, 200); assert.equal(ok.headers.get('content-type'), 'image/jpeg');
+  await a.post(`/users/${b.id}/block`);
+  assert.equal((await get(cookie)).status, 404);
+  assert.equal((await a.del('/me/photo')).status, 200);
+  assert.equal((await a.get('/me')).body.user.photo, null);
+});
+
+test('sample personas have drawn avatars, never uploaded photos', async () => {
+  const rows = db.prepare("SELECT p.mime FROM photos p JOIN users u ON u.id = p.user_id WHERE u.is_demo = 1").all();
+  assert.ok(rows.length >= 13);
+  assert.ok(rows.every((r) => r.mime === 'image/svg+xml'));
+});

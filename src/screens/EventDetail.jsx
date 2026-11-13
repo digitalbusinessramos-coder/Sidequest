@@ -79,6 +79,14 @@ export default function EventDetail({ id }) {
             )}
             <p className="tiny muted">{t('event.separate')}</p>
           </div>
+          <hr className="divider" />
+          <div className="stack-sm">
+            <span className="label">{tx("3 · Event group chat")}</span>
+            {e.my_interest
+              ? <a className="btn btn-secondary btn-block" href={`#/event/${e.id}/chat`}><Icon name="chat" size={18} />{tx('Open the group chat ({n} messages)', { n: e.chat_count })}</a>
+              : <button className="btn btn-secondary btn-block" onClick={startFind} disabled={!open}><Icon name="chat" size={18} />{tx('Join the group to chat')}</button>}
+            <p className="tiny muted">{tx("Everyone who says they’re looking for company can write here, for example to agree where to meet.")}</p>
+          </div>
         </section>
 
         <section className="stack" aria-labelledby="groups-h">

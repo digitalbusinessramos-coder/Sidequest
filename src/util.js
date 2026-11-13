@@ -41,14 +41,16 @@ export function fmtMonth(ym) {
 export function useApi(url, { poll = 0, deps = [] } = {}) {
   const [state, setState] = useState({ data: null, error: null, loading: true });
   const alive = useRef(true);
+  const latest = useRef(0); // only the newest request may update the screen (fast typing sends several)
   const load = useCallback(async (quiet = false) => {
     if (!url) return;
+    const n = ++latest.current;
     if (!quiet) setState((s) => ({ ...s, loading: true, error: null }));
     try {
       const data = await api.get(url);
-      if (alive.current) setState({ data, error: null, loading: false });
+      if (alive.current && n === latest.current) setState({ data, error: null, loading: false });
     } catch (error) {
-      if (alive.current) setState((s) => ({ data: quiet ? s.data : null, error, loading: false }));
+      if (alive.current && n === latest.current) setState((s) => ({ data: quiet ? s.data : null, error, loading: false }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url, ...deps]);

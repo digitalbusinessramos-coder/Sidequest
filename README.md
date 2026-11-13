@@ -25,7 +25,7 @@ For development with hot reload: `npm run dev` (frontend on http://localhost:517
 ## Test it
 
 ```bash
-npm test                 # 17 API tests with separate accounts against a real server + database
+npm test                 # 22 API tests with separate accounts against a real server + database
 npm start & npm run test:browser   # 3 browser users on phone-sized screens, full journey
 npm run check:i18n       # lists any interface sentence that has no Spanish translation
 ```
@@ -56,6 +56,12 @@ You can also log in as a fictional sample persona from the welcome screen (e.g. 
 | Time | Stored in UTC, shown in the city time zone (`Atlantic/Canary`) | Correct for every visitor and across daylight-saving changes |
 | Cities | `cities` table with time zone and approximate areas | Adding a city is data, not a rewrite |
 | Matching | Plain rules: same city + same activity type + overlapping time slots + compatible budget; shared languages mentioned | Explainable; no scores, no "AI" claims |
+| Joining | Organiser picks "people ask, you accept" or "anyone can join directly" | Open plans skip the wait; the organiser can still remove someone |
+| Map | Leaflet with OpenStreetMap/CARTO tiles; list or map view in Explore | Pins sit at the neighbourhood centre, never the exact meeting point |
+| Calendar | My Plans can show a week strip and a day timetable | Plans and events you joined, side by side when they overlap |
+| Tips | Students post recommendations, like and save them (City Guide) | Saves are private; blocked people's tips are hidden |
+| Event chat | Group chat for everyone who joins an event's group | Leaving the group removes access |
+| Pictures | Profile photos are resized in the browser (max 512 px JPEG) and only shown to logged-in users | Sample personas use drawn CC0 avatars (DiceBear "Notionists"), never photos of real people. City photos come from Wikimedia Commons with credits in the app |
 
 ### Important rules the server enforces
 
