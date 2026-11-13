@@ -1,7 +1,8 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { LANGUAGE_OPTIONS, t, tx } from './i18n.js';
 import { fmtCost, fmtWhen } from './util.js';
-import { PHOTOS } from '../shared/photos.js';
+import { PHOTOS, photo, photoFor } from '../shared/photos.js';
+import { categoryLabel } from '../shared/catalog.js';
 
 export const AppCtx = createContext(null);
 export const useApp = () => useContext(AppCtx);
@@ -113,8 +114,60 @@ export function PhotoHero({ photoKey, children, height = 200 }) {
   );
 }
 
+/** Photo strip on top of a card, with the category stamp on it. Decorative: the card text says everything. */
+export function CardCover({ ph, category }) {
+  return (
+    <div className="card-cover" aria-hidden="true">
+      {ph && <img src={ph.src} alt="" loading="lazy" />}
+      <Stamp category={category} />
+    </div>
+  );
+}
+
+/** Wide photo at the top of a detail page, with its credit. */
+export function DetailPhoto({ ph }) {
+  if (!ph) return null;
+  return (
+    <figure className="detail-photo">
+      <img src={ph.src} alt={tx(ph.alt)} />
+      <figcaption className="photo-credit">{tx(ph.alt)} · {tx('Photo')}: {ph.author}, <a href={ph.license_url} target="_blank" rel="noopener noreferrer">{ph.license}</a></figcaption>
+    </figure>
+  );
+}
+
+/** Horizontal row of students, used on Explore and Buddies. */
+export function PeopleStrip({ people }) {
+  return (
+    <ul className="people-strip">
+      {people.map((p) => (
+        <li key={p.id}>
+          <a href={`#/person/${p.id}`} className="person-chip">
+            <Avatar person={p} size="lg" />
+            <strong>{p.first_name}</strong>
+            <span className="tiny muted">{p.shared?.length ? tx('Also into {what}', { what: tx(categoryLabel(p.shared[0])).toLowerCase() }) : (p.area || '').split(' / ')[0]}</span>
+          </a>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** Google Maps view of a public place or neighbourhood (never a private address), plus a link to open it in Google Maps. */
+export function GoogleMap({ query, title, note }) {
+  const q = `${query}, Las Palmas de Gran Canaria`;
+  return (
+    <div className="gmap card">
+      <iframe title={title || tx('Map')} src={`https://www.google.com/maps?q=${encodeURIComponent(q)}&z=15&output=embed`} loading="lazy" referrerPolicy="no-referrer-when-downgrade" />
+      <div className="row wrap gmap-foot">
+        {note && <span className="tiny muted" style={{ flex: 1 }}>{note}</span>}
+        <a className="btn btn-secondary btn-sm" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`} target="_blank" rel="noopener noreferrer"><Icon name="map" size={15} />{tx('Open in Google Maps')}</a>
+      </div>
+    </div>
+  );
+}
+
 export function SampleBadge() {
-  return <span className="badge badge-sample" title={tx("Fictional demo content")}>{t('common.sample')}</span>;
+  return <span className="badge badge-sample" title={tx("Example content for this preview")}>{t('common.sample')}</span>;
 }
 
 export function StatusBadge({ status }) {
@@ -143,8 +196,8 @@ export function ActivityCard({ a, reason }) {
   const cls = a.state === 'cancelled' ? 'is-cancelled' : a.state === 'past' ? 'is-past' : '';
   const status = a.state === 'cancelled' || a.state === 'past' ? a.state : a.my_status;
   return (
-    <a href={`#/activity/${a.id}`} className={`card act-card ${cls}`} aria-label={`${a.title}, ${fmtWhen(a.starts_at, a.timezone)}`}>
-      <Stamp category={a.category} />
+    <a href={`#/activity/${a.id}`} className={`card act-card has-cover ${cls}`} aria-label={`${a.title}, ${fmtWhen(a.starts_at, a.timezone)}`}>
+      <CardCover ph={photoFor(a.category)} category={a.category} />
       <div className="stack-sm" style={{ minWidth: 0 }}>
         <div className="row wrap" style={{ gap: 6 }}>
           <span className="when">{fmtWhen(a.starts_at, a.timezone)}</span>
@@ -180,8 +233,8 @@ export function ActivityCard({ a, reason }) {
 
 export function EventCard({ e }) {
   return (
-    <a href={`#/event/${e.id}`} className="card act-card">
-      <Stamp category={e.category} />
+    <a href={`#/event/${e.id}`} className="card act-card has-cover">
+      <CardCover ph={(e.photo_key && photo(e.photo_key)) || photoFor(e.category)} category={e.category} />
       <div className="stack-sm" style={{ minWidth: 0 }}>
         <div className="row wrap" style={{ gap: 6 }}>
           <span className="when">{fmtWhen(e.starts_at, e.timezone)}</span>

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { t, tx } from '../i18n.js';
-import { Avatar, ErrorState, Icon, Loading, ReportSheet, SampleBadge, Sheet, Stamp, StatusBadge, TopBar, useApp } from '../components.jsx';
+import { Avatar, ErrorState, Icon, Loading, ReportSheet, SampleBadge, Sheet, Stamp, StatusBadge, TopBar, useApp, DetailPhoto, GoogleMap } from '../components.jsx';
+import { photoFor } from '../../shared/photos.js';
 import { fmtCost, fmtDuration, fmtWhen, tzLabel, useApi } from '../util.js';
 
 export default function ActivityDetail({ id }) {
@@ -65,6 +66,7 @@ export default function ActivityDetail({ id }) {
         {!isOrg && <button className="icon-btn" aria-label={tx("Report this activity")} onClick={() => setReport({ type: 'activity', id: a.id, label: 'activity' })}><Icon name="flag" /></button>}
       </TopBar>
       <div className="page">
+        <DetailPhoto ph={photoFor(a.category)} />
         <div className="detail-head">
           <Stamp category={a.category} size="lg" />
           <div className="stack-sm" style={{ flex: 1 }}>
@@ -100,6 +102,7 @@ export default function ActivityDetail({ id }) {
         )}
 
         {a.description && <p>{a.description}</p>}
+        <GoogleMap query={a.meeting_area.split(' / ')[0]} title={tx('Map of {place}', { place: a.meeting_area })} note={insider ? null : tx('Shows the neighbourhood only. The exact meeting point is shared with confirmed participants.')} />
 
         {(a.solo_format || a.welcome_plan || a.recognise_tip) && (
           <section className="card card-pad stack-sm" aria-label={tx("How it starts")}>

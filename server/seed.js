@@ -1,6 +1,8 @@
-// Seeds the city, the city guide and (in demo mode) clearly labelled FICTIONAL sample profiles, activities and events.
+// Seeds the city, the city guide and (in demo mode) example students, plans and events. They are fictional: the app tells
+// visitors this once (welcome tour, Profile > About) and marks them with a small "Example" tag instead of repeating it everywhere.
 import crypto from 'node:crypto';
 import path from 'node:path';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { localToUtcIso, utcToLocalInput, slotOf } from './time.js';
 import { config } from './config.js';
@@ -45,20 +47,26 @@ const GUIDE = [
 ];
 
 const PERSONAS = [
-  { key: 'lena', first_name: 'Lena', intro: 'Sample profile. Fictional exchange student from Germany, likes museums and slow hikes.', area: 'triana', languages: ['German', 'English', 'Spanish'], interests: ['museum', 'hiking', 'coffee'], hue: 210, university: 'ULPGC' },
-  { key: 'matteo', first_name: 'Matteo', intro: 'Sample profile. Fictional Italian student who wants to learn to surf and play beach volleyball.', area: 'canteras', languages: ['Italian', 'English'], interests: ['surf', 'sports', 'beach'], hue: 20 },
-  { key: 'aicha', first_name: 'Aïcha', intro: 'Sample profile. Fictional French student, into concerts, coffee and language exchange.', area: 'tafira', languages: ['French', 'English', 'Spanish'], interests: ['culture', 'coffee', 'study'], hue: 300, university: 'ULPGC' },
-  { key: 'tomasz', first_name: 'Tomasz', intro: 'Sample profile. Fictional Polish student, happy to plan beginner hikes and day trips.', area: 'schamann', languages: ['Polish', 'English'], interests: ['hiking', 'daytrip', 'sports'], hue: 140 },
-  { key: 'ines', first_name: 'Inés', intro: 'Sample profile. Fictional local student who likes showing visitors around.', area: 'isleta', languages: ['Spanish', 'English'], interests: ['culture', 'beach', 'study'], hue: 80, role: 'local' },
-  { key: 'jonas', first_name: 'Jonas', intro: 'Sample profile. Fictional Dutch student, up for nights out, quiz nights and surf.', area: 'santacatalina', languages: ['Dutch', 'English', 'German'], interests: ['nightout', 'games', 'surf'], hue: 30 },
-  { key: 'klara', first_name: 'Klára', intro: 'Sample profile. Fictional Czech student who likes yoga, photo walks and markets.', area: 'canteras', languages: ['Czech', 'English'], interests: ['wellness', 'photo', 'shopping'], hue: 330, university: 'ULPGC' },
-  { key: 'andrei', first_name: 'Andrei', intro: 'Sample profile. Fictional Romanian student, likes study sessions, board games and football.', area: 'tafira', languages: ['Romanian', 'English', 'Spanish'], interests: ['study', 'games', 'sports'], hue: 190 },
-  { key: 'elif', first_name: 'Elif', intro: 'Sample profile. Fictional Turkish student, into tapas evenings, concerts and nights out.', area: 'triana', languages: ['Turkish', 'English'], interests: ['food', 'culture', 'nightout'], hue: 350 },
-  { key: 'nikos', first_name: 'Nikos', intro: 'Sample profile. Fictional Greek student who wants to hike and see the whole island.', area: 'alcaravaneras', languages: ['Greek', 'English'], interests: ['hiking', 'daytrip', 'photo'], hue: 160 },
-  { key: 'carmen', first_name: 'Carmen', intro: 'Sample profile. Fictional local student, happy to do language exchange and show the best tapas spots.', area: 'santacatalina', languages: ['Spanish', 'English'], interests: ['food', 'study', 'nightout'], hue: 45, role: 'local' },
-  { key: 'emma', first_name: 'Emma', intro: 'Sample profile. Fictional Swedish student, loves the beach, yoga and sunsets.', area: 'isleta', languages: ['Swedish', 'English'], interests: ['beach', 'wellness', 'surf'], hue: 230 },
-  { key: 'sofia', first_name: 'Sofia', intro: 'Sample profile. Fictional Portuguese student, loves day trips and museums.', area: 'alcaravaneras', languages: ['Portuguese', 'Spanish', 'English'], interests: ['museum', 'daytrip', 'beach'], hue: 260 },
+  { key: 'lena', first_name: 'Lena', intro: 'Exchange student from Germany. Museums, slow hikes and a good coffee afterwards.', area: 'triana', languages: ['German', 'English', 'Spanish'], interests: ['museum', 'hiking', 'coffee'], hue: 210, university: 'ULPGC' },
+  { key: 'matteo', first_name: 'Matteo', intro: 'From Milan, here until February. Learning to surf and always up for beach volleyball.', area: 'canteras', languages: ['Italian', 'English'], interests: ['surf', 'sports', 'beach'], hue: 20 },
+  { key: 'aicha', first_name: 'Aïcha', intro: 'French student at ULPGC. Concerts, coffee and swapping French for Spanish.', area: 'tafira', languages: ['French', 'English', 'Spanish'], interests: ['culture', 'coffee', 'study'], hue: 300, university: 'ULPGC' },
+  { key: 'tomasz', first_name: 'Tomasz', intro: 'Polish engineering student. I plan easy hikes and day trips, everyone welcome.', area: 'schamann', languages: ['Polish', 'English'], interests: ['hiking', 'daytrip', 'sports'], hue: 140 },
+  { key: 'ines', first_name: 'Inés', intro: 'Born in Las Palmas. Happy to show you the places tourists miss.', area: 'isleta', languages: ['Spanish', 'English'], interests: ['culture', 'beach', 'study'], hue: 80, role: 'local' },
+  { key: 'jonas', first_name: 'Jonas', intro: 'Dutch, studying business. Nights out, quiz nights and the odd surf session.', area: 'santacatalina', languages: ['Dutch', 'English', 'German'], interests: ['nightout', 'games', 'surf'], hue: 30 },
+  { key: 'klara', first_name: 'Klára', intro: 'From Prague. Morning yoga, photo walks and Saturday markets.', area: 'canteras', languages: ['Czech', 'English'], interests: ['wellness', 'photo', 'shopping'], hue: 330, university: 'ULPGC' },
+  { key: 'andrei', first_name: 'Andrei', intro: 'Romanian CS student. Study sessions, board games and five-a-side football.', area: 'tafira', languages: ['Romanian', 'English', 'Spanish'], interests: ['study', 'games', 'sports'], hue: 190 },
+  { key: 'elif', first_name: 'Elif', intro: 'From Istanbul. Tapas evenings, live music and dancing.', area: 'triana', languages: ['Turkish', 'English'], interests: ['food', 'culture', 'nightout'], hue: 350 },
+  { key: 'nikos', first_name: 'Nikos', intro: 'Greek, here for the year. I want to hike every corner of the island.', area: 'alcaravaneras', languages: ['Greek', 'English'], interests: ['hiking', 'daytrip', 'photo'], hue: 160 },
+  { key: 'carmen', first_name: 'Carmen', intro: 'Local student. Language exchange, tapas tips and showing people around.', area: 'santacatalina', languages: ['Spanish', 'English'], interests: ['food', 'study', 'nightout'], hue: 45, role: 'local' },
+  { key: 'emma', first_name: 'Emma', intro: 'From Gothenburg. Beach every day, yoga at sunrise, sunsets at El Confital.', area: 'isleta', languages: ['Swedish', 'English'], interests: ['beach', 'wellness', 'surf'], hue: 230 },
+  { key: 'sofia', first_name: 'Sofia', intro: 'Portuguese, studying tourism. Day trips, museums and long beach walks.', area: 'alcaravaneras', languages: ['Portuguese', 'Spanish', 'English'], interests: ['museum', 'daytrip', 'beach'], hue: 260 },
 ];
+
+// Example listing photos live in public/photos/market (credits in shared/photos.js).
+const MARKET_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public', 'photos', 'market');
+function photoFile(key) {
+  try { return key ? fs.readFileSync(path.join(MARKET_DIR, `${key}.jpg`)) : null; } catch { return null; }
+}
 
 function hslHex(h) {
   // Light pastel background for drawn avatars, from the persona's hue.
@@ -90,6 +98,15 @@ export function seed(db, { force = false } = {}) {
   }
   if (!config.demoMode) return;
 
+  const SEED_VERSION = 5;
+  const stored = Number(db.prepare("SELECT value FROM settings WHERE key = 'seed_version'").get()?.value || 0);
+  const upgrade = stored < SEED_VERSION;
+  if (upgrade) {
+    force = true;
+    db.prepare("DELETE FROM listings WHERE is_sample = 1").run();
+    db.prepare("UPDATE events SET title = substr(title, 15) WHERE is_sample = 1 AND title LIKE 'Sample event: %'").run();
+  }
+
   const ids = {};
   for (const p of PERSONAS) {
     const email = `${p.key}@sample.invalid`;
@@ -102,6 +119,7 @@ export function seed(db, { force = false } = {}) {
       u = { id: Number(lastInsertRowid) };
     }
     ids[p.key] = u.id;
+    db.prepare('UPDATE profiles SET intro = ? WHERE user_id = ?').run(p.intro, u.id);
     // Drawn avatars (DiceBear "Notionists", CC0) so sample people never use photos of real people.
     if (!db.prepare('SELECT 1 FROM photos WHERE user_id = ?').get(u.id)) {
       const svg = createAvatar(notionists, { seed: `sq-${p.key}`, backgroundColor: [hslHex(p.hue)] }).toString();
@@ -112,14 +130,24 @@ export function seed(db, { force = false } = {}) {
 
   // Sample marketplace listings from fictional personas (labelled Sample). Prices are illustrative.
   if (!db.prepare("SELECT 1 FROM listings WHERE is_sample = 1 AND kind != 'ticket'").get()) {
-    const li = (k, kind, category, title, description, price, area) => db.prepare(`INSERT INTO listings (city_id, user_id, kind, category, title, description, price_eur, area, is_sample)
-      VALUES (?,?,?,?,?,?,?,?,1)`).run(city.id, ids[k], kind, category, title, description, price, area);
-    li('lena', 'sell', 'bikes', 'City bike, works well', 'Leaving in February. Lock included. Sample listing.', 60, 'Triana / Vegueta');
-    li('matteo', 'sell', 'surf', 'Wetsuit, size M', 'Used for one season. Sample listing.', 35, 'Las Canteras / Guanarteme');
-    li('aicha', 'free', 'kitchen', 'Pots, pans and plates', 'Free to whoever picks them up. Sample listing.', 0, 'Tafira (ULPGC campus)');
-    li('andrei', 'sell', 'books', 'Spanish A2 course book', 'A few pencil notes. Sample listing.', 10, 'Tafira (ULPGC campus)');
-    li('klara', 'wanted', 'furniture', 'Looking for a desk lamp', 'For my room, anything simple. Sample listing.', null, 'Las Canteras / Guanarteme');
-    li('emma', 'sell', 'furniture', 'Small fan for summer nights', 'Quiet, three speeds. Sample listing.', 12, 'La Isleta / El Confital');
+    const li = (k, kind, category, title, description, price, area, photoKey) => {
+      const img = photoFile(photoKey);
+      db.prepare(`INSERT INTO listings (city_id, user_id, kind, category, title, description, price_eur, area, is_sample, photo_mime, photo)
+        VALUES (?,?,?,?,?,?,?,?,1,?,?)`).run(city.id, ids[k], kind, category, title, description, price, area, img ? 'image/jpeg' : null, img);
+    };
+    li('lena', 'sell', 'bikes', 'City bike, works well', 'Leaving in February. Lock included, brakes checked last month.', 60, 'Triana / Vegueta', 'p_bike');
+    li('matteo', 'sell', 'surf', 'Wetsuit, size M', 'Used for one season, no holes. Perfect for the winter water here.', 35, 'Las Canteras / Guanarteme', 'p_wetsuit');
+    li('aicha', 'free', 'kitchen', 'Pots, pans and plates', 'Free to whoever picks them up. Two pots, one pan, four plates.', 0, 'Tafira (ULPGC campus)', 'p_pots');
+    li('andrei', 'sell', 'books', 'Spanish A2 course book', 'A few pencil notes, otherwise like new.', 10, 'Tafira (ULPGC campus)', 'p_book');
+    li('klara', 'wanted', 'furniture', 'Looking for a desk lamp', 'For my room, anything simple. Can pick up anywhere near Las Canteras.', null, 'Las Canteras / Guanarteme', 'p_lamp');
+    li('emma', 'sell', 'furniture', 'Small fan for summer nights', 'Quiet, three speeds.', 12, 'La Isleta / El Confital', 'p_fan');
+  }
+
+  // Add pictures to example listings whose picture file was added later.
+  const LISTING_PHOTO = { 'City bike, works well': 'p_bike', 'Wetsuit, size M': 'p_wetsuit', 'Pots, pans and plates': 'p_pots', 'Spanish A2 course book': 'p_book', 'Looking for a desk lamp': 'p_lamp', 'Small fan for summer nights': 'p_fan' };
+  for (const l of db.prepare("SELECT id, title FROM listings WHERE is_sample = 1 AND photo_mime IS NULL").all()) {
+    const img = photoFile(LISTING_PHOTO[l.title]);
+    if (img) db.prepare("UPDATE listings SET photo_mime = 'image/jpeg', photo = ? WHERE id = ?").run(img, l.id);
   }
 
   // Sample recommendations: written by fictional personas, labelled Sample, about well-known public places. No prices or opening hours.
@@ -207,26 +235,23 @@ export function seed(db, { force = false } = {}) {
     act({ by: 'elif', template: 'tapas', category: 'food', title: 'Tapas evening in Triana', description: 'Sharing a few plates and getting to know each other. Cost is an estimate.',
       starts: at(sat, '20:30'), duration: 120, area: 'Triana / Vegueta', cost: 15, max: 6, beginner: true, languages: ['English', 'Turkish', 'Spanish'], accepted: ['carmen'], pending: ['lena'] });
 
-    const ev = (o) => Number(db.prepare(`INSERT INTO events (city_id, title, description, category, starts_at, duration_min, venue, organiser_name, official_url, price_note, is_sample)
-      VALUES (?,?,?,?,?,?,?,?,?,?,1)`).run(city.id, o.title, o.description, o.category, o.starts, o.duration, o.venue,
-      'Sample organiser (illustrative only, not a real listing)', null, 'The real organiser would show price and registration on their own page.').lastInsertRowid);
-    const e1 = ev({ title: 'Sample event: Welcome tapas night', description: 'Illustrative example of a student-association welcome evening. Not a real event.', category: 'coffee', starts: at(4, '21:00'), duration: 150, venue: 'Santa Catalina area' });
-    const e2 = ev({ title: 'Sample event: Language exchange evening', description: 'Illustrative example of a language exchange. Not a real event.', category: 'study', starts: at(2, '19:30'), duration: 120, venue: 'Triana area' });
-    const e4 = ev({ title: 'Sample event: Beach clean-up morning', description: 'Illustrative example of a volunteer beach clean-up. Not a real event.', category: 'beach', starts: at(sat + 1, '10:00'), duration: 120, venue: 'Las Canteras area' });
-    const e3 = ev({ title: 'Sample event: Summit-area excursion', description: 'Illustrative example of an island excursion by coach. Not a real event.', category: 'hiking', starts: at(sat + 7, '08:00'), duration: 540, venue: 'Departure point in the city centre' });
+    const ev = (o) => Number(db.prepare(`INSERT INTO events (city_id, title, description, category, starts_at, duration_min, venue, organiser_name, official_url, price_note, is_sample, photo_key)
+      VALUES (?,?,?,?,?,?,?,?,?,?,1,?)`).run(city.id, o.title, o.description, o.category, o.starts, o.duration, o.venue,
+      'Example organiser (not a real listing)', null, 'A real organiser would show the price and how to register on their own page.', o.photo).lastInsertRowid);
+    const e1 = ev({ title: 'Welcome tapas night', description: 'A relaxed evening for new international students: a few tapas, music and lots of new faces. Come alone, everyone does.', category: 'food', starts: at(4, '21:00'), duration: 150, venue: 'Santa Catalina area', photo: 'santacatalina' });
+    const e2 = ev({ title: 'Language exchange evening', description: 'Swap languages at small tables, changing every 15 minutes. Spanish, English, Italian, German and more.', category: 'study', starts: at(2, '19:30'), duration: 120, venue: 'Triana area', photo: 'vegueta' });
+    const e4 = ev({ title: 'Beach clean-up morning', description: 'Two hours cleaning a stretch of Las Canteras, then a swim together. Gloves and bags are provided.', category: 'beach', starts: at(sat + 1, '10:00'), duration: 120, venue: 'Las Canteras area', photo: 'promenade' });
 
     db.prepare("DELETE FROM listings WHERE is_sample = 1 AND kind = 'ticket'").run();
     db.prepare(`INSERT INTO listings (city_id, user_id, kind, category, title, description, price_eur, face_value_eur, event_id, area, is_sample)
-      VALUES (?,?,'ticket','tickets',?,?,?,?,?,?,1)`).run(city.id, ids.sofia, 'Ticket for the welcome tapas night', 'I can’t go any more. Passing it on at the price I paid. Sample listing.', 10, 10, e1, 'Alcaravaneras / Ciudad Jardín');
+      VALUES (?,?,'ticket','tickets',?,?,?,?,?,?,1)`).run(city.id, ids.sofia, 'Ticket for the welcome tapas night', 'I can’t go any more, so I’m passing it on at the price I paid.', 10, 10, e1, 'Alcaravaneras / Ciudad Jardín');
     const interest = (e, k, pref, langs, opt) => db.prepare('INSERT OR IGNORE INTO event_interests (event_id, user_id, group_pref, languages, meeting_option, note) VALUES (?,?,?,?,?,?)')
-      .run(e, ids[k], pref, JSON.stringify(langs), opt, 'Sample profile');
+      .run(e, ids[k], pref, JSON.stringify(langs), opt, '');
     interest(e1, 'lena', 'small', ['English', 'German'], 'Meet at the venue entrance');
     interest(e1, 'matteo', 'either', ['English', 'Italian'], 'Walk there together from Las Canteras');
     interest(e2, 'aicha', 'buddy', ['French', 'English'], 'Meet at the venue entrance');
     interest(e2, 'ines', 'small', ['Spanish', 'English'], 'Meet at the venue entrance');
-    interest(e3, 'tomasz', 'small', ['English', 'Polish'], 'Meet at the departure point');
-    interest(e3, 'nikos', 'small', ['Greek', 'English'], 'Meet at the departure point');
-    interest(e1, 'jonas', 'small', ['Dutch', 'English'], 'Walk there together from Las Canteras');
+            interest(e1, 'jonas', 'small', ['Dutch', 'English'], 'Walk there together from Las Canteras');
     interest(e1, 'elif', 'either', ['Turkish', 'English'], 'Meet at the venue entrance');
     interest(e2, 'carmen', 'small', ['Spanish', 'English'], 'Meet at the venue entrance');
     interest(e4, 'emma', 'small', ['Swedish', 'English'], 'Meet at the venue entrance');
@@ -244,7 +269,11 @@ export function seed(db, { force = false } = {}) {
     wish('matteo', 'surf', [], 'Total beginner');
     wish('ines', 'culture', ['fri_evening', 'sat_evening'], 'Live music');
     wish('aicha', 'culture', ['fri_evening'], 'Concerts');
+    wish('emma', 'beach', ['sat_afternoon', 'sun_afternoon'], 'Sunset swims', 'free');
+    wish('nikos', 'hiking', ['sun_morning'], 'Roque Nublo one day');
+    wish('klara', 'beach', ['fri_evening'], 'Sunset at El Confital', 'free');
   });
+  db.prepare("INSERT INTO settings (key, value) VALUES ('seed_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(String(SEED_VERSION));
 }
 
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);

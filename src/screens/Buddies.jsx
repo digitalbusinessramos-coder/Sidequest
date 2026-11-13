@@ -1,6 +1,7 @@
 import { Fragment, useState } from 'react';
 import { t, tx } from '../i18n.js';
 import { ActivityCard, Avatar, ChoiceChips, Empty, ErrorState, Icon, Loading, SampleBadge, Sheet, Stamp, useApp } from '../components.jsx';
+import { ROLE_LABEL } from './Person.jsx';
 import { useApi } from '../util.js';
 import { DAYS, PARTS, categoryLabel, categoryPhrase } from '../../shared/catalog.js';
 
@@ -44,6 +45,8 @@ export default function Buddies() {
   const wishes = useApi('/wishes');
   const sugg = useApi('/wishes/suggestions', { poll: 30000 });
   const inv = useApi('/invitations', { poll: 15000 });
+  const people = useApi('/people');
+  const [showAll, setShowAll] = useState(false);
   const [form, setForm] = useState(null);
   const [busy, setBusy] = useState(false);
 
@@ -67,6 +70,38 @@ export default function Buddies() {
           {inv.data.invitations.map((a) => <ActivityCard key={a.id} a={a} />)}
         </section>
       )}
+
+      <section className="stack" aria-labelledby="ppl-h">
+        <div className="section-title"><h2 id="ppl-h">{tx('Students in {city}', { city: 'Las Palmas' })}</h2>
+          {people.data && <span className="small muted">{tx('{n} people', { n: people.data.people.length })}</span>}</div>
+        <p className="small muted">{tx('People who share your interests come first. Tap someone to see their profile, or invite them to a plan.')}</p>
+        {people.loading && !people.data ? <Loading rows={2} /> : people.error ? <ErrorState error={people.error} onRetry={people.reload} />
+          : (
+            <div className="people-grid">
+              {people.data.people.slice(0, showAll ? undefined : 6).map((p) => (
+                <article key={p.id} className="card person-card">
+                  <a href={`#/person/${p.id}`} className="person-card-top">
+                    <Avatar person={p} size="lg" />
+                    <div style={{ minWidth: 0 }}>
+                      <strong className="person-name">{p.first_name}</strong> {p.is_demo && <SampleBadge />}
+                      <div className="tiny muted">{tx(ROLE_LABEL[p.role] || 'Student')}{p.area ? ` · ${p.area.split(' / ')[0]}` : ''}</div>
+                    </div>
+                  </a>
+                  {p.intro && <p className="small person-intro">{p.intro}</p>}
+                  <div className="chips-static">
+                    {p.interests.slice(0, 4).map((c) => <span key={c} className={`mini-chip ${p.shared.includes(c) ? 'on' : ''}`}><Icon name={c} size={13} />{tx(categoryLabel(c))}</span>)}
+                  </div>
+                  <div className="row" style={{ marginTop: 'auto' }}>
+                    {p.shared.length > 0 && <span className="tiny" style={{ color: 'var(--lime-ink)', fontWeight: 650, flex: 1 }}>{tx('{n} shared interests', { n: p.shared.length })}</span>}
+                    <span className="spacer" />
+                    <a className="btn btn-secondary btn-sm" href={`#/create?template=${tplFor(p.shared[0] || p.interests[0]) || 'other'}&category=${p.shared[0] || p.interests[0] || 'other'}&invite=${p.id}`}><Icon name="plus" size={15} />{tx('Invite')}</a>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        {people.data?.people.length > 6 && <button className="btn btn-ghost btn-sm" style={{ alignSelf: 'center' }} onClick={() => setShowAll(!showAll)}>{showAll ? tx('Show fewer') : tx('Show all {n}', { n: people.data.people.length })}</button>}
+      </section>
 
       <section className="stack" aria-labelledby="sug-h">
         <h2 id="sug-h">{t('buddies.suggestions')}</h2>

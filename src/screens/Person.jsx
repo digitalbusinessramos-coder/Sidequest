@@ -4,6 +4,8 @@ import { Avatar, EmailBadge, ErrorState, Icon, Loading, ReportSheet, SampleBadge
 import { areaName, fmtMonth, useApi } from '../util.js';
 import { categoryLabel } from '../../shared/catalog.js';
 
+export const ROLE_LABEL = { exchange: 'Erasmus / exchange student', international: 'International student', intern: 'Intern / trainee', local: 'Local student' };
+
 export default function Person({ id }) {
   const { me, api, toast, city, meta } = useApp();
   const { data, error, loading, reload } = useApi(`/users/${id}`);

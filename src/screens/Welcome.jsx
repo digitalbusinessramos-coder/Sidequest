@@ -21,6 +21,11 @@ export default function Welcome() {
     } catch (x) { setErr(x.message); } finally { setBusy(false); }
   };
 
+  const guest = async () => {
+    setBusy(true); setErr('');
+    try { localStorage.removeItem('sq_wants_login'); } catch { /* ignore */ }
+    try { await api.post('/auth/guest', {}); await reloadMe(); location.hash = '#/explore'; } catch (x) { setErr(x.message); } finally { setBusy(false); }
+  };
   const demo = async (id) => {
     setBusy(true); setErr('');
     try { await api.post('/auth/demo', { personaId: id }); await reloadMe(); location.hash = '#/explore'; } catch (x) { setErr(x.message); } finally { setBusy(false); }
@@ -40,6 +45,11 @@ export default function Welcome() {
         ))}
       </ol>
 
+      {meta.demoMode && (
+        <button className="btn btn-primary btn-block btn-lg" disabled={busy} onClick={guest}>
+          <Icon name="explore" />{tx('Look around without an account')}
+        </button>
+      )}
       <section className="card card-pad stack" aria-label={tx("Account")}>
         <div className="tabs-inline" role="tablist">
           <button role="tab" aria-selected={mode === 'signup'} onClick={() => setMode('signup')}>{t('welcome.signup')}</button>
@@ -67,7 +77,7 @@ export default function Welcome() {
             {meta.personas.map((p) => (
               <button key={p.id} className="persona" onClick={() => demo(p.id)} disabled={busy}>
                 <Avatar person={p} size="sm" />
-                <span style={{ flex: 1 }}><strong>{p.first_name}</strong><br /><span className="tiny muted">{p.intro.replace('Sample profile. ', '')}</span></span>
+                <span style={{ flex: 1 }}><strong>{p.first_name}</strong><br /><span className="tiny muted">{p.intro}</span></span>
                 <Icon name="back" style={{ transform: 'rotate(180deg)' }} />
               </button>
             ))}

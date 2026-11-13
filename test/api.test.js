@@ -448,3 +448,46 @@ test('ticket resale: only at or below the price paid, shown on the event', async
   const bad = await s.put(`/market/${r.body.id}/photo`, { data: 'data:image/jpeg;base64,' + Buffer.from('nope').toString('base64') });
   assert.equal(bad.status, 400);
 });
+
+test('guest access: one click, private by default, can be saved as an account', async () => {
+  const g = client();
+  assert.equal((await g.post('/auth/guest')).status, 201);
+  const me = (await g.get('/me')).body.user;
+  assert.equal(me.is_guest, true); assert.equal(me.onboarded, true); assert.equal(me.email, null);
+  assert.ok((await g.get('/wishes/suggestions')).body.suggestions.length > 0); // starter wishes show matching straight away
+  // A second guest is a different person: separate permissions.
+  const g2 = client(); await g2.post('/auth/guest');
+  assert.notEqual((await g2.get('/me')).body.user.id, me.id);
+  // Guests do not appear in other people's student lists.
+  const u = await user('Vera', { interests: ['beach'] });
+  assert.ok(!(await u.get('/people')).body.people.some((p) => p.id === me.id));
+  // Guests can still use the app normally.
+  const a = await makeActivity(u);
+  assert.equal((await g.post(`/activities/${a}/requests`, { message: 'Hi' })).status, 201);
+  // Save as an account, keeping what the guest did.
+  assert.equal((await g.post('/auth/claim', { email: 'bad', password: 'password123' })).status, 400);
+  assert.equal((await g.post('/auth/claim', { email: u.email, password: 'password123' })).status, 409);
+  assert.equal((await g.post('/auth/claim', { first_name: 'Gus', email: 'gus@test.example', password: 'password123' })).status, 200);
+  const after = (await g.get('/me')).body.user;
+  assert.equal(after.is_guest, false); assert.equal(after.first_name, 'Gus'); assert.equal(after.id, me.id);
+  assert.ok((await u.get('/people')).body.people.some((p) => p.id === me.id));
+  assert.equal((await g.post('/auth/claim', { email: 'x@test.example', password: 'password123' })).status, 400);
+  const login = client();
+  assert.equal((await login.post('/auth/login', { email: 'gus@test.example', password: 'password123' })).status, 200);
+  // A guest can delete their data without a password.
+  assert.equal((await g2.del('/me', {})).status, 200);
+});
+
+test('students list: visible people, shared interests first, blocked people hidden', async () => {
+  const a = await user('Wen', { interests: ['surf', 'beach'] });
+  const b = await user('Xia', { interests: ['surf'] });
+  const list = (await a.get('/people')).body.people;
+  const xb = list.find((p) => p.id === b.id);
+  assert.deepEqual(xb.shared, ['surf']);
+  assert.ok(list.some((p) => p.is_demo)); // example students are included while "show example content" is on
+  assert.ok(list.findIndex((p) => p.is_demo) > list.findIndex((p) => p.id === b.id)); // real people first
+  await a.post(`/users/${b.id}/block`);
+  assert.ok(!(await a.get('/people')).body.people.some((p) => p.id === b.id));
+  await a.put('/me/privacy', { show_sample: false });
+  assert.ok(!(await a.get('/people')).body.people.some((p) => p.is_demo));
+});

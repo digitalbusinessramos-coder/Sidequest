@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from './api.js';
-import { getLanguage, setAppName, setLanguage, t, tx } from './i18n.js';
+import { getAppName, getLanguage, setAppName, setLanguage, t, tx } from './i18n.js';
 import { AppCtx, ErrorState, Icon, Loading, useToast } from './components.jsx';
 import Welcome from './screens/Welcome.jsx';
 import Onboarding from './screens/Onboarding.jsx';
@@ -16,6 +16,7 @@ import Buddies from './screens/Buddies.jsx';
 import Guide from './screens/Guide.jsx';
 import Profile from './screens/Profile.jsx';
 import Person from './screens/Person.jsx';
+import Tour, { AccountSheet } from './screens/Tour.jsx';
 
 function useHashRoute() {
   const parse = () => {
@@ -55,6 +56,11 @@ export default function App() {
   }, []);
   const [toastNode, toast] = useToast();
 
+  const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch { /* private mode */ } return null; };
+  const [tour, setTour] = useState(false);
+  const [account, setAccount] = useState(null); // 'signup' | 'login'
+  const closeTour = useCallback(() => { setTour(false); store('sq_tour_done', '1'); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const reloadMe = useCallback(async () => {
     const r = await api.get('/me');
     setMe(r.user);
@@ -69,7 +75,12 @@ export default function App() {
       setAppName(m.appName);
       document.title = m.appName;
       setMeta(m);
-      await reloadMe();
+      let u = await reloadMe();
+      // No login wall: first-time visitors look around as a guest. Someone who chose "Log in" sees the login screen instead.
+      if (!u && m.demoMode && store('sq_wants_login') !== '1') {
+        try { await api.post('/auth/guest', {}); u = await reloadMe(); } catch { /* fall back to the welcome screen */ }
+      }
+      if (u && store('sq_tour_done') !== '1') setTour(true);
     } catch (e) { setBootError(e); }
   }, [reloadMe]);
 
@@ -84,7 +95,9 @@ export default function App() {
   if (!meta || me === undefined) return <div className="page"><Loading /></div>;
 
   const city = meta.cities.find((c) => c.slug === me?.city?.slug) || meta.cities[0];
-  const ctx = { meta, me, city, reloadMe, toast, api, counts, lang, changeLanguage };
+  const openTour = () => setTour(true);
+  const openAccount = (mode = 'signup') => setAccount(mode);
+  const ctx = { meta, me, city, reloadMe, toast, api, counts, lang, changeLanguage, openTour, openAccount };
 
   if (!me) return <AppCtx.Provider value={ctx}><Welcome key={lang} />{toastNode}</AppCtx.Provider>;
   if (!me.onboarded) return <AppCtx.Provider value={ctx}><Onboarding key={lang} />{toastNode}</AppCtx.Provider>;
@@ -114,11 +127,19 @@ export default function App() {
 
   return (
     <AppCtx.Provider value={ctx}>
-      {me.is_demo && <div className="demo-banner">{tx('You are using a fictional sample persona ({name}). Changes are visible to other testers.', { name: me.first_name })}</div>}
+      {me.is_demo && <div className="demo-banner">{tx('You are trying the app as {name}, an example student.', { name: me.first_name })}</div>}
+      {me.is_guest && (
+        <div className="guest-bar">
+          <span><Icon name="eye" size={16} /> <span className="guest-short">{tx('Guest mode')}</span><span className="guest-long">{tx('You’re looking around as a guest. No account needed.')}</span></span>
+          <button className="btn btn-sm btn-primary" onClick={() => openAccount('signup')}>{tx('Save my account')}</button>
+          <button className="btn btn-sm btn-ghost" onClick={() => openAccount('login')}>{tx('Log in')}</button>
+        </div>
+      )}
       <div className="app">
         <main id="main" key={lang}>{screen}</main>
       </div>
       <nav className="tabbar" aria-label="Main">
+        <a className="side-logo" href="#/explore">{getAppName().length > 6 ? <>{getAppName().slice(0, -5)}<span>{getAppName().slice(-5)}</span></> : getAppName()}</a>
         <ul>
           {TABS.map(([key, icon, label]) => (
             <li key={key}>
@@ -130,7 +151,10 @@ export default function App() {
             </li>
           ))}
         </ul>
+        <button className="side-help" onClick={openTour}><Icon name="info" size={18} />{tx('How it works')}</button>
       </nav>
+      {tour && <Tour onDone={closeTour} />}
+      {account && <AccountSheet initial={account} onClose={() => setAccount(null)} />}
       {toastNode}
     </AppCtx.Provider>
   );

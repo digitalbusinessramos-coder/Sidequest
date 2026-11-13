@@ -8,6 +8,8 @@ import { tx } from './i18n.js';
  * City map. Pins sit at the centre of a neighbourhood (approximate), never at an exact meeting point.
  * items: [{ key, lat, lng, title, sub, href, category, kind: 'activity' | 'event' | 'tip' }]
  */
+export const googleMapsUrl = (query) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+
 export default function MapView({ items, center, height = 460 }) {
   const el = useRef(null);
   const map = useRef(null);
@@ -15,10 +17,21 @@ export default function MapView({ items, center, height = 460 }) {
 
   useEffect(() => {
     const m = L.map(el.current, { zoomControl: true, attributionControl: true, scrollWheelZoom: false }).setView(center, 13);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+    const carto = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
       maxZoom: 19, subdomains: 'abcd',
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
     }).addTo(m);
+    // If the CARTO tiles cannot be loaded (network filters, outages), switch to the standard OpenStreetMap tiles.
+    let errors = 0;
+    carto.on('tileerror', () => {
+      errors += 1;
+      if (errors === 4) {
+        m.removeLayer(carto);
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' }).addTo(m);
+      }
+    });
+    m.on('focus', () => m.scrollWheelZoom.enable());
+    m.on('blur', () => m.scrollWheelZoom.disable());
     layer.current = L.layerGroup().addTo(m);
     map.current = m;
     return () => { m.remove(); map.current = null; };
@@ -48,6 +61,12 @@ export default function MapView({ items, center, height = 460 }) {
       const strong = document.createElement('strong'); strong.textContent = it.title; a.appendChild(strong);
       if (it.sub) { const s = document.createElement('span'); s.textContent = it.sub; a.appendChild(s); }
       pop.appendChild(a);
+      const g2 = document.createElement('a');
+      g2.className = 'map-pop-google';
+      g2.href = googleMapsUrl(`${it.lat},${it.lng}`);
+      g2.target = '_blank'; g2.rel = 'noopener noreferrer';
+      g2.textContent = tx('Open area in Google Maps');
+      pop.appendChild(g2);
       marker.bindPopup(pop);
       g.addLayer(marker);
     }
