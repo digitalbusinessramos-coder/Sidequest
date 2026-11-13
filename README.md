@@ -25,7 +25,7 @@ For development with hot reload: `npm run dev` (frontend on http://localhost:517
 ## Test it
 
 ```bash
-npm test                 # 26 API tests with separate accounts against a real server + database
+npm test                 # 28 API tests with separate accounts against a real server + database
 npm start & npm run test:browser   # 3 browser users on phone-sized screens, full journey
 npm run check:i18n       # lists any interface sentence that has no Spanish translation
 ```
@@ -47,7 +47,8 @@ You can also log in as a fictional sample persona from the welcome screen (e.g. 
 | Frontend | React (Vite), mobile-first, hash routing | Works in any phone browser from one link |
 | Backend | Node.js + Express | All rules (capacity, who may chat, who may manage) are checked here, not only hidden in the UI |
 | Database | SQLite file (`DB_PATH`) | Real persistence with zero setup; can move to Postgres later |
-| Login | Email + password (scrypt hash), http-only session cookie | No secrets in the browser |
+| Login | Optional. Visitors open straight into the app as a guest (their own temporary account, hidden from other students, erased after `GUEST_DAYS`, default 7). "Save my account" adds email + password (scrypt hash) and keeps everything. Session = http-only cookie, 30 days | Anyone (e.g. a lecturer) can try everything from one link; permissions stay per person; no secrets in the browser |
+| First visit | Four-step welcome tour (what it is for, benefits, how to use it), reopen with "How it works" | Explains the app from a new student's point of view |
 | Email confirmation | Optional link sent through Resend (`RESEND_API_KEY`) | The badge says "Email confirmed" and explains it only proves the person received the email, not that they are a student |
 | Notifications | Stored on the server as the kind of event (request, accept, cancel, change...) and written out in each person's language | Updates show in My Plans with unread badges; unread chat messages show on each plan |
 | Languages | English and Spanish; `t('key')` for short labels, `tx('English sentence')` for longer text, Spanish in `src/i18n.es.js` | Switch in Welcome and Profile. The Spanish text was drafted with AI and still needs review by a native speaker |
@@ -89,7 +90,7 @@ Any host that runs a Node server and has a **persistent disk** works. Without a 
 - **Railway**: new project from the repo, add a Volume mounted at `/data`, set `DB_PATH=/data/sidequest.db`, build `npm ci && npm run build`, start `npm start`.
 - **Fly.io / any Docker host**: use the `Dockerfile` and mount a volume at `/data`.
 
-Environment variables: `APP_NAME`, `PORT`, `DB_PATH`, `DEMO_MODE` (`off` hides sample personas/content), `ADMIN_TOKEN`, `NODE_ENV=production` (secure cookies, requires HTTPS), `AUTH_RATE_LIMIT` (sign-in attempts per IP per 10 min, default 100).
+Environment variables: `APP_NAME`, `PORT`, `DB_PATH`, `DEMO_MODE` (`off` hides sample personas/content), `ADMIN_TOKEN`, `NODE_ENV=production` (secure cookies, requires HTTPS), `AUTH_RATE_LIMIT` (sign-in attempts per IP per 10 min, default 100), `GUEST_DAYS` (days before a guest account is erased, default 7), `GUEST_RATE_LIMIT` (new guests per IP per hour, default 60). Guest access is part of demo mode: `DEMO_MODE=off` turns it off.
 
 Optional email confirmation: `RESEND_API_KEY`, `EMAIL_FROM` (an address on a domain verified in Resend) and `PUBLIC_URL` (the deployed link, used in the email). Without them the app works normally and the Profile screen says email confirmation is not set up yet.
 
@@ -102,7 +103,8 @@ Optional email confirmation: `RESEND_API_KEY`, `EMAIL_FROM` (an address on a dom
 
 ## Data and demo content
 
-- On first start the server creates the Las Palmas city record, the city guide and (if `DEMO_MODE` is not `off`) six fictional sample personas with sample activities and events. Sample activities are re-created with fresh dates when they expire.
+- On first start the server creates the Las Palmas city record, the city guide and (if `DEMO_MODE` is not `off`) 13 example students (fictional, drawn avatars), example plans, three example events, marketplace listings and student tips. Example plans are re-created with fresh dates when they expire.
+- Example content carries one small "Example" tag; the welcome tour and Profile > About say once that it is made up for the preview. Example events also say on their page that they are not real listings.
 - Sample content is flagged `is_sample`/`is_demo` in the database and labelled in the UI. Users can hide it in Profile.
 - `npm run seed -- --force` refreshes the city guide and sample content.
 
