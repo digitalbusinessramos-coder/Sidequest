@@ -1,4 +1,6 @@
 import express from 'express';
+import crypto from 'node:crypto';
+import { sendEmail, emailConfigured } from './email.js';
 import { tx } from './db.js';
 import { config } from './config.js';
 import { hashPassword, verifyPassword, createSession, destroySession, sessionUser, rateLimiter } from './auth.js';
@@ -27,13 +29,37 @@ const SLOT_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].flatMap((d) 
 
 export function createApi(db) {
   const r = express.Router();
+  // Express 4 does not forward errors from async handlers, so wrap every handler.
+  for (const m of ['get', 'post', 'put', 'delete']) {
+    const orig = r[m].bind(r);
+    r[m] = (path, ...hs) => orig(path, ...hs.map((h) => (req, res, next) => {
+      try { const p = h(req, res, next); if (p && typeof p.catch === 'function') p.catch(next); } catch (e) { next(e); }
+    }));
+  }
   const authLimit = rateLimiter(Number(process.env.AUTH_RATE_LIMIT || 100), 10 * 60e3); // per IP; generous because classmates may share one campus IP
   const msgLimit = rateLimiter(30, 60e3);
+  const verifyLimit = rateLimiter(5, 60 * 60e3);
+
+  // ---------- email verification ----------
+  const sha = (x) => crypto.createHash('sha256').update(x).digest('hex');
+  const origin = (req) => process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
+  async function startVerification(req, uid, email) {
+    const token = crypto.randomBytes(24).toString('base64url');
+    db.prepare('DELETE FROM email_tokens WHERE user_id = ?').run(uid);
+    db.prepare('INSERT INTO email_tokens (token_hash, user_id, email, expires_at) VALUES (?,?,?,?)')
+      .run(sha(token), uid, email, new Date(Date.now() + 48 * 3600e3).toISOString());
+    const link = `${origin(req)}/api/auth/verify?token=${token}`;
+    return sendEmail({
+      to: email,
+      subject: `Confirm your email for ${config.appName}`,
+      text: `Hi!\n\nTo confirm that this email address belongs to you, open this link within 48 hours:\n${link}\n\nThis only confirms your email address. It does not verify student status.\nIf you did not sign up for ${config.appName}, ignore this email.`,
+    }).catch((e) => { console.error(e); return { sent: false, error: true }; });
+  }
 
   // ---------- helpers ----------
   const cityById = (id) => db.prepare('SELECT * FROM cities WHERE id = ?').get(id);
   const cityBySlug = (slug) => db.prepare('SELECT * FROM cities WHERE slug = ?').get(slug || config.defaultCity);
-  const profileOf = (uid) => db.prepare('SELECT p.*, u.is_demo FROM profiles p JOIN users u ON u.id = p.user_id WHERE p.user_id = ?').get(uid);
+  const profileOf = (uid) => db.prepare('SELECT p.*, u.is_demo, u.email_verified_at FROM profiles p JOIN users u ON u.id = p.user_id WHERE p.user_id = ?').get(uid);
 
   /** Users I blocked or who blocked me. Hidden from each other everywhere. */
   const blockedSet = (uid) => new Set(
@@ -52,6 +78,7 @@ export function createApi(db) {
     university: p.show_university ? p.university : null,
     exchange_start: p.exchange_start, exchange_end: p.exchange_end,
     area: p.area,
+    email_verified: !!p.email_verified_at, // means: confirmed they can receive email at their sign-up address. Nothing more.
   });
 
   const goingCount = (aid) => 1 + db.prepare("SELECT COUNT(*) AS n FROM memberships WHERE activity_id = ? AND status = 'accepted'").get(aid).n;
@@ -60,6 +87,20 @@ export function createApi(db) {
   const getActivity = (id) => db.prepare('SELECT * FROM activities WHERE id = ?').get(Number(id)) || fail(404, 'not_found', 'This activity no longer exists.');
   const systemMsg = (aid, body) => db.prepare("INSERT INTO messages (activity_id, kind, body) VALUES (?, 'system', ?)").run(aid, body);
   const nameOf = (uid) => profileOf(uid)?.first_name || 'Someone';
+
+  // ---------- notifications ----------
+  const notify = (uid, kind, aid, actorId = null, detail = '') => {
+    if (!uid || uid === actorId) return;
+    db.prepare('INSERT INTO notifications (user_id, kind, activity_id, actor_id, detail) VALUES (?,?,?,?,?)').run(uid, kind, aid, actorId, detail);
+  };
+  const notifyMembers = (aid, statuses, kind, actorId, detail = '') => {
+    const ph = statuses.map(() => '?').join(',');
+    for (const m of db.prepare(`SELECT user_id FROM memberships WHERE activity_id = ? AND status IN (${ph})`).all(aid, ...statuses)) notify(m.user_id, kind, aid, actorId, detail);
+  };
+  const unreadChat = (aid, uid) => {
+    const last = db.prepare('SELECT last_read_id FROM chat_reads WHERE user_id = ? AND activity_id = ?').get(uid, aid)?.last_read_id || 0;
+    return db.prepare("SELECT COUNT(*) AS n FROM messages WHERE activity_id = ? AND id > ? AND kind = 'user' AND user_id != ?").get(aid, last, uid).n;
+  };
 
   function activityView(a, viewerId) {
     const city = cityById(a.city_id);
@@ -81,6 +122,7 @@ export function createApi(db) {
       my_status: isOrg ? 'organiser' : m?.status || null,
       welcome_plan: a.welcome_plan, recognise_tip: a.recognise_tip,
     };
+    if (isOrg || m?.status === 'accepted') v.unread = unreadChat(a.id, viewerId);
     if (isOrg) v.pending_count = db.prepare("SELECT COUNT(*) AS n FROM memberships WHERE activity_id = ? AND status = 'pending'").get(a.id).n;
     return v;
   }
@@ -104,7 +146,7 @@ export function createApi(db) {
   });
 
   // ---------- auth ----------
-  r.post('/auth/signup', (req, res) => {
+  r.post('/auth/signup', async (req, res) => {
     if (!authLimit(req.ip)) fail(429, 'rate', 'Too many attempts. Please wait a few minutes.');
     const email = str(req.body.email, 200, 'Email', { required: true }).toLowerCase();
     const password = String(req.body.password || '');
@@ -119,7 +161,8 @@ export function createApi(db) {
       return Number(lastInsertRowid);
     });
     createSession(db, res, uid);
-    res.status(201).json({ ok: true });
+    const mail = await startVerification(req, uid, email);
+    res.status(201).json({ ok: true, verification_sent: mail.sent });
   });
 
   r.post('/auth/login', (req, res) => {
@@ -139,6 +182,25 @@ export function createApi(db) {
     res.json({ ok: true });
   });
 
+  r.post('/auth/verify/send', auth, async (req, res) => {
+    const u = db.prepare('SELECT email, email_verified_at, is_demo FROM users WHERE id = ?').get(req.user.id);
+    if (u.is_demo) fail(403, 'demo', 'Sample personas have no email address.');
+    if (u.email_verified_at) return res.json({ ok: true, already: true });
+    if (!verifyLimit(String(req.user.id))) fail(429, 'rate', 'Too many emails requested. Please wait an hour.');
+    const mail = await startVerification(req, req.user.id, u.email);
+    res.json({ ok: true, sent: mail.sent, configured: emailConfigured() });
+  });
+
+  // Opened from the email link: confirms the address, then sends the person back into the app.
+  r.get('/auth/verify', (req, res) => {
+    const row = db.prepare('SELECT * FROM email_tokens WHERE token_hash = ?').get(sha(String(req.query.token || '')));
+    const u = row && db.prepare('SELECT email FROM users WHERE id = ?').get(row.user_id);
+    if (!row || row.expires_at < now() || !u || u.email !== row.email) return res.redirect('/#/profile?verified=invalid');
+    db.prepare('UPDATE users SET email_verified_at = ? WHERE id = ?').run(now(), row.user_id);
+    db.prepare('DELETE FROM email_tokens WHERE user_id = ?').run(row.user_id);
+    res.redirect('/#/profile?verified=1');
+  });
+
   r.post('/auth/logout', (req, res) => { destroySession(db, req, res); res.json({ ok: true }); });
 
   // ---------- me ----------
@@ -148,16 +210,20 @@ export function createApi(db) {
     const city = cityById(p.city_id);
     const toReview = db.prepare(`SELECT COUNT(*) AS n FROM memberships m JOIN activities a ON a.id = m.activity_id
       WHERE a.organiser_id = ? AND m.status = 'pending' AND a.status = 'active' AND a.starts_at > ?`).get(req.user.id, now()).n;
+    const unreadNotifs = db.prepare('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND read_at IS NULL').get(req.user.id).n;
+    const chatActs = db.prepare(`SELECT id FROM activities WHERE status = 'active' AND (organiser_id = ? OR id IN
+      (SELECT activity_id FROM memberships WHERE user_id = ? AND status = 'accepted'))`).all(req.user.id, req.user.id);
+    const unreadChats = chatActs.reduce((n, a) => n + unreadChat(a.id, req.user.id), 0);
     const invites = db.prepare(`SELECT COUNT(*) AS n FROM memberships m JOIN activities a ON a.id = m.activity_id
       WHERE m.user_id = ? AND m.status = 'invited' AND a.status = 'active' AND a.starts_at > ?`).get(req.user.id, now()).n;
     res.json({
       user: {
-        id: req.user.id, email: req.user.email, is_demo: req.user.is_demo, email_verified: false,
+        id: req.user.id, email: req.user.email, is_demo: req.user.is_demo, email_verified: !!p.email_verified_at, email_service: emailConfigured(), lang: p.lang,
         ...publicProfile(p), university: p.university, show_university: !!p.show_university,
         visible: !!p.visible, nearby_enabled: !!p.nearby_enabled, show_sample: !!p.show_sample, onboarded: !!p.onboarded,
         city: city && { slug: city.slug, name: city.name, timezone: city.timezone },
       },
-      counts: { toReview, invites },
+      counts: { toReview, invites, notifications: unreadNotifs, chats: unreadChats },
     });
   });
 
@@ -186,6 +252,7 @@ export function createApi(db) {
     if ('visible' in b) set('visible', b.visible ? 1 : 0);
     if ('nearby_enabled' in b) set('nearby_enabled', b.nearby_enabled ? 1 : 0);
     if ('show_sample' in b) set('show_sample', b.show_sample ? 1 : 0);
+    if ('lang' in b && ['en', 'es'].includes(b.lang)) set('lang', b.lang);
     // Only an approximate area name is ever stored: never coordinates.
     if ('area' in b) set('area', J(city.areas).some((a) => a.key === b.area) ? b.area : null);
     res.json({ ok: true });
@@ -198,7 +265,10 @@ export function createApi(db) {
     tx(db, () => {
       const uid = u.id;
       const own = db.prepare("SELECT id FROM activities WHERE organiser_id = ? AND status = 'active'").all(uid);
-      for (const a of own) systemMsg(a.id, 'This activity was cancelled because the organiser deleted their account.');
+      for (const a of own) {
+        systemMsg(a.id, 'This activity was cancelled because the organiser deleted their account.');
+        notifyMembers(a.id, ['accepted', 'pending', 'invited'], 'cancelled', null, 'The organiser deleted their account.');
+      }
       db.prepare("UPDATE activities SET status='cancelled', cancel_reason='The organiser deleted their account.' WHERE organiser_id = ? AND status='active'").run(uid);
       db.prepare("UPDATE activities SET title='Cancelled activity', description='', meeting_point='', welcome_plan='', recognise_tip='' WHERE organiser_id = ?").run(uid);
       for (const m of db.prepare("SELECT activity_id FROM memberships WHERE user_id = ? AND status = 'accepted'").all(uid)) systemMsg(m.activity_id, 'A participant left (account deleted).');
@@ -391,7 +461,10 @@ export function createApi(db) {
       const changes = [];
       if (d.starts_at !== a.starts_at) changes.push('time');
       if (d.meeting_point !== a.meeting_point || d.meeting_area !== a.meeting_area) changes.push('meeting point');
-      if (changes.length) systemMsg(a.id, `The organiser changed the ${changes.join(' and ')}. Check the meet-up card.`);
+      if (changes.length) {
+        systemMsg(a.id, `The organiser changed the ${changes.join(' and ')}. Check the meet-up card.`);
+        notifyMembers(a.id, ['accepted'], 'changed', req.user.id, changes.join(','));
+      }
     });
     res.json({ ok: true });
   });
@@ -403,6 +476,7 @@ export function createApi(db) {
       const reason = str(req.body.reason, 200, 'Reason');
       db.prepare("UPDATE activities SET status='cancelled', cancel_reason=?, updated_at=? WHERE id=?").run(reason || null, now(), a.id);
       systemMsg(a.id, `The organiser cancelled this activity.${reason ? ` Reason: ${reason}` : ''}`);
+      notifyMembers(a.id, ['accepted', 'pending', 'invited'], 'cancelled', req.user.id, reason);
     });
     res.json({ ok: true });
   });
@@ -428,6 +502,7 @@ export function createApi(db) {
       } else {
         db.prepare("INSERT INTO memberships (activity_id, user_id, status, message) VALUES (?, ?, 'pending', ?)").run(a.id, uid, msg);
       }
+      notify(a.organiser_id, 'request_received', a.id, uid);
       return { status: 'pending' };
     });
     res.status(201).json(result);
@@ -441,7 +516,7 @@ export function createApi(db) {
       if (!m || !['pending', 'accepted', 'invited'].includes(m.status)) fail(409, 'not_member', 'You are not part of this activity.');
       const next = m.status === 'accepted' ? 'left' : 'withdrawn';
       db.prepare('UPDATE memberships SET status=?, updated_at=? WHERE id=?').run(next, now(), m.id);
-      if (m.status === 'accepted') systemMsg(a.id, `${nameOf(req.user.id)} left the activity.`);
+      if (m.status === 'accepted') { systemMsg(a.id, `${nameOf(req.user.id)} left the activity.`); notify(a.organiser_id, 'left', a.id, req.user.id); }
     });
     res.json({ ok: true });
   });
@@ -461,13 +536,16 @@ export function createApi(db) {
         if (goingCount(a.id) >= a.max_participants) fail(409, 'full', 'The activity is full. Increase the group size or decline the request.');
         db.prepare("UPDATE memberships SET status='accepted', updated_at=? WHERE id=?").run(now(), m.id);
         systemMsg(a.id, `${nameOf(target)} joined. Say hello!`);
+        notify(target, 'request_accepted', a.id, req.user.id);
       } else if (action === 'decline') {
         if (!['pending', 'invited'].includes(m.status)) fail(409, 'state', 'This request is no longer waiting.');
         db.prepare("UPDATE memberships SET status=?, updated_at=? WHERE id=?").run(m.status === 'invited' ? 'withdrawn' : 'declined', now(), m.id);
+        if (m.status === 'pending') notify(target, 'request_declined', a.id, req.user.id);
       } else if (action === 'remove') {
         if (m.status !== 'accepted') fail(409, 'state', 'This person is not in the group.');
         db.prepare("UPDATE memberships SET status='removed', updated_at=? WHERE id=?").run(now(), m.id);
         systemMsg(a.id, `${nameOf(target)} is no longer part of this activity.`);
+        notify(target, 'removed', a.id, req.user.id);
       } else fail(400, 'invalid', 'Unknown action.');
     });
     res.json({ ok: true });
@@ -499,6 +577,7 @@ export function createApi(db) {
     } else {
       db.prepare("INSERT INTO memberships (activity_id, user_id, status) VALUES (?, ?, 'invited')").run(a.id, targetId);
     }
+    notify(targetId, 'invited', a.id, organiserId);
   }
 
   r.post('/activities/:id/invite', auth, (req, res) => {
@@ -516,6 +595,7 @@ export function createApi(db) {
         if (goingCount(a.id) >= a.max_participants) fail(409, 'full', 'Sorry, the activity filled up.');
         db.prepare("UPDATE memberships SET status='accepted', updated_at=? WHERE id=?").run(now(), m.id);
         systemMsg(a.id, `${nameOf(req.user.id)} accepted the invitation and joined.`);
+        notify(a.organiser_id, 'invite_accepted', a.id, req.user.id);
       } else if (req.params.action === 'decline') {
         db.prepare("UPDATE memberships SET status='withdrawn', updated_at=? WHERE id=?").run(now(), m.id);
       } else fail(400, 'invalid', 'Unknown action.');
@@ -530,6 +610,10 @@ export function createApi(db) {
     const blocked = blockedSet(req.user.id);
     const after = Number(req.query.after) || 0;
     const rows = db.prepare('SELECT * FROM messages WHERE activity_id = ? AND id > ? ORDER BY id LIMIT 500').all(a.id, after);
+    if (rows.length) {
+      db.prepare(`INSERT INTO chat_reads (user_id, activity_id, last_read_id) VALUES (?, ?, ?)
+        ON CONFLICT(user_id, activity_id) DO UPDATE SET last_read_id = MAX(last_read_id, excluded.last_read_id)`).run(req.user.id, a.id, rows[rows.length - 1].id);
+    }
     res.json({
       messages: rows.map((m) => ({
         id: m.id, kind: m.kind, created_at: m.created_at, mine: m.user_id === req.user.id,
@@ -618,7 +702,8 @@ export function createApi(db) {
       if (shared.length) reasons.push(`You both speak ${shared.join(' and ')}`);
       if (mine.group_pref !== 'either' && s.group_pref === mine.group_pref) reasons.push(mine.group_pref === 'buddy' ? 'You both prefer one buddy' : 'You both prefer a small group');
       if (s.meeting_option && s.meeting_option === mine.meeting_option) reasons.push(`Same meeting option: ${s.meeting_option}`);
-      return { user: publicProfile(p), group_pref: s.group_pref, languages: J(s.languages), meeting_option: s.meeting_option, note: s.note, reasons };
+      return { user: publicProfile(p), group_pref: s.group_pref, languages: J(s.languages), meeting_option: s.meeting_option, note: s.note, reasons,
+        match: { shared_languages: shared, same_pref: mine.group_pref !== 'either' && s.group_pref === mine.group_pref ? mine.group_pref : null, same_meeting: !!s.meeting_option && s.meeting_option === mine.meeting_option } };
     }) : null;
     const blocked = blockedSet(uid);
     v.groups = db.prepare("SELECT * FROM activities WHERE event_id = ? AND status = 'active'").all(e.id)
@@ -722,10 +807,35 @@ export function createApi(db) {
         const extras = [];
         if (shared.length) extras.push(`You both speak ${shared.slice(0, 2).join(' and ')}.`);
         if (w.budget === 'free' || o.budget === 'free') extras.push(w.budget === o.budget ? 'You both prefer free plans.' : 'One of you prefers free plans, so keep it free.');
-        out.push({ wish_id: w.id, other_wish_id: o.id, category: w.category, overlap, user: publicProfile(p), other_note: o.note, reason, extras });
+        out.push({ wish_id: w.id, other_wish_id: o.id, category: w.category, overlap, flexible, shared_languages: shared,
+          budget_note: w.budget === 'free' || o.budget === 'free' ? (w.budget === o.budget ? 'both_free' : 'one_free') : null,
+          user: publicProfile(p), other_note: o.note, reason, extras });
       }
     }
     res.json({ suggestions: out.slice(0, 30) });
+  });
+
+  r.get('/notifications', auth, (req, res) => {
+    const blocked = blockedSet(req.user.id);
+    const rows = db.prepare(`SELECT n.*, a.title, a.status AS astatus FROM notifications n LEFT JOIN activities a ON a.id = n.activity_id
+      WHERE n.user_id = ? ORDER BY n.id DESC LIMIT 50`).all(req.user.id);
+    res.json({
+      notifications: rows.filter((n) => !blocked.has(n.actor_id)).map((n) => ({
+        id: n.id, kind: n.kind, detail: n.detail, read: !!n.read_at, created_at: n.created_at,
+        activity: n.activity_id ? { id: n.activity_id, title: n.title, status: n.astatus } : null,
+        actor: n.actor_id ? { id: n.actor_id, first_name: nameOf(n.actor_id) } : null,
+      })),
+    });
+  });
+
+  r.post('/notifications/read', auth, (req, res) => {
+    const ids = Array.isArray(req.body.ids) ? req.body.ids.map(Number).filter(Boolean).slice(0, 200) : null;
+    if (ids?.length) {
+      db.prepare(`UPDATE notifications SET read_at = ? WHERE user_id = ? AND read_at IS NULL AND id IN (${ids.map(() => '?').join(',')})`).run(now(), req.user.id, ...ids);
+    } else if (req.body.all) {
+      db.prepare('UPDATE notifications SET read_at = ? WHERE user_id = ? AND read_at IS NULL').run(now(), req.user.id);
+    }
+    res.json({ ok: true });
   });
 
   r.get('/invitations', auth, (req, res) => {

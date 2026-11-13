@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { t } from './i18n.js';
+import { LANGUAGE_OPTIONS, t, tx } from './i18n.js';
 import { fmtCost, fmtWhen } from './util.js';
 
 export const AppCtx = createContext(null);
@@ -85,7 +85,7 @@ export function Avatar({ person, size = '' }) {
 }
 
 export function SampleBadge() {
-  return <span className="badge badge-sample" title="Fictional demo content">{t('common.sample')}</span>;
+  return <span className="badge badge-sample" title={tx("Fictional demo content")}>{t('common.sample')}</span>;
 }
 
 export function StatusBadge({ status }) {
@@ -128,17 +128,18 @@ export function ActivityCard({ a, reason }) {
         <div className="facts">
           <span><Icon name="pin" size={15} />{a.meeting_area}</span>
           <span><Icon name="euro" size={15} />{fmtCost(a.cost_eur)}</span>
-          {a.languages?.length > 0 && <span><Icon name="globe" size={15} />{a.languages.slice(0, 3).join(', ')}</span>}
+          {a.languages?.length > 0 && <span><Icon name="globe" size={15} />{a.languages.slice(0, 3).map((l) => tx(l)).join(', ')}</span>}
         </div>
         <div className="row wrap ticket-edge" style={{ gap: 8 }}>
           <Spots going={a.going} max={a.max_participants} />
           <span className="small" style={{ fontWeight: 650 }}>
-            {a.state === 'full' ? t('card.full') : a.max_participants === 2 ? 'One buddy' : t('card.spots', { n: a.spots_left, max: a.max_participants })}
+            {a.state === 'full' ? t('card.full') : a.max_participants === 2 ? tx("One buddy") : t('card.spots', { n: a.spots_left, max: a.max_participants })}
           </span>
           {a.solo_format && <span className="badge badge-solo">{t('card.solo')}</span>}
-          {a.beginner_friendly && <span className="badge badge-official" style={{ background: 'var(--paper-2)', color: 'var(--ink-2)' }}>Beginners welcome</span>}
+          {a.beginner_friendly && <span className="badge badge-official" style={{ background: 'var(--paper-2)', color: 'var(--ink-2)' }}>{tx("Beginners welcome")}</span>}
+          {a.unread > 0 && <span className="badge badge-invited"><Icon name="chat" size={13} />{tx(a.unread === 1 ? '1 new message' : '{n} new messages', { n: a.unread })}</span>}
           {a.organiser?.id && a.my_status === 'organiser' && a.pending_count > 0 && (
-            <span className="badge badge-cancelled">{a.pending_count} to review</span>
+            <span className="badge badge-cancelled">{tx('{n} to review', { n: a.pending_count })}</span>
           )}
         </div>
         {reason && <span className="reason">{reason}</span>}
@@ -156,7 +157,7 @@ export function EventCard({ e }) {
           <span className="when">{fmtWhen(e.starts_at, e.timezone)}</span>
           <span className="spacer" />
           {e.is_sample && <SampleBadge />}
-          {e.i_am_seeking && <span className="badge badge-invited">You’re looking</span>}
+          {e.i_am_seeking && <span className="badge badge-invited">{tx("You’re looking")}</span>}
         </div>
         <div className="title">{e.title}</div>
         <div className="facts">
@@ -165,7 +166,7 @@ export function EventCard({ e }) {
         </div>
         <div className="row ticket-edge small" style={{ fontWeight: 650, color: e.seeking_count ? 'var(--lime-ink)' : 'var(--ink-3)' }}>
           <Icon name="group" size={16} />
-          {e.seeking_count ? t('card.seeking', { n: e.seeking_count }) : 'Be the first to look for company'}
+          {e.seeking_count ? t('card.seeking', { n: e.seeking_count }) : tx("Be the first to look for company")}
         </div>
       </div>
     </a>
@@ -185,8 +186,8 @@ export function ErrorState({ error, onRetry }) {
   return (
     <div className="empty" role="alert">
       <span className="stamp" style={{ color: 'var(--coral-ink)' }}><Icon name="info" /></span>
-      <h3>{error?.status === 404 ? 'Not found' : error?.code === 'offline' ? 'You seem to be offline' : t('common.error')}</h3>
-      <p className="muted small">{error?.message}</p>
+      <h3>{error?.status === 404 ? tx("Not found") : error?.code === 'offline' ? tx("You seem to be offline") : t('common.error')}</h3>
+      <p className="muted small">{tx(error?.message || '')}</p>
       {onRetry && <button className="btn btn-secondary btn-sm" onClick={() => onRetry()}>{t('common.retry')}</button>}
     </div>
   );
@@ -249,7 +250,7 @@ export function ChoiceChips({ options, value, onChange, multiple = false, label 
     <div className="choice-grid" role="group" aria-label={label}>
       {options.map((o) => (
         <button key={o.key} type="button" className="chip" aria-pressed={isOn(o.key)} onClick={() => toggle(o.key)}>
-          {isOn(o.key) && multiple && <Icon name="check" size={15} />}{o.label}
+          {isOn(o.key) && multiple && <Icon name="check" size={15} />}{tx(o.label)}
         </button>
       ))}
     </div>
@@ -264,7 +265,7 @@ export function useToast() {
     return () => clearTimeout(id);
   }, [toast]);
   const node = toast ? <div className={`toast ${toast.error ? 'error' : ''}`} role="status" aria-live="polite">{toast.text}</div> : null;
-  return [node, (text, error = false) => setToast({ text, error, k: Math.random() })];
+  return [node, (text, error = false) => setToast({ text: tx(text), error, k: Math.random() })];
 }
 
 export function ReportSheet({ target, onClose }) {
@@ -283,22 +284,42 @@ export function ReportSheet({ target, onClose }) {
     } catch (x) { setErr(x.message); } finally { setBusy(false); }
   };
   return (
-    <Sheet title={`${t('report.title')} ${target.label || ''}`} onClose={onClose}>
+    <Sheet title={t('report.title')} onClose={onClose}>
       <form className="stack" onSubmit={send}>
         <div className="notice coral"><Icon name="shield" />{t('report.note')}</div>
         <fieldset className="stack-sm" style={{ border: 0, padding: 0, margin: 0 }}>
           <legend className="label" style={{ marginBottom: 6 }}>{t('report.reason')}</legend>
           {meta.reportReasons.map((r) => (
-            <label key={r} className="check"><input type="radio" name="reason" value={r} checked={reason === r} onChange={() => setReason(r)} />{r}</label>
+            <label key={r} className="check"><input type="radio" name="reason" value={r} checked={reason === r} onChange={() => setReason(r)} />{tx(r)}</label>
           ))}
         </fieldset>
         <label className="field"><span>{t('report.details')}</span>
           <textarea className="textarea" maxLength={1000} value={details} onChange={(e) => setDetails(e.target.value)} />
         </label>
-        {err && <div className="form-error" role="alert">{err}</div>}
+        {err && <div className="form-error" role="alert">{tx(err)}</div>}
         <button className="btn btn-primary btn-block" disabled={!reason || busy}>{t('report.send')}</button>
-        <p className="tiny muted">Reports are stored for review by the app team. In this student prototype there is no moderation team yet.</p>
+        <p className="tiny muted">{tx("Reports are stored for review by the app team. In this student prototype there is no moderation team yet.")}</p>
       </form>
     </Sheet>
+  );
+}
+
+export function LanguageSwitch() {
+  const { lang, changeLanguage } = useApp();
+  return (
+    <div className="row" role="group" aria-label="Language / Idioma" style={{ gap: 6 }}>
+      <Icon name="globe" size={18} />
+      {LANGUAGE_OPTIONS.map((o) => (
+        <button key={o.key} type="button" className="chip" lang={o.key} aria-pressed={lang === o.key} onClick={() => changeLanguage(o.key)} style={{ minHeight: 36 }}>{o.label}</button>
+      ))}
+    </div>
+  );
+}
+
+export function EmailBadge() {
+  return (
+    <span className="badge badge-community" title={tx('They confirmed they can receive email at the address they signed up with. Student status is not verified.')}>
+      <Icon name="check" size={13} />{tx('Email confirmed')}
+    </span>
   );
 }

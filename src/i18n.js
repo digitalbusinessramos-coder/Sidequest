@@ -107,15 +107,46 @@ const en = {
   'common.offline': 'Can’t reach the server. Check your connection.',
 };
 
-const dictionaries = { en };
+import { es, esKeys } from './i18n.es.js';
+
+const dictionaries = { en, es: esKeys };
+const phrases = { es }; // English sentence -> translation, for tx()
+const LOCALES = { en: 'en-GB', es: 'es-ES' };
 let lang = 'en';
 let appName = 'SIDEQUEST';
 
+function initialLanguage() {
+  try {
+    const saved = localStorage.getItem('sq_lang');
+    if (saved && dictionaries[saved]) return saved;
+  } catch { /* storage unavailable */ }
+  return (navigator.language || 'en').toLowerCase().startsWith('es') ? 'es' : 'en';
+}
+lang = typeof window !== 'undefined' ? initialLanguage() : 'en';
+if (typeof document !== 'undefined') document.documentElement.lang = lang;
+
+export const LANGUAGE_OPTIONS = [{ key: 'en', label: 'English' }, { key: 'es', label: 'Español' }];
 export function setAppName(name) { appName = name || appName; }
 export function getAppName() { return appName; }
-export function setLanguage(l) { if (dictionaries[l]) lang = l; }
+export function getLanguage() { return lang; }
+export function locale() { return LOCALES[lang]; }
+export function setLanguage(l) {
+  if (!dictionaries[l]) return;
+  lang = l;
+  try { localStorage.setItem('sq_lang', l); } catch { /* storage unavailable */ }
+  if (typeof document !== 'undefined') document.documentElement.lang = l;
+}
 
+const fill = (s, vars) => s.replace(/\{(\w+)\}/g, (_, k) => (k === 'app' ? appName : vars[k] ?? ''));
+
+/** Keyed strings, e.g. t('nav.explore'). */
 export function t(key, vars = {}) {
-  const s = dictionaries[lang][key] ?? en[key] ?? key;
-  return s.replace(/\{(\w+)\}/g, (_, k) => (k === 'app' ? appName : vars[k] ?? ''));
+  return fill(dictionaries[lang][key] ?? en[key] ?? key, vars);
+}
+
+/** Sentence strings: the English text is the key, e.g. tx('Ask to join'). Missing translations fall back to English. */
+export function tx(text, vars = {}) {
+  if (text == null) return '';
+  const tr = lang === 'en' ? text : phrases[lang]?.[text] ?? text;
+  return fill(tr, vars);
 }

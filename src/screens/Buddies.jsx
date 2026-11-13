@@ -1,20 +1,37 @@
 import { Fragment, useState } from 'react';
-import { t } from '../i18n.js';
+import { t, tx } from '../i18n.js';
 import { ActivityCard, Avatar, ChoiceChips, Empty, ErrorState, Icon, Loading, SampleBadge, Sheet, Stamp, useApp } from '../components.jsx';
 import { useApi } from '../util.js';
-import { DAYS, PARTS, slotLabel, categoryLabel } from '../../shared/catalog.js';
+import { DAYS, PARTS, categoryLabel, categoryPhrase } from '../../shared/catalog.js';
+
+// The server decides the match with simple rules; the sentence is built here so it can be shown in any language.
+function reasonText(s) {
+  const what = tx(categoryPhrase(s.category));
+  return s.overlap.length
+    ? tx('You both want to {what} and are available {when}.', { what, when: s.overlap.slice(0, 2).map((x) => slotText(x)).join(tx(' or ')) })
+    : tx('You both want to {what}. One of you is flexible about timing.', { what });
+}
+function extrasText(s) {
+  const out = [];
+  if (s.shared_languages.length) out.push(tx('You both speak {langs}.', { langs: s.shared_languages.slice(0, 2).map((l) => tx(l)).join(tx(' and ')) }));
+  if (s.budget_note === 'both_free') out.push(tx('You both prefer free plans.'));
+  if (s.budget_note === 'one_free') out.push(tx('One of you prefers free plans, so keep it free.'));
+  return out.join(' ');
+}
+
+const slotText = (slot) => { const [d, p] = slot.split('_'); return `${tx(DAYS.find((x) => x[0] === d)?.[1] || d)} ${tx(p)}`; };
 
 function SlotPicker({ value, onChange }) {
   const toggle = (s) => onChange(value.includes(s) ? value.filter((x) => x !== s) : [...value, s]);
   return (
-    <div className="slot-grid" role="group" aria-label="When are you usually free?">
-      <span />{PARTS.map(([p]) => <span key={p} className="tiny muted" style={{ textAlign: 'center' }}>{p}</span>)}
+    <div className="slot-grid" role="group" aria-label={tx("When are you usually free?")}>
+      <span />{PARTS.map(([p]) => <span key={p} className="tiny muted" style={{ textAlign: 'center' }}>{tx(p)}</span>)}
       {DAYS.map(([d, name]) => (
         <Fragment key={d}>
-          <span className="tiny" style={{ fontWeight: 650 }}>{name.slice(0, 3)}</span>
+          <span className="tiny" style={{ fontWeight: 650 }}>{tx(name).slice(0, 3)}</span>
           {PARTS.map(([p]) => {
             const s = `${d}_${p}`;
-            return <button key={s} type="button" aria-pressed={value.includes(s)} aria-label={`${name} ${p}`} onClick={() => toggle(s)}>{value.includes(s) ? '✓' : ''}</button>;
+            return <button key={s} type="button" aria-pressed={value.includes(s)} aria-label={`${tx(name)} ${tx(p)}`} onClick={() => toggle(s)}>{value.includes(s) ? '✓' : ''}</button>;
           })}
         </Fragment>
       ))}
@@ -32,7 +49,7 @@ export default function Buddies() {
 
   const add = async (e) => {
     e.preventDefault(); setBusy(true);
-    try { await api.post('/wishes', form); setForm(null); toast('Wish saved. We’ll show people with the same wish.'); wishes.reload(); sugg.reload(); } catch (x) { toast(x.message, true); } finally { setBusy(false); }
+    try { await api.post('/wishes', form); setForm(null); toast(tx("Wish saved. We’ll show people with the same wish.")); wishes.reload(); sugg.reload(); } catch (x) { toast(x.message, true); } finally { setBusy(false); }
   };
   const remove = async (id) => {
     try { await api.del(`/wishes/${id}`); wishes.reload(); sugg.reload(); } catch (x) { toast(x.message, true); }
@@ -41,12 +58,12 @@ export default function Buddies() {
 
   return (
     <div className="page">
-      <div className="stack-sm"><span className="eyebrow">Same wish, same time</span><h1>{t('buddies.title')}</h1>
+      <div className="stack-sm"><span className="eyebrow">{tx("Same wish, same time")}</span><h1>{t('buddies.title')}</h1>
         <p className="small muted">{t('buddies.lead')}</p></div>
 
       {inv.data?.invitations.length > 0 && (
         <section className="stack" aria-labelledby="inv-h">
-          <h2 id="inv-h">Invitations for you</h2>
+          <h2 id="inv-h">{tx("Invitations for you")}</h2>
           {inv.data.invitations.map((a) => <ActivityCard key={a.id} a={a} />)}
         </section>
       )}
@@ -54,16 +71,16 @@ export default function Buddies() {
       <section className="stack" aria-labelledby="sug-h">
         <h2 id="sug-h">{t('buddies.suggestions')}</h2>
         {sugg.loading && !sugg.data ? <Loading rows={1} /> : sugg.error ? <ErrorState error={sugg.error} onRetry={sugg.reload} />
-          : sugg.data.suggestions.length === 0 ? <p className="small muted">{wishes.data?.wishes.length ? t('buddies.noSuggestions') : 'Add a wish below to see people who want the same thing.'}</p>
+          : sugg.data.suggestions.length === 0 ? <p className="small muted">{wishes.data?.wishes.length ? t('buddies.noSuggestions') : tx("Add a wish below to see people who want the same thing.")}</p>
             : sugg.data.suggestions.map((s) => (
               <div key={`${s.wish_id}-${s.other_wish_id}`} className="card card-pad stack-sm">
                 <div className="row">
                   <Avatar person={s.user} />
                   <a href={`#/person/${s.user.id}`} style={{ flex: 1, color: 'inherit' }}><strong>{s.user.first_name}</strong> {s.user.is_demo && <SampleBadge />}
-                    <div className="tiny muted">{categoryLabel(s.category)}{s.other_note ? ` · “${s.other_note}”` : ''}</div></a>
+                    <div className="tiny muted">{tx(categoryLabel(s.category))}{s.other_note ? ` · “${s.other_note}”` : ''}</div></a>
                 </div>
-                <p style={{ fontWeight: 600 }}>{s.reason}</p>
-                {s.extras.length > 0 && <p className="small muted">{s.extras.join(' ')}</p>}
+                <p style={{ fontWeight: 600 }}>{reasonText(s)}</p>
+                {extrasText(s) && <p className="small muted">{extrasText(s)}</p>}
                 <a className="btn btn-primary btn-sm" href={`#/create?template=${tplFor(s.category) || 'other'}&category=${s.category}&invite=${s.user.id}`}><Icon name="plus" size={16} />{t('buddies.propose')}</a>
               </div>
             ))}
@@ -74,15 +91,15 @@ export default function Buddies() {
         <div className="section-title"><h2 id="w-h">{t('buddies.wishes')}</h2>
           <button className="btn btn-secondary btn-sm" onClick={() => setForm({ category: '', note: '', slots: [], budget: 'any' })}><Icon name="plus" size={16} />{t('buddies.addWish')}</button></div>
         {wishes.loading && !wishes.data ? <Loading rows={1} /> : wishes.error ? <ErrorState error={wishes.error} onRetry={wishes.reload} />
-          : wishes.data.wishes.length === 0 ? <Empty icon="star" title={t('buddies.noWishes')} hint="For example: “Visit a museum, Thursday afternoons, free or cheap.”" />
+          : wishes.data.wishes.length === 0 ? <Empty icon="star" title={t('buddies.noWishes')} hint={tx("For example: “Visit a museum, Thursday afternoons, free or cheap.”")} />
             : wishes.data.wishes.map((w) => (
               <div key={w.id} className="card card-pad row">
                 <Stamp category={w.category} />
                 <div style={{ flex: 1 }}>
-                  <strong>{categoryLabel(w.category)}</strong>{w.note && <span className="muted"> · {w.note}</span>}
-                  <div className="tiny muted">{w.slots.length ? w.slots.map(slotLabel).join(', ') : 'Flexible timing'} · {meta.budgets.find((b) => b.key === w.budget)?.label}</div>
+                  <strong>{tx(categoryLabel(w.category))}</strong>{w.note && <span className="muted"> · {w.note}</span>}
+                  <div className="tiny muted">{w.slots.length ? w.slots.map((x) => slotText(x)).join(', ') : tx("Flexible timing")} · {tx(meta.budgets.find((b) => b.key === w.budget)?.label || '')}</div>
                 </div>
-                <button className="icon-btn" aria-label={`Delete wish: ${categoryLabel(w.category)}`} onClick={() => remove(w.id)}><Icon name="trash" /></button>
+                <button className="icon-btn" aria-label={tx('Delete wish: {what}', { what: tx(categoryLabel(w.category)) })} onClick={() => remove(w.id)}><Icon name="trash" /></button>
               </div>
             ))}
       </section>
@@ -90,21 +107,21 @@ export default function Buddies() {
       {form && (
         <Sheet title={t('buddies.addWish')} onClose={() => setForm(null)}>
           <form className="stack" onSubmit={add}>
-            <div className="field"><span className="label">I’d like to…</span>
-              <ChoiceChips label="Activity" value={form.category} onChange={(category) => setForm({ ...form, category })} options={meta.categories.map((c) => ({ key: c.key, label: c.label }))} />
+            <div className="field"><span className="label">{tx("I’d like to…")}</span>
+              <ChoiceChips label={tx("Activity")} value={form.category} onChange={(category) => setForm({ ...form, category })} options={meta.categories.map((c) => ({ key: c.key, label: c.label }))} />
             </div>
-            <label className="field"><span>Details (optional)</span>
-              <input className="input" maxLength={140} value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder="e.g. Modern art, or anything in the old town" />
+            <label className="field"><span>{tx("Details (optional)")}</span>
+              <input className="input" maxLength={140} value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder={tx("e.g. Modern art, or anything in the old town")} />
             </label>
-            <div className="field"><span className="label">When are you usually free?</span>
-              <span className="hint">Leave empty if you’re flexible.</span>
+            <div className="field"><span className="label">{tx("When are you usually free?")}</span>
+              <span className="hint">{tx("Leave empty if you’re flexible.")}</span>
               <SlotPicker value={form.slots} onChange={(slots) => setForm({ ...form, slots })} />
             </div>
-            <div className="field"><span className="label">Budget</span>
-              <ChoiceChips label="Budget" value={form.budget} onChange={(budget) => setForm({ ...form, budget: budget || 'any' })} options={meta.budgets} />
+            <div className="field"><span className="label">{tx("Budget")}</span>
+              <ChoiceChips label={tx("Budget")} value={form.budget} onChange={(budget) => setForm({ ...form, budget: budget || 'any' })} options={meta.budgets} />
             </div>
-            <p className="small muted">Others with a compatible wish see your first name, languages and this wish. Pause this any time in Profile.</p>
-            <button className="btn btn-primary btn-block" disabled={busy || !form.category}>Save wish</button>
+            <p className="small muted">{tx("Others with a compatible wish see your first name, languages and this wish. Pause this any time in Profile.")}</p>
+            <button className="btn btn-primary btn-block" disabled={busy || !form.category}>{tx("Save wish")}</button>
           </form>
         </Sheet>
       )}

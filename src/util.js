@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
+import { locale, tx } from './i18n.js';
 
 /** Format a UTC time in the activity's own time zone (e.g. Atlantic/Canary), whatever the viewer's device zone is. */
 export function fmtWhen(iso, tz, { withDay = true } = {}) {
@@ -7,33 +8,33 @@ export function fmtWhen(iso, tz, { withDay = true } = {}) {
   const dayKey = (x) => new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(x);
   const today = dayKey(new Date());
   const tomorrow = dayKey(new Date(Date.now() + 864e5));
-  const time = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit' }).format(d);
+  const time = new Intl.DateTimeFormat(locale(), { timeZone: tz, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(d);
   if (!withDay) return time;
   const k = dayKey(d);
-  const day = k === today ? 'Today' : k === tomorrow ? 'Tomorrow'
-    : new Intl.DateTimeFormat('en-GB', { timeZone: tz, weekday: 'short', day: 'numeric', month: 'short' }).format(d);
+  const day = k === today ? tx('Today') : k === tomorrow ? tx('Tomorrow')
+    : new Intl.DateTimeFormat(locale(), { timeZone: tz, weekday: 'short', day: 'numeric', month: 'short' }).format(d);
   return `${day}, ${time}`;
 }
 
 export function fmtDuration(min) {
-  if (min < 60) return `${min} min`;
+  if (min < 60) return `${min} min`; // same in English and Spanish
   const h = Math.floor(min / 60); const m = min % 60;
   return m ? `${h} h ${m} min` : `${h} h`;
 }
 
 export function fmtCost(eur) {
-  if (!eur) return 'Free';
-  return `est. €${Number(eur).toFixed(eur % 1 ? 2 : 0)} pp`;
+  if (!eur) return tx('Free');
+  return tx('est. €{n} pp', { n: Number(eur).toFixed(eur % 1 ? 2 : 0) });
 }
 
 export function tzLabel(tz) {
-  return tz === 'Atlantic/Canary' ? 'Canary Islands time' : tz;
+  return tz === 'Atlantic/Canary' ? tx('Canary Islands time') : tz;
 }
 
 export function fmtMonth(ym) {
   if (!ym) return '';
   const [y, m] = ym.split('-');
-  return new Date(Date.UTC(+y, +m - 1, 1)).toLocaleDateString('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+  return new Date(Date.UTC(+y, +m - 1, 1)).toLocaleDateString(locale(), { month: 'short', year: 'numeric', timeZone: 'UTC' });
 }
 
 /** Load data from the API with loading / error states, optional polling while the tab is visible. */

@@ -25,8 +25,9 @@ For development with hot reload: `npm run dev` (frontend on http://localhost:517
 ## Test it
 
 ```bash
-npm test                 # 15 API tests with separate accounts against a real server + database
+npm test                 # 17 API tests with separate accounts against a real server + database
 npm start & npm run test:browser   # 3 browser users on phone-sized screens, full journey
+npm run check:i18n       # lists any interface sentence that has no Spanish translation
 ```
 
 ### How to demo with two people
@@ -46,7 +47,10 @@ You can also log in as a fictional sample persona from the welcome screen (e.g. 
 | Frontend | React (Vite), mobile-first, hash routing | Works in any phone browser from one link |
 | Backend | Node.js + Express | All rules (capacity, who may chat, who may manage) are checked here, not only hidden in the UI |
 | Database | SQLite file (`DB_PATH`) | Real persistence with zero setup; can move to Postgres later |
-| Login | Email + password (scrypt hash), http-only session cookie | No secrets in the browser. Email is **not verified**, and the app says so |
+| Login | Email + password (scrypt hash), http-only session cookie | No secrets in the browser |
+| Email confirmation | Optional link sent through Resend (`RESEND_API_KEY`) | The badge says "Email confirmed" and explains it only proves the person received the email, not that they are a student |
+| Notifications | Stored on the server as the kind of event (request, accept, cancel, change...) and written out in each person's language | Updates show in My Plans with unread badges; unread chat messages show on each plan |
+| Languages | English and Spanish; `t('key')` for short labels, `tx('English sentence')` for longer text, Spanish in `src/i18n.es.js` | Switch in Welcome and Profile. The Spanish text was drafted with AI and still needs review by a native speaker |
 | Live updates | The screen asks the server for changes every 3 s (chat) to 30 s (lists) | Simple and reliable; no extra service |
 | Capacity | Every accept runs in a database transaction that recounts places | Two accepts at the same moment cannot overfill a group |
 | Time | Stored in UTC, shown in the city time zone (`Atlantic/Canary`) | Correct for every visitor and across daylight-saving changes |
@@ -75,7 +79,16 @@ Any host that runs a Node server and has a **persistent disk** works. Without a 
 - **Railway**: new project from the repo, add a Volume mounted at `/data`, set `DB_PATH=/data/sidequest.db`, build `npm ci && npm run build`, start `npm start`.
 - **Fly.io / any Docker host**: use the `Dockerfile` and mount a volume at `/data`.
 
-Environment variables: `APP_NAME`, `PORT`, `DB_PATH`, `DEMO_MODE` (`off` hides sample personas/content), `ADMIN_TOKEN`, `NODE_ENV=production` (secure cookies, requires HTTPS).
+Environment variables: `APP_NAME`, `PORT`, `DB_PATH`, `DEMO_MODE` (`off` hides sample personas/content), `ADMIN_TOKEN`, `NODE_ENV=production` (secure cookies, requires HTTPS), `AUTH_RATE_LIMIT` (sign-in attempts per IP per 10 min, default 100).
+
+Optional email confirmation: `RESEND_API_KEY`, `EMAIL_FROM` (an address on a domain verified in Resend) and `PUBLIC_URL` (the deployed link, used in the email). Without them the app works normally and the Profile screen says email confirmation is not set up yet.
+
+### Railway, step by step
+
+1. New Project, Deploy from GitHub repo, pick this repo. Railway finds the `Dockerfile`.
+2. Right-click the service, Attach Volume, mount path `/data`.
+3. Settings, Networking, Generate Domain. That URL is the shareable link.
+4. Optional: add the email variables above under Variables.
 
 ## Data and demo content
 
@@ -89,11 +102,11 @@ Guide entries link to official pages instead of copying timetables, prices or me
 
 ## Known limitations
 
-- Email addresses and student status are not verified.
-- No push or email notifications: users see updates when they open the app (badges on My Plans and Buddies).
+- Student status is never verified. Email addresses are confirmed only when the email variables are set and the person clicks the link.
+- No push notifications or notification emails: users see updates when they open the app.
 - No moderation dashboard: reports are stored but only readable through the admin API.
 - Polling instead of websockets: fine for a class-sized pilot, not for thousands of users.
-- English only for now. All interface text is in `src/i18n.js`, ready for a Spanish dictionary; a few longer helper sentences are still inline in screens.
+- Spanish translation is AI-drafted and not yet reviewed by a native speaker. Text written by users (plan titles, chat) is not translated.
 - No photo uploads; avatars are initials.
 - Single server process (SQLite). Scaling up would mean Postgres.
 

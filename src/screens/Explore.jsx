@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { t } from '../i18n.js';
+import { t, tx } from '../i18n.js';
 import { ActivityCard, ChoiceChips, Empty, ErrorState, EventCard, Icon, Loading, Sheet, useApp } from '../components.jsx';
 import { areaName, useApi } from '../util.js';
 
@@ -7,15 +7,17 @@ const WHEN = ['any', 'today', 'tomorrow', 'week', 'weekend'];
 
 /** Plain-language reason why a card might suit the viewer. Simple rules, no scores. */
 function reasonFor(a, me, myAreaName) {
-  const bits = [];
-  if (me.interests?.includes(a.category)) bits.push('matches your interests');
-  const shared = (a.languages || []).filter((l) => me.languages?.includes(l));
-  if (shared.length && a.languages.length) bits.push(`in ${shared.slice(0, 2).join(' or ')}`);
-  if (myAreaName && a.meeting_area === myAreaName) bits.push('in your area');
+  const interest = me.interests?.includes(a.category);
+  const area = myAreaName && a.meeting_area === myAreaName;
   // Language alone is too common to be a useful reason; show it only alongside an interest or area match.
-  if (!bits.length || (bits.length === 1 && bits[0].startsWith('in ') && !bits[0].includes('area'))) return null;
-  const s = bits.join(', ');
-  return s.charAt(0).toUpperCase() + s.slice(1);
+  if (!interest && !area) return null;
+  const bits = [];
+  if (interest) bits.push(tx('matches your interests'));
+  const shared = (a.languages || []).filter((l) => me.languages?.includes(l));
+  if (shared.length) bits.push(tx('in {langs}', { langs: shared.slice(0, 2).map((l) => tx(l)).join(tx(' or ')) }));
+  if (area) bits.push(tx('in your area'));
+  const out = bits.join(', ');
+  return out.charAt(0).toUpperCase() + out.slice(1);
 }
 
 export default function Explore() {
@@ -57,17 +59,17 @@ export default function Explore() {
         <h1 style={{ marginTop: 6 }}>{t('explore.title')}</h1>
         <form className="search" role="search" onSubmit={(e) => e.preventDefault()}>
           <label className="sr-only" htmlFor="q">{t('explore.search')}</label>
-          <input id="q" type="search" placeholder="Surf, museum, coffee…" value={q} onChange={(e) => setQ(e.target.value)} />
+          <input id="q" type="search" placeholder={tx("Surf, museum, coffee…")} value={q} onChange={(e) => setQ(e.target.value)} />
         </form>
       </section>
 
       <div className="stack-sm">
-        <div className="chips" role="group" aria-label="When">
+        <div className="chips" role="group" aria-label={tx("When")}>
           {WHEN.map((w) => (
             <button key={w} className="chip" aria-pressed={when === w} onClick={() => setWhen(w)}>{t(`when.${w}`)}</button>
           ))}
         </div>
-        <div className="chips" role="group" aria-label="Quick filters">
+        <div className="chips" role="group" aria-label={tx("Quick filters")}>
           <button className="chip" aria-pressed={showFilters || moreCount > 0} onClick={() => setShowFilters(true)}>
             <Icon name="filter" size={16} />{t('explore.moreFilters')}{moreCount > 0 && ` (${moreCount})`}
           </button>
@@ -84,7 +86,7 @@ export default function Explore() {
             <p className="small muted">{t('explore.eventsHint')}</p>
           </div>
           {evs.loading && !evs.data ? <Loading rows={1} /> : evs.error ? <ErrorState error={evs.error} onRetry={evs.reload} />
-            : evs.data.events.length === 0 ? <p className="small muted">No upcoming events listed for this time.</p>
+            : evs.data.events.length === 0 ? <p className="small muted">{tx("No upcoming events listed for this time.")}</p>
               : evs.data.events.slice(0, 3).map((e) => <EventCard key={e.id} e={e} />)}
         </section>
       )}
@@ -99,7 +101,7 @@ export default function Explore() {
             <Empty icon="search" title={t('explore.noResults')} hint={t('explore.noResultsHint')}>
               <div className="row wrap" style={{ justifyContent: 'center' }}>
                 {anyFilter && <button className="btn btn-secondary btn-sm" onClick={clear}>{t('explore.clear')}</button>}
-                <a className="btn btn-primary btn-sm" href="#/create">Create a plan</a>
+                <a className="btn btn-primary btn-sm" href="#/create">{tx("Create a plan")}</a>
               </div>
             </Empty>
           ) : sorted.map((a) => <ActivityCard key={a.id} a={a} reason={a.my_status ? null : reasonFor(a, me, myArea)} />)}
@@ -109,27 +111,27 @@ export default function Explore() {
 
       {showFilters && (
         <Sheet title={t('explore.moreFilters')} onClose={() => setShowFilters(false)}>
-          <div className="field"><span className="label">Activity</span>
-            <ChoiceChips label="Activity" value={more.category} onChange={(category) => setMore({ ...more, category })} options={meta.categories.map((c) => ({ key: c.key, label: c.label }))} />
+          <div className="field"><span className="label">{tx("Activity")}</span>
+            <ChoiceChips label={tx("Activity")} value={more.category} onChange={(category) => setMore({ ...more, category })} options={meta.categories.map((c) => ({ key: c.key, label: c.label }))} />
           </div>
-          <div className="field"><span className="label">Budget per person</span>
-            <ChoiceChips label="Budget" value={more.budget} onChange={(budget) => setMore({ ...more, budget })} options={meta.budgets} />
+          <div className="field"><span className="label">{tx("Budget per person")}</span>
+            <ChoiceChips label={tx("Budget")} value={more.budget} onChange={(budget) => setMore({ ...more, budget })} options={meta.budgets} />
           </div>
-          <div className="field"><span className="label">Group size</span>
-            <ChoiceChips label="Group size" value={more.size} onChange={(size) => setMore({ ...more, size })}
-              options={[{ key: 'buddy', label: 'One buddy' }, { key: 'small', label: 'Small group (3–5)' }, { key: 'group', label: 'Bigger group (6+)' }]} />
+          <div className="field"><span className="label">{tx("Group size")}</span>
+            <ChoiceChips label={tx("Group size")} value={more.size} onChange={(size) => setMore({ ...more, size })}
+              options={[{ key: 'buddy', label: tx("One buddy") }, { key: 'small', label: tx("Small group (3–5)") }, { key: 'group', label: tx("Bigger group (6+)") }]} />
           </div>
-          <label className="field"><span>Language</span>
+          <label className="field"><span>{tx("Language")}</span>
             <select className="select" value={more.lang} onChange={(e) => setMore({ ...more, lang: e.target.value })}>
-              <option value="">Any language</option>
-              {meta.languages.map((l) => <option key={l}>{l}</option>)}
+              <option value="">{tx("Any language")}</option>
+              {meta.languages.map((l) => <option key={l} value={l}>{tx(l)}</option>)}
             </select>
           </label>
-          <label className="check"><input type="checkbox" checked={more.open} onChange={(e) => setMore({ ...more, open: e.target.checked })} />Only show activities with free places</label>
+          <label className="check"><input type="checkbox" checked={more.open} onChange={(e) => setMore({ ...more, open: e.target.checked })} />{tx("Only show activities with free places")}</label>
           <div className="row">
-            <button className="btn btn-ghost" onClick={() => setMore({ category: '', size: '', lang: '', budget: '', open: false })}>Reset</button>
+            <button className="btn btn-ghost" onClick={() => setMore({ category: '', size: '', lang: '', budget: '', open: false })}>{tx("Reset")}</button>
             <span className="spacer" />
-            <button className="btn btn-primary" onClick={() => setShowFilters(false)}>Show results</button>
+            <button className="btn btn-primary" onClick={() => setShowFilters(false)}>{tx("Show results")}</button>
           </div>
         </Sheet>
       )}

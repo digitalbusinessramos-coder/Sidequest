@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from './api.js';
-import { setAppName, t } from './i18n.js';
+import { getLanguage, setAppName, setLanguage, t, tx } from './i18n.js';
 import { AppCtx, ErrorState, Icon, Loading, useToast } from './components.jsx';
 import Welcome from './screens/Welcome.jsx';
 import Onboarding from './screens/Onboarding.jsx';
@@ -43,8 +43,14 @@ export default function App() {
   const route = useHashRoute();
   const [meta, setMeta] = useState(null);
   const [me, setMe] = useState(undefined);
-  const [counts, setCounts] = useState({ toReview: 0, invites: 0 });
+  const [counts, setCounts] = useState({ toReview: 0, invites: 0, notifications: 0, chats: 0 });
   const [bootError, setBootError] = useState(null);
+  const [lang, setLang] = useState(getLanguage());
+  const changeLanguage = useCallback((l) => {
+    setLanguage(l);
+    setLang(l);
+    api.put('/me/privacy', { lang: l }).catch(() => {}); // remembered on the account when logged in
+  }, []);
   const [toastNode, toast] = useToast();
 
   const reloadMe = useCallback(async () => {
@@ -76,10 +82,10 @@ export default function App() {
   if (!meta || me === undefined) return <div className="page"><Loading /></div>;
 
   const city = meta.cities.find((c) => c.slug === me?.city?.slug) || meta.cities[0];
-  const ctx = { meta, me, city, reloadMe, toast, api, counts };
+  const ctx = { meta, me, city, reloadMe, toast, api, counts, lang, changeLanguage };
 
-  if (!me) return <AppCtx.Provider value={ctx}><Welcome />{toastNode}</AppCtx.Provider>;
-  if (!me.onboarded) return <AppCtx.Provider value={ctx}><Onboarding />{toastNode}</AppCtx.Provider>;
+  if (!me) return <AppCtx.Provider value={ctx}><Welcome key={lang} />{toastNode}</AppCtx.Provider>;
+  if (!me.onboarded) return <AppCtx.Provider value={ctx}><Onboarding key={lang} />{toastNode}</AppCtx.Provider>;
 
   const [p0, p1, p2] = route.parts;
   let screen;
@@ -96,13 +102,13 @@ export default function App() {
   else screen = <Explore />;
 
   const activeTab = TAB_OF[p0] || p0 || 'explore';
-  const badge = { plans: counts.toReview + counts.invites, buddies: counts.invites };
+  const badge = { plans: (counts.notifications || 0) + (counts.chats || 0), buddies: counts.invites };
 
   return (
     <AppCtx.Provider value={ctx}>
-      {me.is_demo && <div className="demo-banner">You are using a fictional sample persona ({me.first_name}). Changes are visible to other testers.</div>}
+      {me.is_demo && <div className="demo-banner">{tx('You are using a fictional sample persona ({name}). Changes are visible to other testers.', { name: me.first_name })}</div>}
       <div className="app">
-        <main id="main">{screen}</main>
+        <main id="main" key={lang}>{screen}</main>
       </div>
       <nav className="tabbar" aria-label="Main">
         <ul>
@@ -111,7 +117,7 @@ export default function App() {
               <a href={`#/${key}`} aria-current={activeTab === key ? 'page' : undefined}>
                 <Icon name={icon} size={22} />
                 {t(label)}
-                {badge[key] > 0 && <span className="tab-badge" aria-label={`${badge[key]} need your attention`}>{badge[key]}</span>}
+                {badge[key] > 0 && <span className="tab-badge" aria-label={tx('{n} need your attention', { n: badge[key] })}>{badge[key]}</span>}
               </a>
             </li>
           ))}
