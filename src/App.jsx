@@ -143,7 +143,7 @@ export default function App() {
         <ul>
           {TABS.map(([key, icon, label]) => (
             <li key={key}>
-              <a href={`#/${key}`} aria-current={activeTab === key ? 'page' : undefined}>
+              <a href={`#/${key}`} data-tour={`nav-${key}`} aria-current={activeTab === key ? 'page' : undefined}>
                 <Icon name={icon} size={22} />
                 {t(label)}
                 {badge[key] > 0 && <span className="tab-badge" aria-label={tx('{n} need your attention', { n: badge[key] })}>{badge[key]}</span>}

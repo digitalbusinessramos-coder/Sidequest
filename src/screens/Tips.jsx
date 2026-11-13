@@ -30,7 +30,7 @@ export default function Tips() {
   };
 
   return (
-    <section className="stack" aria-labelledby="tips-h">
+    <section className="stack" aria-labelledby="tips-h" data-tour="tips">
       <div className="section-title">
         <h2 id="tips-h" className="row"><Icon name="star" />{tx('Tips from students')}</h2>
         <button className="btn btn-primary btn-sm" onClick={() => setAdding(true)}><Icon name="plus" size={16} />{tx('Add a tip')}</button>
@@ -52,7 +52,7 @@ export default function Tips() {
       ) : (
         <div className="stack-sm">
           {data?.recommendations.slice(0, all ? undefined : 3).map((r) => (
-            <article key={r.id} className="card card-pad stack-sm tip">
+            <article key={r.id} className="card card-pad stack-sm tip" data-tour="tip">
               <div className="row" style={{ alignItems: 'flex-start', gap: 10 }}>
                 <span className="tip-icon"><Icon name={REC_ICON[r.category] || 'star'} size={18} /></span>
                 <div style={{ flex: 1, minWidth: 0 }}>

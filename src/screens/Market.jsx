@@ -9,7 +9,7 @@ const CAT_ICON = { furniture: 'home', kitchen: 'food', bikes: 'sports', surf: 's
 /** Switch between Explore's plans and the marketplace (both live under the Explore tab). */
 export function ExploreSwitch({ active }) {
   return (
-    <nav className="seg seg-wide" aria-label={tx('Explore sections')}>
+    <nav className="seg seg-wide" data-tour="market-switch" aria-label={tx('Explore sections')}>
       <a href="#/explore" className={active === 'plans' ? 'on' : ''} aria-current={active === 'plans' ? 'page' : undefined}><Icon name="explore" size={16} />{tx('Plans')}</a>
       <a href="#/market" className={active === 'market' ? 'on' : ''} aria-current={active === 'market' ? 'page' : undefined}><Icon name="shopping" size={16} />{tx('Marketplace')}</a>
     </nav>

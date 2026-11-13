@@ -454,3 +454,20 @@ a[href^="#/person"]:hover strong { text-decoration: underline; }
 }
 @media (min-width: 1000px) { .tabbar .side-logo span { background: var(--lime); padding: 0 5px; border-radius: 6px; } }
 .gmap-foot > span { flex: 1 1 220px !important; }
+
+/* ---------- guided tour (spotlight) ---------- */
+.spot { position: fixed; inset: 0; z-index: 45; }
+.spot-dim { position: fixed; inset: 0; background: rgba(10, 14, 40, .62); }
+.spot-hole { position: fixed; border-radius: 14px; box-shadow: 0 0 0 9999px rgba(10, 14, 40, .62); outline: 3px solid var(--lime); outline-offset: 2px;
+  transition: top .25s ease, left .25s ease, width .25s ease, height .25s ease; animation: spot-pulse 1.6s ease-in-out infinite; pointer-events: none; }
+@keyframes spot-pulse { 0%, 100% { outline-color: var(--lime); outline-offset: 2px; } 50% { outline-color: #fff; outline-offset: 6px; } }
+.spot-tip { position: fixed; background: var(--paper); color: var(--ink); border-radius: 18px; padding: 16px 16px 14px; box-shadow: 0 18px 50px rgba(0,0,0,.35);
+  display: flex; flex-direction: column; gap: 10px; outline: none; }
+.spot-arrow { position: absolute; width: 18px; height: 18px; background: var(--paper); transform: translateX(-50%) rotate(45deg); }
+.spot-tip.below .spot-arrow { top: -8px; }
+.spot-tip.above .spot-arrow { bottom: -8px; }
+.spot-title { font-size: 1.2rem; }
+.spot-count { font-size: 0.78rem; font-weight: 700; color: var(--blue-ink); text-transform: uppercase; letter-spacing: .04em; }
+.spot-skip { border: 0; background: none; color: var(--ink-3); font-size: 0.82rem; text-decoration: underline; cursor: pointer; padding: 4px; }
+.spot-progress { height: 4px; border-radius: 2px; background: var(--paper-2); overflow: hidden; }
+.spot-progress i { display: block; height: 100%; background: var(--blue); border-radius: 2px; transition: width .25s ease; }
