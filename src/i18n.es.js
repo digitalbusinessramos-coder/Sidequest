@@ -614,7 +614,7 @@ export const es = {
   "source": "fuente",
   " (resized)": " (redimensionada)",
   "Sample profile pictures are drawn avatars (“Notionists” by Zoish, CC0, via DiceBear), not photos of real people.": "Las fotos de los perfiles de ejemplo son avatares dibujados («Notionists» de Zoish, CC0, vía DiceBear), no fotos de personas reales.",
-  "Map: © OpenStreetMap contributors, © CARTO.": "Mapa: © colaboradores de OpenStreetMap, © CARTO.",
+  "Map: © OpenStreetMap contributors.": "Mapa: © colaboradores de OpenStreetMap.",
   "Calendar": "Calendario",
   "Previous week": "Semana anterior",
   "Next week": "Semana siguiente",
