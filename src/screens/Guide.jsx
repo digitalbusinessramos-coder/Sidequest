@@ -1,6 +1,8 @@
 import { locale, t, tx } from '../i18n.js';
 import { ErrorState, Icon, Loading, PhotoHero, useApp } from '../components.jsx';
 import Tips from './Tips.jsx';
+import { FeedbackSheet } from './Market.jsx';
+import { useState } from 'react';
 import { PHOTOS } from '../../shared/photos.js';
 import { useApi } from '../util.js';
 
@@ -9,6 +11,7 @@ const SECTIONS = [['transport', 'bus'], ['health', 'health'], ['housing', 'home'
 
 export default function Guide() {
   const { city } = useApp();
+  const [fb, setFb] = useState(false);
   const { data, error, loading, reload } = useApi(`/guide?city=${city.slug}`);
   return (
     <div className="page">
@@ -60,7 +63,8 @@ export default function Guide() {
           <li>{tx('Map: © OpenStreetMap contributors, © CARTO.')}</li>
         </ul>
       </details>
-      <p className="tiny muted">{tx("We link to official pages instead of copying timetables, prices or medical guidance, because those change. Spotted something outdated? Tell the project team.")}</p>
+      <p className="tiny muted">{tx("We link to official pages instead of copying timetables, prices or medical guidance, because those change. Spotted something outdated? Tell the project team.")} <button className="link-btn" onClick={() => setFb(true)}>{tx('Send feedback')}</button></p>
+      {fb && <FeedbackSheet onClose={() => setFb(false)} />}
     </div>
   );
 }

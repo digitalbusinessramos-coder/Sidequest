@@ -391,3 +391,60 @@ test('sample personas have drawn avatars, never uploaded photos', async () => {
   assert.ok(rows.length >= 13);
   assert.ok(rows.every((r) => r.mime === 'image/svg+xml'));
 });
+
+test('interns: a profile can say intern / trainee', async () => {
+  const a = await user('Ida', { role: 'intern', university: 'A start-up', show_university: true });
+  const p = (await a.get(`/users/${a.id}`)).body.profile;
+  assert.equal(p.role, 'intern'); assert.equal(p.university, 'A start-up');
+});
+
+test('feedback: saved for the project team, readable only with the admin token', async () => {
+  const a = await user('Fay');
+  assert.equal((await a.post('/feedback', { kind: 'idea', body: '' })).status, 400);
+  assert.equal((await a.post('/feedback', { kind: 'idea', body: 'Add a dark mode', screen: '#/profile' })).status, 201);
+  assert.equal((await a.get('/admin/feedback')).status, 403);
+  const row = db.prepare("SELECT * FROM feedback WHERE body = 'Add a dark mode'").get();
+  assert.equal(row.kind, 'idea'); assert.equal(row.user_id, a.id);
+});
+
+test('marketplace: list, private messages between seller and one buyer, status, permissions', async () => {
+  const s = await user('Seller'); const b = await user('Buyer'); const o = await user('Other');
+  assert.equal((await s.post('/market', { kind: 'sell', title: 'Bike' })).status, 400); // price needed
+  const { body: { id } } = await s.post('/market', { kind: 'sell', category: 'bikes', title: 'Bike', price_eur: 50, area: 'Triana / Vegueta' });
+  assert.ok((await b.get('/market?city=las-palmas')).body.listings.some((l) => l.id === id));
+  assert.equal((await s.post(`/market/${id}/messages`, { body: 'hi' })).status, 400); // seller must pick a conversation
+  assert.equal((await b.post(`/market/${id}/messages`, { body: 'Is it still available?' })).status, 201);
+  assert.equal((await o.post(`/market/${id}/messages`, { body: 'Me too' })).status, 201);
+  // each person only sees their own conversation
+  const mineB = (await b.get(`/market/${id}/messages`)).body.messages;
+  assert.equal(mineB.length, 1); assert.equal(mineB[0].body, 'Is it still available?');
+  const detail = (await s.get(`/market/${id}`)).body.listing;
+  assert.equal(detail.conversations.length, 2);
+  assert.ok((await s.get('/notifications')).body.notifications.some((n) => n.kind === 'market_message' && n.listing.id === id));
+  assert.equal((await s.post(`/market/${id}/messages`, { body: 'Yes!', buyer: b.id })).status, 201);
+  assert.equal((await b.get(`/market/${id}/messages`)).body.messages.length, 2);
+  assert.equal((await o.get(`/market/${id}/messages`)).body.messages.length, 1); // other buyer doesn't see it
+  assert.equal((await b.put(`/market/${id}`, { status: 'sold' })).status, 403);
+  assert.equal((await s.put(`/market/${id}`, { status: 'sold' })).status, 200);
+  assert.ok(!(await b.get('/market?city=las-palmas')).body.listings.some((l) => l.id === id)); // sold items leave the list
+  assert.equal((await o.post(`/market/${id}/messages`, { body: 'still?' })).status, 409);
+  await s.post(`/users/${b.id}/block`);
+  assert.equal((await b.get(`/market/${id}`)).status, 404);
+  assert.equal((await b.del(`/market/${id}`)).status, 403);
+  assert.equal((await s.del(`/market/${id}`)).status, 200);
+});
+
+test('ticket resale: only at or below the price paid, shown on the event', async () => {
+  const s = await user('Tia');
+  const ev = (await s.get('/events?city=las-palmas')).body.events[0];
+  assert.equal((await s.post('/market', { kind: 'ticket', title: 'Ticket', event_id: ev.id, price_eur: 30 })).status, 400); // needs price paid
+  assert.equal((await s.post('/market', { kind: 'ticket', title: 'Ticket', event_id: ev.id, face_value_eur: 20, price_eur: 30 })).status, 400);
+  const r = await s.post('/market', { kind: 'ticket', title: 'Ticket', event_id: ev.id, face_value_eur: 20, price_eur: 15 });
+  assert.equal(r.status, 201);
+  const l = (await s.get(`/market/${r.body.id}`)).body.listing;
+  assert.equal(l.category, 'tickets'); assert.equal(l.event.id, ev.id);
+  assert.ok((await s.get(`/events/${ev.id}`)).body.event.tickets_count >= 1);
+  assert.ok((await s.get(`/market?city=las-palmas&event=${ev.id}`)).body.listings.every((x) => x.event?.id === ev.id));
+  const bad = await s.put(`/market/${r.body.id}/photo`, { data: 'data:image/jpeg;base64,' + Buffer.from('nope').toString('base64') });
+  assert.equal(bad.status, 400);
+});

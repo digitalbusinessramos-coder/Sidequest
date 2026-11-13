@@ -1,6 +1,29 @@
 import { useState } from 'react';
-import { getAppName, t, tx } from '../i18n.js';
+import { getAppName, locale, t, tx } from '../i18n.js';
 import { ChoiceChips, Icon, useApp } from '../components.jsx';
+
+/** Month and year as two pick-lists: works the same in every browser, no typing. Value is "YYYY-MM" or "". */
+function MonthPicker({ label, value, onChange }) {
+  const [y, m] = value ? value.split('-') : ['', ''];
+  const now = new Date().getFullYear();
+  const years = [now - 1, now, now + 1, now + 2];
+  const months = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0'));
+  const fmt = (mm) => new Intl.DateTimeFormat(locale(), { month: 'short', timeZone: 'UTC' }).format(new Date(Date.UTC(2026, Number(mm) - 1, 1)));
+  const set = (ny, nm) => onChange(ny && nm ? `${ny}-${nm}` : '');
+  return (
+    <fieldset className="field" style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+      <legend className="label" style={{ marginBottom: 6 }}>{label}</legend>
+      <div className="row" style={{ gap: 6 }}>
+        <select className="select" aria-label={tx('Month')} value={m} onChange={(e) => set(y || String(now), e.target.value)} style={{ flex: 1, minWidth: 0 }}>
+          <option value="">–</option>{months.map((mm) => <option key={mm} value={mm}>{fmt(mm)}</option>)}
+        </select>
+        <select className="select" aria-label={tx('Year')} value={y} onChange={(e) => set(e.target.value, m || '01')} style={{ flex: 1, minWidth: 0 }}>
+          <option value="">–</option>{years.map((yy) => <option key={yy} value={yy}>{yy}</option>)}
+        </select>
+      </div>
+    </fieldset>
+  );
+}
 
 export function ProfileFields({ v, set, city, meta, step }) {
   return (
@@ -13,7 +36,7 @@ export function ProfileFields({ v, set, city, meta, step }) {
           </label>
           <div className="field"><span className="label">{tx("I am…")}</span>
             <ChoiceChips label={tx("I am")} value={v.role} onChange={(role) => set({ role: role || 'exchange' })}
-              options={[{ key: 'exchange', label: tx("Erasmus / exchange student") }, { key: 'international', label: tx("International student") }, { key: 'local', label: tx("Local student") }]} />
+              options={[{ key: 'exchange', label: tx("Erasmus / exchange student") }, { key: 'international', label: tx("International student") }, { key: 'intern', label: tx("Intern / trainee (not studying here)") }, { key: 'local', label: tx("Local student") }]} />
           </div>
           <label className="field"><span>{tx("Short introduction (optional)")}</span>
             <textarea className="textarea" maxLength={280} value={v.intro} placeholder={tx("e.g. From Lyon, here until February. Up for hikes and museums.")} onChange={(e) => set({ intro: e.target.value })} />
@@ -30,20 +53,16 @@ export function ProfileFields({ v, set, city, meta, step }) {
             </select>
             <span className="hint">{tx("A neighbourhood, never your address. Used to suggest nearby plans.")}</span>
           </label>
-          <label className="field"><span>{tx("University (optional)")}</span>
-            <input className="input" maxLength={80} value={v.university || ''} onChange={(e) => set({ university: e.target.value })} placeholder={tx("e.g. ULPGC")} />
+          <label className="field"><span>{v.role === 'intern' ? tx("Company or organisation (optional)") : tx("University (optional)")}</span>
+            <input className="input" maxLength={80} value={v.university || ''} onChange={(e) => set({ university: e.target.value })} placeholder={v.role === 'intern' ? tx("e.g. a hotel, a start-up, a lab") : tx("e.g. ULPGC")} />
           </label>
           <label className="check"><input type="checkbox" checked={!!v.show_university} onChange={(e) => set({ show_university: e.target.checked })} />
-            <span>{tx("Show my university on my profile")}<br /><span className="hint">{tx("Not verified. Shown as you typed it.")}</span></span>
+            <span>{v.role === 'intern' ? tx("Show my company on my profile") : tx("Show my university on my profile")}<br /><span className="hint">{tx("Not verified. Shown as you typed it.")}</span></span>
           </label>
           {v.role !== 'local' && (
             <div className="grid-2">
-              <label className="field"><span>{tx("Exchange from")}</span>
-                <input className="input" type="month" value={v.exchange_start || ''} onChange={(e) => set({ exchange_start: e.target.value })} />
-              </label>
-              <label className="field"><span>{tx("Until")}</span>
-                <input className="input" type="month" value={v.exchange_end || ''} onChange={(e) => set({ exchange_end: e.target.value })} />
-              </label>
+              <MonthPicker label={v.role === 'intern' ? tx("In Las Palmas from") : tx("Exchange from")} value={v.exchange_start || ''} onChange={(exchange_start) => set({ exchange_start })} />
+              <MonthPicker label={tx("Until")} value={v.exchange_end || ''} onChange={(exchange_end) => set({ exchange_end })} />
             </div>
           )}
         </>

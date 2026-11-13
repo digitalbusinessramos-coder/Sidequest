@@ -76,3 +76,28 @@ export function nearestArea(areas, lat, lng) {
 export function areaName(areas, key) {
   return areas?.find((a) => a.key === key)?.name || null;
 }
+
+/** Resize a picture in the browser so uploads stay small. square: centre-crop to a square (profile pictures). */
+export function resizeToJpeg(file, max = 512, square = true) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const sw = square ? Math.min(img.width, img.height) : img.width;
+      const sh = square ? sw : img.height;
+      const scale = Math.min(1, max / Math.max(sw, sh));
+      const c = document.createElement('canvas'); c.width = Math.round(sw * scale); c.height = Math.round(sh * scale);
+      c.getContext('2d').drawImage(img, (img.width - sw) / 2, (img.height - sh) / 2, sw, sh, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      resolve(c.toDataURL('image/jpeg', 0.82));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error(tx('That file does not look like a picture.'))); };
+    img.src = url;
+  });
+}
+
+export function fmtPrice(l) {
+  if (l.kind === 'wanted') return tx('Wanted');
+  if (l.kind === 'free' || l.price_eur === 0) return tx('Free');
+  return l.price_eur == null ? '' : `${Number(l.price_eur).toLocaleString(locale(), { maximumFractionDigits: 2 })} €`;
+}

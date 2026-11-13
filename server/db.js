@@ -19,6 +19,7 @@ function migrate(db) {
   if (!cols('profiles').includes('lang')) db.exec("ALTER TABLE profiles ADD COLUMN lang TEXT NOT NULL DEFAULT 'en'");
   if (!cols('profiles').includes('photo_v')) db.exec('ALTER TABLE profiles ADD COLUMN photo_v INTEGER NOT NULL DEFAULT 0');
   if (!cols('activities').includes('join_mode')) db.exec("ALTER TABLE activities ADD COLUMN join_mode TEXT NOT NULL DEFAULT 'request'");
+  if (!cols('notifications').includes('listing_id')) db.exec('ALTER TABLE notifications ADD COLUMN listing_id INTEGER REFERENCES listings(id) ON DELETE CASCADE');
   if (!cols('events').includes('lat')) { db.exec('ALTER TABLE events ADD COLUMN lat REAL'); db.exec('ALTER TABLE events ADD COLUMN lng REAL'); }
 }
 
@@ -63,7 +64,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   show_university INTEGER NOT NULL DEFAULT 0,
   exchange_start TEXT,
   exchange_end TEXT,
-  role TEXT NOT NULL DEFAULT 'exchange', -- exchange | international | local
+  role TEXT NOT NULL DEFAULT 'exchange', -- exchange | international | intern | local
   languages TEXT NOT NULL DEFAULT '[]',
   interests TEXT NOT NULL DEFAULT '[]',
   visible INTEGER NOT NULL DEFAULT 1,
@@ -259,6 +260,54 @@ CREATE TABLE IF NOT EXISTS event_messages (
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 CREATE INDEX IF NOT EXISTS idx_evmsg ON event_messages(event_id, id);
+
+-- Feedback and ideas from users, read by the project team (admin endpoint).
+CREATE TABLE IF NOT EXISTS feedback (
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  kind TEXT NOT NULL, -- idea | problem | other
+  body TEXT NOT NULL,
+  screen TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
+-- Marketplace: second-hand items and event tickets between students. No payments in the app.
+CREATE TABLE IF NOT EXISTS listings (
+  id INTEGER PRIMARY KEY,
+  city_id INTEGER NOT NULL REFERENCES cities(id),
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL, -- sell | free | wanted | ticket
+  category TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  price_eur REAL,
+  face_value_eur REAL, -- tickets only: what the seller says they paid
+  event_id INTEGER REFERENCES events(id) ON DELETE SET NULL,
+  area TEXT,
+  photo_mime TEXT,
+  photo BLOB,
+  status TEXT NOT NULL DEFAULT 'active', -- active | reserved | sold
+  is_sample INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_listings_city ON listings(city_id, status, id);
+CREATE TABLE IF NOT EXISTS listing_saves (
+  listing_id INTEGER NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  PRIMARY KEY (listing_id, user_id)
+);
+-- Private conversation between the seller and one interested person per listing.
+CREATE TABLE IF NOT EXISTS listing_messages (
+  id INTEGER PRIMARY KEY,
+  listing_id INTEGER NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+  buyer_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  sender_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  body TEXT NOT NULL,
+  read_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_lmsg ON listing_messages(listing_id, buyer_id, id);
 
 CREATE TABLE IF NOT EXISTS guide_items (
   id INTEGER PRIMARY KEY,

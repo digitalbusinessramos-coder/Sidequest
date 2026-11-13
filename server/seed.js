@@ -110,6 +110,18 @@ export function seed(db, { force = false } = {}) {
     }
   }
 
+  // Sample marketplace listings from fictional personas (labelled Sample). Prices are illustrative.
+  if (!db.prepare("SELECT 1 FROM listings WHERE is_sample = 1 AND kind != 'ticket'").get()) {
+    const li = (k, kind, category, title, description, price, area) => db.prepare(`INSERT INTO listings (city_id, user_id, kind, category, title, description, price_eur, area, is_sample)
+      VALUES (?,?,?,?,?,?,?,?,1)`).run(city.id, ids[k], kind, category, title, description, price, area);
+    li('lena', 'sell', 'bikes', 'City bike, works well', 'Leaving in February. Lock included. Sample listing.', 60, 'Triana / Vegueta');
+    li('matteo', 'sell', 'surf', 'Wetsuit, size M', 'Used for one season. Sample listing.', 35, 'Las Canteras / Guanarteme');
+    li('aicha', 'free', 'kitchen', 'Pots, pans and plates', 'Free to whoever picks them up. Sample listing.', 0, 'Tafira (ULPGC campus)');
+    li('andrei', 'sell', 'books', 'Spanish A2 course book', 'A few pencil notes. Sample listing.', 10, 'Tafira (ULPGC campus)');
+    li('klara', 'wanted', 'furniture', 'Looking for a desk lamp', 'For my room, anything simple. Sample listing.', null, 'Las Canteras / Guanarteme');
+    li('emma', 'sell', 'furniture', 'Small fan for summer nights', 'Quiet, three speeds. Sample listing.', 12, 'La Isleta / El Confital');
+  }
+
   // Sample recommendations: written by fictional personas, labelled Sample, about well-known public places. No prices or opening hours.
   if (!db.prepare('SELECT 1 FROM recommendations WHERE is_sample = 1').get()) {
     const rec = (k, category, title, body, area, likers = []) => {
@@ -203,6 +215,9 @@ export function seed(db, { force = false } = {}) {
     const e4 = ev({ title: 'Sample event: Beach clean-up morning', description: 'Illustrative example of a volunteer beach clean-up. Not a real event.', category: 'beach', starts: at(sat + 1, '10:00'), duration: 120, venue: 'Las Canteras area' });
     const e3 = ev({ title: 'Sample event: Summit-area excursion', description: 'Illustrative example of an island excursion by coach. Not a real event.', category: 'hiking', starts: at(sat + 7, '08:00'), duration: 540, venue: 'Departure point in the city centre' });
 
+    db.prepare("DELETE FROM listings WHERE is_sample = 1 AND kind = 'ticket'").run();
+    db.prepare(`INSERT INTO listings (city_id, user_id, kind, category, title, description, price_eur, face_value_eur, event_id, area, is_sample)
+      VALUES (?,?,'ticket','tickets',?,?,?,?,?,?,1)`).run(city.id, ids.sofia, 'Ticket for the welcome tapas night', 'I can’t go any more. Passing it on at the price I paid. Sample listing.', 10, 10, e1, 'Alcaravaneras / Ciudad Jardín');
     const interest = (e, k, pref, langs, opt) => db.prepare('INSERT OR IGNORE INTO event_interests (event_id, user_id, group_pref, languages, meeting_option, note) VALUES (?,?,?,?,?,?)')
       .run(e, ids[k], pref, JSON.stringify(langs), opt, 'Sample profile');
     interest(e1, 'lena', 'small', ['English', 'German'], 'Meet at the venue entrance');

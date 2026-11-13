@@ -25,7 +25,7 @@ For development with hot reload: `npm run dev` (frontend on http://localhost:517
 ## Test it
 
 ```bash
-npm test                 # 22 API tests with separate accounts against a real server + database
+npm test                 # 26 API tests with separate accounts against a real server + database
 npm start & npm run test:browser   # 3 browser users on phone-sized screens, full journey
 npm run check:i18n       # lists any interface sentence that has no Spanish translation
 ```
@@ -56,6 +56,10 @@ You can also log in as a fictional sample persona from the welcome screen (e.g. 
 | Time | Stored in UTC, shown in the city time zone (`Atlantic/Canary`) | Correct for every visitor and across daylight-saving changes |
 | Cities | `cities` table with time zone and approximate areas | Adding a city is data, not a rewrite |
 | Matching | Plain rules: same city + same activity type + overlapping time slots + compatible budget; shared languages mentioned | Explainable; no scores, no "AI" claims |
+| Marketplace | Sell, give away, "looking for" and event tickets; one private conversation per seller and interested person | No payments in the app; safety notes on every listing; sold items leave the list |
+| Ticket resale | Seller states the price they paid; the asking price can't be higher | Our own fair-resale rule. The app tells buyers to check the organiser allows passing tickets on |
+| Feedback | Feedback box in Profile and the City Guide; read with `GET /api/admin/feedback` and the `x-admin-token` header (`ADMIN_TOKEN`) | Goes to the project team only |
+| Interns | "Intern / trainee (not studying here)" role with company instead of university | For people on internships in Las Palmas |
 | Joining | Organiser picks "people ask, you accept" or "anyone can join directly" | Open plans skip the wait; the organiser can still remove someone |
 | Map | Leaflet with OpenStreetMap/CARTO tiles; list or map view in Explore | Pins sit at the neighbourhood centre, never the exact meeting point |
 | Calendar | My Plans can show a week strip and a day timetable | Plans and events you joined, side by side when they overlap |

@@ -16,7 +16,7 @@ export default function Person({ id }) {
     if (!confirm(t('person.blockConfirm', { name: p.first_name }))) return;
     try { await api.post(`/users/${p.id}/block`); toast(`${p.first_name} is blocked.`); location.hash = '#/explore'; } catch (x) { toast(x.message, true); }
   };
-  const roleLabel = { exchange: tx("Erasmus / exchange student"), international: tx("International student"), local: tx("Local student") }[p.role];
+  const roleLabel = { exchange: tx("Erasmus / exchange student"), international: tx("International student"), intern: tx("Intern / trainee"), local: tx("Local student") }[p.role];
   return (
     <>
       <TopBar title={p.first_name} />
