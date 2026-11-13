@@ -5,7 +5,7 @@ import { tx } from './db.js';
 import { config } from './config.js';
 import { hashPassword, verifyPassword, createSession, destroySession, sessionUser, rateLimiter } from './auth.js';
 import { localToUtcIso, utcToLocalInput, slotOf } from './time.js';
-import { CATEGORIES, TEMPLATES, LANGUAGES, BUDGETS, REPORT_REASONS, REC_CATEGORIES, categoryPhrase, slotLabel } from '../shared/catalog.js';
+import { CATEGORIES, TEMPLATES, LANGUAGES, BUDGETS, REPORT_REASONS, REC_CATEGORIES, MARKET_KINDS, MARKET_CATEGORIES, FEEDBACK_KINDS, categoryPhrase, slotLabel } from '../shared/catalog.js';
 
 export class HttpError extends Error {
   constructor(status, code, message) { super(message); this.status = status; this.code = code; }
@@ -151,7 +151,7 @@ export function createApi(db) {
     const personas = config.demoMode
       ? db.prepare("SELECT p.user_id AS id, p.first_name, p.intro, p.avatar_hue FROM profiles p JOIN users u ON u.id = p.user_id WHERE u.is_demo = 1 ORDER BY p.user_id").all()
       : [];
-    res.json({ appName: config.appName, demoMode: config.demoMode, cities, personas, categories: CATEGORIES, recCategories: REC_CATEGORIES, templates: TEMPLATES, languages: LANGUAGES, budgets: BUDGETS.map(({ key, label }) => ({ key, label })), reportReasons: REPORT_REASONS });
+    res.json({ appName: config.appName, demoMode: config.demoMode, cities, personas, categories: CATEGORIES, recCategories: REC_CATEGORIES, marketKinds: MARKET_KINDS, marketCategories: MARKET_CATEGORIES, feedbackKinds: FEEDBACK_KINDS, templates: TEMPLATES, languages: LANGUAGES, budgets: BUDGETS.map(({ key, label }) => ({ key, label })), reportReasons: REPORT_REASONS });
   });
 
   // ---------- auth ----------
@@ -247,7 +247,7 @@ export function createApi(db) {
       role=?, languages=?, interests=?, onboarded=1 WHERE user_id=?`).run(
       str(b.first_name, 40, 'First name', { required: true }), str(b.intro, 280, 'Introduction'), city.id, area,
       str(b.university, 80, 'University') || null, b.show_university ? 1 : 0, date(b.exchange_start), date(b.exchange_end),
-      ['exchange', 'international', 'local'].includes(b.role) ? b.role : 'exchange',
+      ['exchange', 'international', 'intern', 'local'].includes(b.role) ? b.role : 'exchange',
       JSON.stringify(list(b.languages, LANGUAGES)), JSON.stringify(list(b.interests, CAT_KEYS)), req.user.id,
     );
     res.json({ ok: true });
@@ -290,6 +290,10 @@ export function createApi(db) {
       db.prepare('DELETE FROM recommendations WHERE user_id = ?').run(uid);
       db.prepare('DELETE FROM rec_likes WHERE user_id = ?').run(uid);
       db.prepare('DELETE FROM rec_saves WHERE user_id = ?').run(uid);
+      db.prepare('DELETE FROM listing_messages WHERE buyer_id = ? OR sender_id = ?').run(uid, uid);
+      db.prepare('DELETE FROM listings WHERE user_id = ?').run(uid);
+      db.prepare('DELETE FROM listing_saves WHERE user_id = ?').run(uid);
+      db.prepare('UPDATE feedback SET user_id = NULL WHERE user_id = ?').run(uid);
       db.prepare('DELETE FROM blocks WHERE blocker_id = ? OR blocked_id = ?').run(uid, uid);
       db.prepare('DELETE FROM sessions WHERE user_id = ?').run(uid);
       // Keep an anonymous row only so cancelled activities still reference an organiser; all personal data is removed.
@@ -334,7 +338,7 @@ export function createApi(db) {
   });
 
   r.post('/reports', auth, (req, res) => {
-    const type = ['user', 'activity', 'message', 'recommendation', 'event_message'].includes(req.body.target_type) ? req.body.target_type : fail(400, 'invalid', 'Unknown report type.');
+    const type = ['user', 'activity', 'message', 'recommendation', 'event_message', 'listing', 'listing_message'].includes(req.body.target_type) ? req.body.target_type : fail(400, 'invalid', 'Unknown report type.');
     const reason = REPORT_REASONS.includes(req.body.reason) ? req.body.reason : fail(400, 'invalid', 'Please choose a reason.');
     db.prepare('INSERT INTO reports (reporter_id, target_type, target_id, reason, details) VALUES (?,?,?,?,?)')
       .run(req.user.id, type, Number(req.body.target_id) || 0, reason, str(req.body.details, 1000, 'Details'));
@@ -698,6 +702,7 @@ export function createApi(db) {
       seeking_count: seekers.filter((s) => s.user_id !== uid).length,
       approx: e.lat != null ? { lat: e.lat, lng: e.lng, area: e.venue } : approxSpot(city, e.venue),
       chat_count: db.prepare('SELECT COUNT(*) AS n FROM event_messages WHERE event_id = ?').get(e.id).n,
+      tickets_count: db.prepare("SELECT COUNT(*) AS n FROM listings WHERE event_id = ? AND kind = 'ticket' AND status != 'sold'").get(e.id).n,
       i_am_seeking: seekers.some((s) => s.user_id === uid) || !!db.prepare('SELECT 1 FROM event_interests WHERE event_id=? AND user_id=?').get(e.id, uid),
       _seekers: seekers,
     };
@@ -843,12 +848,13 @@ export function createApi(db) {
 
   r.get('/notifications', auth, (req, res) => {
     const blocked = blockedSet(req.user.id);
-    const rows = db.prepare(`SELECT n.*, a.title, a.status AS astatus FROM notifications n LEFT JOIN activities a ON a.id = n.activity_id
-      WHERE n.user_id = ? ORDER BY n.id DESC LIMIT 50`).all(req.user.id);
+    const rows = db.prepare(`SELECT n.*, a.title, a.status AS astatus, l.title AS ltitle FROM notifications n LEFT JOIN activities a ON a.id = n.activity_id
+      LEFT JOIN listings l ON l.id = n.listing_id WHERE n.user_id = ? ORDER BY n.id DESC LIMIT 50`).all(req.user.id);
     res.json({
       notifications: rows.filter((n) => !blocked.has(n.actor_id)).map((n) => ({
         id: n.id, kind: n.kind, detail: n.detail, read: !!n.read_at, created_at: n.created_at,
         activity: n.activity_id ? { id: n.activity_id, title: n.title, status: n.astatus } : null,
+        listing: n.listing_id ? { id: n.listing_id, title: n.ltitle } : null,
         actor: n.actor_id ? { id: n.actor_id, first_name: nameOf(n.actor_id) } : null,
       })),
     });
@@ -977,6 +983,186 @@ export function createApi(db) {
     if (e.status !== 'active' || isPast(e)) fail(409, 'state', 'This event is over, so the chat is read-only.');
     const body = str(req.body.body, 1000, 'Message', { required: true });
     const { lastInsertRowid } = db.prepare('INSERT INTO event_messages (event_id, user_id, body) VALUES (?, ?, ?)').run(e.id, req.user.id, body);
+    res.status(201).json({ id: Number(lastInsertRowid) });
+  });
+
+  // ---------- feedback ----------
+  const feedbackLimit = rateLimiter(10, 60 * 60e3);
+  r.post('/feedback', auth, (req, res) => {
+    if (!feedbackLimit(String(req.user.id))) fail(429, 'rate', 'Thanks! You have sent a lot of feedback this hour. Please try again later.');
+    const kind = FEEDBACK_KINDS.some((k) => k.key === req.body.kind) ? req.body.kind : 'other';
+    db.prepare('INSERT INTO feedback (user_id, kind, body, screen) VALUES (?,?,?,?)')
+      .run(req.user.id, kind, str(req.body.body, 2000, 'Feedback', { required: true }), str(req.body.screen, 60, 'Screen') || null);
+    res.status(201).json({ ok: true });
+  });
+  r.get('/admin/feedback', (req, res) => {
+    if (!process.env.ADMIN_TOKEN || req.get('x-admin-token') !== process.env.ADMIN_TOKEN) fail(403, 'forbidden', 'Forbidden.');
+    res.json({ feedback: db.prepare('SELECT id, kind, body, screen, created_at FROM feedback ORDER BY id DESC LIMIT 500').all() });
+  });
+
+  // ---------- marketplace (no payments in the app) ----------
+  const MK = MARKET_KINDS.map((k) => k.key);
+  const MC = MARKET_CATEGORIES.map((c) => c.key);
+  const getListing = (id) => db.prepare('SELECT * FROM listings WHERE id = ?').get(Number(id)) || fail(404, 'not_found', 'This listing no longer exists.');
+  const listingView = (l, uid, full = false) => {
+    const ev = l.event_id ? db.prepare('SELECT id, title, starts_at, is_sample FROM events WHERE id = ?').get(l.event_id) : null;
+    const v = {
+      id: l.id, kind: l.kind, category: l.category, title: l.title, price_eur: l.price_eur, face_value_eur: l.face_value_eur,
+      description: full ? l.description : l.description.slice(0, 140), area: l.area, status: l.status, is_sample: !!l.is_sample, created_at: l.created_at,
+      photo: l.photo_mime ? `/api/market/${l.id}/photo?v=${encodeURIComponent(l.updated_at)}` : null,
+      event: ev, seller: personSummary(profileOf(l.user_id)), mine: l.user_id === uid,
+      saved: !!db.prepare('SELECT 1 FROM listing_saves WHERE listing_id = ? AND user_id = ?').get(l.id, uid),
+      approx: approxSpot(cityById(l.city_id), l.area),
+    };
+    return v;
+  };
+  function readListing(b) {
+    const kind = MK.includes(b.kind) ? b.kind : fail(400, 'invalid', 'Please choose what kind of listing this is.');
+    const category = kind === 'ticket' ? 'tickets' : MC.includes(b.category) ? b.category : 'other';
+    const money = (v, field) => {
+      if (v === '' || v == null) return null;
+      const x = Number(v);
+      if (!(x >= 0 && x <= 5000)) fail(400, 'invalid', `${field} must be between €0 and €5000.`);
+      return Math.round(x * 100) / 100;
+    };
+    let price = kind === 'free' ? 0 : money(b.price_eur, 'Price');
+    if (kind === 'sell' && price == null) fail(400, 'invalid', 'Please add a price.');
+    let face = null; let eventId = null;
+    if (kind === 'ticket') {
+      face = money(b.face_value_eur, 'Original price');
+      if (face == null) fail(400, 'invalid', 'Please add the price you paid for the ticket.');
+      if (price == null) price = face;
+      // Our own fairness rule: tickets are passed on at or below what the seller paid.
+      if (price > face) fail(400, 'invalid', 'Tickets can only be offered at or below the price you paid.');
+      if (b.event_id) eventId = (db.prepare('SELECT id FROM events WHERE id = ?').get(Number(b.event_id)) || fail(400, 'invalid', 'Unknown event.')).id;
+    }
+    return {
+      kind, category, price, face, eventId,
+      title: str(b.title, 80, 'Title', { required: true }), description: str(b.description, 1000, 'Description'), area: str(b.area, 80, 'Area') || null,
+    };
+  }
+  r.get('/market', auth, (req, res) => {
+    const uid = req.user.id;
+    const city = cityBySlug(req.query.city) || fail(404, 'not_found', 'Unknown city.');
+    const blocked = blockedSet(uid);
+    const showSample = !!profileOf(uid)?.show_sample;
+    const mine = req.query.mine === '1';
+    let rows = db.prepare(`SELECT * FROM listings WHERE city_id = ? ${mine ? 'AND user_id = ?' : "AND status != 'sold'"} ORDER BY id DESC LIMIT 300`)
+      .all(...(mine ? [city.id, uid] : [city.id]))
+      .filter((l) => !blocked.has(l.user_id) && (mine || showSample || !l.is_sample));
+    if (req.query.kind) rows = rows.filter((l) => l.kind === req.query.kind);
+    if (req.query.category) rows = rows.filter((l) => l.category === req.query.category);
+    if (req.query.event) rows = rows.filter((l) => l.event_id === Number(req.query.event));
+    if (req.query.q) { const q = String(req.query.q).toLowerCase(); rows = rows.filter((l) => `${l.title} ${l.description}`.toLowerCase().includes(q)); }
+    let out = rows.map((l) => listingView(l, uid));
+    if (req.query.saved === '1') out = out.filter((l) => l.saved);
+    res.json({ listings: out });
+  });
+  r.get('/market/:id', auth, (req, res) => {
+    const uid = req.user.id;
+    const l = getListing(req.params.id);
+    if (blockedSet(uid).has(l.user_id)) fail(404, 'not_found', 'This listing is not available.');
+    const v = listingView(l, uid, true);
+    if (l.user_id === uid) {
+      const blocked = blockedSet(uid);
+      v.conversations = db.prepare(`SELECT buyer_id, MAX(id) AS last_id, SUM(CASE WHEN sender_id != ? AND read_at IS NULL THEN 1 ELSE 0 END) AS unread
+        FROM listing_messages WHERE listing_id = ? GROUP BY buyer_id ORDER BY last_id DESC`).all(uid, l.id)
+        .filter((c) => !blocked.has(c.buyer_id))
+        .map((c) => ({ buyer: personSummary(profileOf(c.buyer_id)), unread: c.unread, last: db.prepare('SELECT body, created_at FROM listing_messages WHERE id = ?').get(c.last_id) }));
+    }
+    res.json({ listing: v });
+  });
+  r.post('/market', auth, (req, res) => {
+    const d = readListing(req.body);
+    const p = profileOf(req.user.id);
+    const { lastInsertRowid } = db.prepare(`INSERT INTO listings (city_id, user_id, kind, category, title, description, price_eur, face_value_eur, event_id, area, is_sample)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(p.city_id, req.user.id, d.kind, d.category, d.title, d.description, d.price, d.face, d.eventId, d.area, req.user.is_demo ? 1 : 0);
+    res.status(201).json({ id: Number(lastInsertRowid) });
+  });
+  const ownListing = (req) => {
+    const l = getListing(req.params.id);
+    if (l.user_id !== req.user.id) fail(403, 'forbidden', 'Only the seller can change this listing.');
+    return l;
+  };
+  r.put('/market/:id', auth, (req, res) => {
+    const l = ownListing(req);
+    const d = readListing({ ...l, ...req.body });
+    const status = ['active', 'reserved', 'sold'].includes(req.body.status) ? req.body.status : l.status;
+    db.prepare(`UPDATE listings SET kind=?, category=?, title=?, description=?, price_eur=?, face_value_eur=?, event_id=?, area=?, status=?, updated_at=? WHERE id=?`)
+      .run(d.kind, d.category, d.title, d.description, d.price, d.face, d.eventId, d.area, status, now(), l.id);
+    res.json({ ok: true });
+  });
+  r.delete('/market/:id', auth, (req, res) => {
+    const l = ownListing(req);
+    db.prepare('DELETE FROM listings WHERE id = ?').run(l.id);
+    res.json({ ok: true });
+  });
+  r.put('/market/:id/photo', auth, (req, res) => {
+    const l = ownListing(req);
+    const m = /^data:(image\/jpeg);base64,([A-Za-z0-9+/=]+)$/.exec(String(req.body?.data || ''));
+    if (!m) fail(400, 'invalid', 'Please choose a JPEG, PNG or WebP picture.');
+    const buf = Buffer.from(m[2], 'base64');
+    if (buf.length > 600 * 1024) fail(413, 'too_large', 'That picture is too large. Please choose a smaller one.');
+    if (!(buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff)) fail(400, 'invalid', 'That file does not look like a picture.');
+    db.prepare('UPDATE listings SET photo_mime = ?, photo = ?, updated_at = ? WHERE id = ?').run(m[1], buf, now(), l.id);
+    res.json({ ok: true });
+  });
+  r.get('/market/:id/photo', auth, (req, res) => {
+    const l = getListing(req.params.id);
+    if (blockedSet(req.user.id).has(l.user_id) || !l.photo_mime) fail(404, 'not_found', 'Not found.');
+    res.set('Content-Type', l.photo_mime);
+    res.set('Cache-Control', 'private, max-age=86400');
+    res.set('Content-Security-Policy', "default-src 'none'; sandbox");
+    res.send(Buffer.from(l.photo));
+  });
+  r.put('/market/:id/save', auth, (req, res) => {
+    const l = getListing(req.params.id);
+    db.prepare('INSERT OR IGNORE INTO listing_saves (listing_id, user_id) VALUES (?, ?)').run(l.id, req.user.id);
+    res.json({ ok: true });
+  });
+  r.delete('/market/:id/save', auth, (req, res) => {
+    db.prepare('DELETE FROM listing_saves WHERE listing_id = ? AND user_id = ?').run(Number(req.params.id), req.user.id);
+    res.json({ ok: true });
+  });
+  // Private messages: the seller and one interested person. The seller passes ?buyer=ID to open a conversation.
+  const convoOf = (req, l) => {
+    const uid = req.user.id;
+    if (l.user_id === uid) {
+      const buyer = Number(req.query.buyer || req.body?.buyer) || fail(400, 'invalid', 'Choose a conversation.');
+      if (!db.prepare('SELECT 1 FROM listing_messages WHERE listing_id = ? AND buyer_id = ?').get(l.id, buyer)) fail(404, 'not_found', 'No conversation with this person yet.');
+      return buyer;
+    }
+    return uid;
+  };
+  r.get('/market/:id/messages', auth, (req, res) => {
+    const uid = req.user.id;
+    const l = getListing(req.params.id);
+    if (blockedSet(uid).has(l.user_id)) fail(404, 'not_found', 'This listing is not available.');
+    const buyer = convoOf(req, l);
+    if (blockedSet(uid).has(buyer)) fail(404, 'not_found', 'This conversation is not available.');
+    db.prepare('UPDATE listing_messages SET read_at = ? WHERE listing_id = ? AND buyer_id = ? AND sender_id != ? AND read_at IS NULL').run(now(), l.id, buyer, uid);
+    db.prepare('UPDATE notifications SET read_at = ? WHERE user_id = ? AND listing_id = ? AND read_at IS NULL').run(now(), uid, l.id);
+    const rows = db.prepare('SELECT * FROM listing_messages WHERE listing_id = ? AND buyer_id = ? AND id > ? ORDER BY id LIMIT 500').all(l.id, buyer, Number(req.query.after) || 0);
+    res.json({
+      other: personSummary(profileOf(l.user_id === uid ? buyer : l.user_id)), title: l.title, status: l.status,
+      messages: rows.map((m) => ({ id: m.id, kind: 'user', body: m.body, created_at: m.created_at, mine: m.sender_id === uid, author: personSummary(profileOf(m.sender_id)) })),
+    });
+  });
+  r.post('/market/:id/messages', auth, (req, res) => {
+    if (!msgLimit(String(req.user.id))) fail(429, 'rate', 'You are sending messages too quickly.');
+    const uid = req.user.id;
+    const l = getListing(req.params.id);
+    if (blockedSet(uid).has(l.user_id)) fail(404, 'not_found', 'This listing is not available.');
+    const buyer = convoOf(req, l);
+    if (blockedSet(uid).has(buyer)) fail(404, 'not_found', 'This conversation is not available.');
+    if (l.user_id !== uid && l.status === 'sold') fail(409, 'sold', 'This item is already sold.');
+    const body = str(req.body.body, 1000, 'Message', { required: true });
+    const { lastInsertRowid } = db.prepare('INSERT INTO listing_messages (listing_id, buyer_id, sender_id, body) VALUES (?,?,?,?)').run(l.id, buyer, uid, body);
+    const to = l.user_id === uid ? buyer : l.user_id;
+    // One unread notice per conversation is enough.
+    if (!db.prepare("SELECT 1 FROM notifications WHERE user_id = ? AND listing_id = ? AND kind = 'market_message' AND read_at IS NULL").get(to, l.id)) {
+      db.prepare("INSERT INTO notifications (user_id, kind, listing_id, actor_id) VALUES (?, 'market_message', ?, ?)").run(to, l.id, uid);
+    }
     res.status(201).json({ id: Number(lastInsertRowid) });
   });
 

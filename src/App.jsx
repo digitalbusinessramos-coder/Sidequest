@@ -10,6 +10,7 @@ import ActivityForm from './screens/ActivityForm.jsx';
 import EventDetail from './screens/EventDetail.jsx';
 import Chat from './screens/Chat.jsx';
 import EventChat from './screens/EventChat.jsx';
+import Market, { ListingChat, ListingDetail, ListingForm } from './screens/Market.jsx';
 import Plans from './screens/Plans.jsx';
 import Buddies from './screens/Buddies.jsx';
 import Guide from './screens/Guide.jsx';
@@ -38,7 +39,7 @@ const TABS = [
   ['guide', 'guide', 'nav.guide'],
   ['profile', 'profile', 'nav.profile'],
 ];
-const TAB_OF = { activity: 'explore', event: 'explore', create: 'explore', person: 'buddies' };
+const TAB_OF = { activity: 'explore', event: 'explore', create: 'explore', market: 'explore', person: 'buddies' };
 
 export default function App() {
   const route = useHashRoute();
@@ -93,6 +94,11 @@ export default function App() {
   if (p0 === 'activity' && p2 === 'chat') screen = <Chat id={p1} />;
   else if (p0 === 'activity' && p2 === 'edit') screen = <ActivityForm editId={p1} />;
   else if (p0 === 'activity') screen = <ActivityDetail id={p1} />;
+  else if (p0 === 'market' && p1 === 'new') screen = <ListingForm query={route.query} />;
+  else if (p0 === 'market' && p1 && p2 === 'edit') screen = <ListingForm editId={p1} />;
+  else if (p0 === 'market' && p1 && p2 === 'chat') screen = <ListingChat id={p1} query={route.query} />;
+  else if (p0 === 'market' && p1) screen = <ListingDetail id={p1} />;
+  else if (p0 === 'market') screen = <Market query={route.query} />;
   else if (p0 === 'event' && p2 === 'chat') screen = <EventChat id={p1} />;
   else if (p0 === 'event') screen = <EventDetail id={p1} />;
   else if (p0 === 'create') screen = <ActivityForm query={route.query} />;

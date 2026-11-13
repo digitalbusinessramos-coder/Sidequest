@@ -87,6 +87,15 @@ export default function EventDetail({ id }) {
               : <button className="btn btn-secondary btn-block" onClick={startFind} disabled={!open}><Icon name="chat" size={18} />{tx('Join the group to chat')}</button>}
             <p className="tiny muted">{tx("Everyone who says they’re looking for company can write here, for example to agree where to meet.")}</p>
           </div>
+          <hr className="divider" />
+          <div className="stack-sm">
+            <span className="label">{tx("Tickets from students")}</span>
+            <div className="row wrap">
+              <a className="btn btn-secondary btn-sm" href={`#/market?event=${e.id}`}><Icon name="star" size={16} />{tx('See tickets ({n})', { n: e.tickets_count || 0 })}</a>
+              <a className="btn btn-ghost btn-sm" href={`#/market/new?kind=ticket&event=${e.id}`}>{tx("Sell my ticket")}</a>
+            </div>
+            <p className="tiny muted">{tx("Only at or below the price paid. Check that the organiser allows tickets to be passed on.")}</p>
+          </div>
         </section>
 
         <section className="stack" aria-labelledby="groups-h">

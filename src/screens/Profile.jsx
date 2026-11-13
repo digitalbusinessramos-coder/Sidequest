@@ -1,27 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { getAppName, t, tx } from '../i18n.js';
 import { Avatar, EmailBadge, Icon, LanguageSwitch, SampleBadge, Sheet, TopBar, useApp } from '../components.jsx';
-import { areaName, nearestArea, useApi } from '../util.js';
+import { areaName, nearestArea, resizeToJpeg, useApi } from '../util.js';
 import { categoryLabel } from '../../shared/catalog.js';
 import { ProfileFields, profileDefaults } from './Onboarding.jsx';
-
-/** Resize in the browser (max 512 px, JPEG) so uploads stay small, then send as JSON. */
-function resizeToJpeg(file, max = 512) {
-  return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      const side = Math.min(img.width, img.height); // square crop from the centre
-      const out = Math.min(max, side);
-      const c = document.createElement('canvas'); c.width = out; c.height = out;
-      c.getContext('2d').drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, out, out);
-      URL.revokeObjectURL(url);
-      resolve(c.toDataURL('image/jpeg', 0.85));
-    };
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error(tx('That file does not look like a picture.'))); };
-    img.src = url;
-  });
-}
+import { FeedbackSheet } from './Market.jsx';
 
 function PhotoPicker() {
   const { me, api, reloadMe, toast } = useApp();
@@ -79,6 +62,7 @@ export default function Profile({ sub }) {
   const [del, setDel] = useState(null);
   const [geoMsg, setGeoMsg] = useState('');
   const [mailMsg, setMailMsg] = useState('');
+  const [feedback, setFeedback] = useState(false);
   useEffect(() => {
     // Coming back from the link in the verification email.
     const m = /verified=(\w+)/.exec(location.hash);
@@ -183,6 +167,12 @@ export default function Profile({ sub }) {
         </div>
       </section>
 
+      <section className="card card-pad stack-sm" aria-labelledby="fb-h">
+        <h2 id="fb-h" className="row"><Icon name="chat" />{tx('Feedback and ideas')}</h2>
+        <p className="small muted">{tx('Tell the project team what to improve, add or fix.')}</p>
+        <button className="btn btn-secondary" onClick={() => setFeedback(true)}>{tx('Send feedback')}</button>
+      </section>
+      {feedback && <FeedbackSheet onClose={() => setFeedback(false)} />}
       <section className="stack-sm" aria-labelledby="bl-h">
         <h2 id="bl-h">{t('profile.blocked')}</h2>
         {blocks.data?.blocked.length ? (

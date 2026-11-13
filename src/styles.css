@@ -323,3 +323,26 @@ a[href^="#/person"]:hover strong { text-decoration: underline; }
 .photo-pick { position: relative; border: 0; background: none; padding: 0; cursor: pointer; border-radius: 50%; }
 .photo-pick:focus-visible { outline: 3px solid var(--blue); outline-offset: 3px; }
 .photo-pick-badge { position: absolute; right: -2px; bottom: -2px; width: 26px; height: 26px; border-radius: 50%; background: var(--blue); color: #fff; display: grid; place-items: center; border: 2px solid var(--paper); }
+.seg-wide { display: flex; width: 100%; }
+.seg-wide a { flex: 1; justify-content: center; text-decoration: none; border-radius: 999px; padding: 8px 14px; font-weight: 700; display: inline-flex; gap: 6px; align-items: center; color: var(--ink-2); min-height: 40px; }
+.seg-wide a.on { background: var(--paper); color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+.listing-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+@media (min-width: 640px) { .listing-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.listing-card { display: flex; flex-direction: column; background: var(--paper); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; text-decoration: none; color: inherit; }
+.listing-card:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
+.listing-img { position: relative; aspect-ratio: 1 / 1; background: var(--blue-soft); display: grid; place-items: center; color: var(--blue-ink); }
+.listing-img img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.listing-status { position: absolute; left: 8px; top: 8px; border-radius: 999px; padding: 2px 8px; font-size: 0.72rem; font-weight: 700; }
+.s-reserved { background: #fff4d6; color: #7a4b00; }
+.s-sold { background: var(--ink); color: #fff; }
+.listing-body { padding: 8px 10px 10px; display: grid; gap: 2px; min-width: 0; }
+.listing-title { font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.listing-price { font-family: var(--font-head); font-size: 1.05rem; }
+.listing-price.big { font-size: 1.6rem; color: var(--blue-ink); }
+.listing-hero { border-radius: 20px; overflow: hidden; background: var(--blue-soft); color: var(--blue-ink); display: grid; place-items: center; min-height: 200px; max-height: 360px; }
+.listing-hero img { width: 100%; max-height: 360px; object-fit: cover; display: block; }
+.listing-thumb { width: 64px; height: 64px; object-fit: cover; border-radius: 12px; }
+.select-sm { min-height: 40px; width: auto; padding-top: 0; padding-bottom: 0; }
+.choice-cards.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.choice-cards.two .choice-card { align-items: center; }
+.link-btn { border: 0; background: none; padding: 0; color: var(--blue-ink); text-decoration: underline; font: inherit; cursor: pointer; }

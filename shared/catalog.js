@@ -73,3 +73,26 @@ export const REC_CATEGORIES = [
   { key: 'study', label: 'Places to study' },
   { key: 'practical', label: 'Practical tips' },
 ];
+
+export const MARKET_KINDS = [
+  { key: 'sell', label: 'For sale' },
+  { key: 'free', label: 'Free to give away' },
+  { key: 'wanted', label: 'Looking for' },
+  { key: 'ticket', label: 'Event ticket' },
+];
+export const MARKET_CATEGORIES = [
+  { key: 'furniture', label: 'Furniture & home' },
+  { key: 'kitchen', label: 'Kitchen' },
+  { key: 'bikes', label: 'Bikes & sports gear' },
+  { key: 'surf', label: 'Surf & beach' },
+  { key: 'electronics', label: 'Electronics' },
+  { key: 'books', label: 'Books & study' },
+  { key: 'clothes', label: 'Clothes' },
+  { key: 'tickets', label: 'Tickets' },
+  { key: 'other', label: 'Other' },
+];
+export const FEEDBACK_KINDS = [
+  { key: 'idea', label: 'Idea or improvement' },
+  { key: 'problem', label: 'Something doesn’t work' },
+  { key: 'other', label: 'Something else' },
+];

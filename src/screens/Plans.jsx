@@ -15,6 +15,7 @@ const NOTE_TEXT = {
   cancelled: ['“{title}” was cancelled.', 'x'],
   changed: ['The organiser changed the time or meeting point of “{title}”.', 'clock'],
   joined: ['{name} joined “{title}”.', 'bolt'],
+  market_message: ['{name} sent you a message about “{title}”.', 'shopping'],
 };
 
 /** In-app notifications. Shown in the person's language because the server stores only the kind of event. */
@@ -30,6 +31,7 @@ function Updates() {
   const open = async (n) => {
     if (!n.read) api.post('/notifications/read', { ids: [n.id] }).then(() => reloadMe()).catch(() => {});
     if (n.activity) location.hash = `#/activity/${n.activity.id}`;
+    else if (n.listing) location.hash = `#/market/${n.listing.id}`;
   };
   return (
     <section className="stack-sm" aria-labelledby="upd-h">
@@ -44,7 +46,7 @@ function Updates() {
             <button key={n.id} className={`note ${n.read ? '' : 'unread'}`} onClick={() => open(n)}>
               <Icon name={icon} size={18} />
               <span style={{ flex: 1 }}>
-                {tx(text, { name: n.actor?.first_name || tx('Someone'), title: n.activity?.title || '' })}
+                {tx(text, { name: n.actor?.first_name || tx('Someone'), title: n.activity?.title || n.listing?.title || '' })}
                 {n.kind === 'cancelled' && n.detail && <> {tx('Reason: {reason}', { reason: n.detail })}</>}
                 <span className="tiny muted" style={{ display: 'block' }}>{fmtWhen(n.created_at, city.timezone)}</span>
               </span>
