@@ -1,6 +1,6 @@
-import { useState } from 'react';
-import { getAppName, t } from '../i18n.js';
-import { Avatar, Icon, SampleBadge, Sheet, TopBar, useApp } from '../components.jsx';
+import { useEffect, useState } from 'react';
+import { getAppName, t, tx } from '../i18n.js';
+import { Avatar, EmailBadge, Icon, LanguageSwitch, SampleBadge, Sheet, TopBar, useApp } from '../components.jsx';
 import { areaName, nearestArea, useApi } from '../util.js';
 import { categoryLabel } from '../../shared/catalog.js';
 import { ProfileFields, profileDefaults } from './Onboarding.jsx';
@@ -12,7 +12,7 @@ function EditProfile() {
   const [busy, setBusy] = useState(false);
   const save = async (e) => {
     e.preventDefault(); setBusy(true); setErr('');
-    try { await api.put('/me/profile', { ...v, city: city.slug }); await reloadMe(); toast('Profile saved.'); location.hash = '#/profile'; } catch (x) { setErr(x.message); } finally { setBusy(false); }
+    try { await api.put('/me/profile', { ...v, city: city.slug }); await reloadMe(); toast(tx("Profile saved.")); location.hash = '#/profile'; } catch (x) { setErr(x.message); } finally { setBusy(false); }
   };
   return (
     <>
@@ -27,11 +27,19 @@ function EditProfile() {
 }
 
 export default function Profile({ sub }) {
-  const { me, city, api, reloadMe, toast } = useApp();
+  const { me, city, api, reloadMe, toast, lang } = useApp();
   const blocks = useApi('/me/blocks');
   const [busy, setBusy] = useState(false);
   const [del, setDel] = useState(null);
   const [geoMsg, setGeoMsg] = useState('');
+  const [mailMsg, setMailMsg] = useState('');
+  useEffect(() => {
+    // Coming back from the link in the verification email.
+    const m = /verified=(\w+)/.exec(location.hash);
+    if (!m) return;
+    if (m[1] === '1') { toast(tx('Thanks! Your email address is confirmed.')); reloadMe(); } else toast(tx('That confirmation link is invalid or has expired. Request a new one below.'), true);
+    history.replaceState(null, '', '#/profile');
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   if (sub === 'edit') return <EditProfile />;
 
   const privacy = async (patch, ok) => {
@@ -40,22 +48,30 @@ export default function Profile({ sub }) {
   };
 
   const toggleNearby = (on) => {
-    if (!on) return privacy({ nearby_enabled: false }, 'Nearby discovery is off.');
-    if (!navigator.geolocation) { setGeoMsg('Your browser does not support location. Choose your area manually instead.'); return undefined; }
-    setGeoMsg('Asking your browser for your location once…');
+    if (!on) return privacy({ nearby_enabled: false }, tx("Nearby discovery is off."));
+    if (!navigator.geolocation) { setGeoMsg(tx("Your browser does not support location. Choose your area manually instead.")); return undefined; }
+    setGeoMsg(tx("Asking your browser for your location once…"));
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         // The nearest neighbourhood is worked out here on your device. Only its name is sent to the server.
         const area = nearestArea(city.areas, pos.coords.latitude, pos.coords.longitude);
-        setGeoMsg(`Set to ${area.name}. Your coordinates were not sent or stored.`);
-        privacy({ nearby_enabled: true, area: area.key }, 'Nearby discovery is on.');
+        setGeoMsg(tx('Set to {area}. Your coordinates were not sent or stored.', { area: area.name }));
+        privacy({ nearby_enabled: true, area: area.key }, tx("Nearby discovery is on."));
       },
-      () => setGeoMsg('Location permission was not given. Nothing changed. You can still choose your area manually.'),
+      () => setGeoMsg(tx("Location permission was not given. Nothing changed. You can still choose your area manually.")),
       { enableHighAccuracy: false, maximumAge: 600000, timeout: 10000 },
     );
     return undefined;
   };
 
+  const sendVerification = async () => {
+    setBusy(true); setMailMsg('');
+    try {
+      const r = await api.post('/auth/verify/send');
+      setMailMsg(r.already ? tx('Your email is already confirmed.') : r.sent ? tx('Email sent. Open the link in it within 48 hours.')
+        : tx('Email sending is not set up on this server yet, so no email was sent. The project team can switch it on.'));
+    } catch (x) { setMailMsg(tx(x.message)); } finally { setBusy(false); }
+  };
   const logout = async () => { await api.post('/auth/logout'); await reloadMe(); location.hash = '#/explore'; };
   const unblock = async (id) => { try { await api.del(`/users/${id}/block`); blocks.reload(); } catch (x) { toast(x.message, true); } };
   const doDelete = async (e) => {
@@ -75,24 +91,44 @@ export default function Profile({ sub }) {
       </div>
       {me.intro && <p>{me.intro}</p>}
       <div className="card card-pad facts-list">
-        <Icon name="globe" /><div>{me.languages.join(', ') || 'No languages yet'}</div>
-        <Icon name="heart" /><div>{me.interests.map(categoryLabel).join(', ') || 'No interests yet'}</div>
-        <Icon name="pin" /><div>{areaName(city.areas, me.area) || 'Area not set'}</div>
-        {me.university && <><Icon name="school" /><div>{me.university} <span className="tiny muted">{me.show_university ? '(shown on profile)' : '(hidden)'}</span></div></>}
+        <Icon name="globe" /><div>{me.languages.map((l) => tx(l)).join(', ') || tx("No languages yet")}</div>
+        <Icon name="heart" /><div>{me.interests.map((c) => tx(categoryLabel(c))).join(', ') || tx("No interests yet")}</div>
+        <Icon name="pin" /><div>{areaName(city.areas, me.area) || tx("Area not set")}</div>
+        {me.university && <><Icon name="school" /><div>{me.university} <span className="tiny muted">{me.show_university ? tx('(shown on profile)') : tx('(hidden)')}</span></div></>}
       </div>
-      <p className="tiny muted"><Icon name="info" size={13} /> {t('profile.emailUnverified')}</p>
+      {!me.is_demo && (
+        <section className="card card-pad stack-sm" aria-labelledby="mail-h">
+          <div className="row"><h3 id="mail-h" style={{ flex: 1 }}>{tx('Email')}</h3>{me.email_verified && <EmailBadge />}</div>
+          <p className="small">{me.email} <span className="tiny muted">{tx('(never shown to others)')}</span></p>
+          {me.email_verified
+            ? <p className="tiny muted">{tx('Others see “Email confirmed” on your profile. It only means you can receive email at this address. It does not verify that you are a student.')}</p>
+            : (
+              <>
+                <p className="tiny muted">{t('profile.emailUnverified')}</p>
+                <button className="btn btn-secondary btn-sm" disabled={busy} onClick={sendVerification}>{tx('Send confirmation email')}</button>
+                {mailMsg && <p className="small" role="status">{mailMsg}</p>}
+              </>
+            )}
+        </section>
+      )}
+
+      <section className="stack-sm" aria-labelledby="lang-h">
+        <h2 id="lang-h">{tx('Language')}</h2>
+        <LanguageSwitch />
+        {lang === 'es' && <p className="tiny muted">{tx('The Spanish version was drafted by AI and still needs to be checked by a native speaker. Content written by users is not translated.')}</p>}
+      </section>
 
       <section className="stack-sm" aria-labelledby="priv-h">
         <h2 id="priv-h" className="row"><Icon name="shield" />{t('profile.privacy')}</h2>
         <div className="card card-pad" style={{ paddingTop: 0, paddingBottom: 0 }}>
           <label className="switch"><span><strong>{t('profile.visible')}</strong><br /><span className="hint">{t('profile.visibleHint')}</span></span>
-            <input type="checkbox" role="switch" checked={me.visible} disabled={busy} onChange={(e) => privacy({ visible: e.target.checked }, e.target.checked ? 'You’re visible again.' : 'Visibility paused.')} /></label>
+            <input type="checkbox" role="switch" checked={me.visible} disabled={busy} onChange={(e) => privacy({ visible: e.target.checked }, e.target.checked ? tx("You’re visible again.") : tx("Visibility paused."))} /></label>
           <label className="switch"><span><strong>{t('profile.nearby')}</strong><br /><span className="hint">{t('profile.nearbyHint')}</span></span>
             <input type="checkbox" role="switch" checked={me.nearby_enabled} disabled={busy} onChange={(e) => toggleNearby(e.target.checked)} /></label>
           {geoMsg && <p className="small" role="status" style={{ padding: '8px 0' }}>{geoMsg}</p>}
           <label className="field" style={{ padding: '14px 0', borderBottom: '1px solid var(--line)' }}><span>{t('profile.area')}</span>
-            <select className="select" value={me.area || ''} disabled={busy} onChange={(e) => privacy({ area: e.target.value || null }, 'Area updated.')}>
-              <option value="">Prefer not to say</option>
+            <select className="select" value={me.area || ''} disabled={busy} onChange={(e) => privacy({ area: e.target.value || null }, tx("Area updated."))}>
+              <option value="">{tx("Prefer not to say")}</option>
               {city.areas.map((a) => <option key={a.key} value={a.key}>{a.name}</option>)}
             </select>
           </label>
@@ -114,8 +150,8 @@ export default function Profile({ sub }) {
       </section>
 
       <section className="stack-sm" aria-labelledby="about-h">
-        <h2 id="about-h">About {getAppName()}</h2>
-        <p className="small muted">A student project prototype from Las Palmas. Recommendations use simple, visible rules, not AI. Sample profiles and events are fictional and always labelled. We are not affiliated with ESN or any university.</p>
+        <h2 id="about-h">{tx('About {app}')}</h2>
+        <p className="small muted">{tx("A student project prototype from Las Palmas. Recommendations use simple, visible rules, not AI. Sample profiles and events are fictional and always labelled. We are not affiliated with ESN or any university.")}</p>
       </section>
 
       <div className="stack-sm">
@@ -127,11 +163,11 @@ export default function Profile({ sub }) {
         <Sheet title={t('profile.delete')} onClose={() => setDel(null)}>
           <form className="stack" onSubmit={doDelete}>
             <p className="small">{t('profile.deleteHint')}</p>
-            <label className="field"><span>Confirm with your password</span>
+            <label className="field"><span>{tx("Confirm with your password")}</span>
               <input className="input" type="password" autoComplete="current-password" required value={del.password} onChange={(e) => setDel({ ...del, password: e.target.value })} />
             </label>
             {del.err && <div className="form-error" role="alert">{del.err}</div>}
-            <button className="btn btn-danger btn-block" disabled={busy}>Delete my account permanently</button>
+            <button className="btn btn-danger btn-block" disabled={busy}>{tx("Delete my account permanently")}</button>
           </form>
         </Sheet>
       )}

@@ -245,3 +245,14 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 a[href^="#/person"] { text-decoration: none; }
 a[href^="#/person"]:hover strong { text-decoration: underline; }
+
+/* notifications */
+.note { display: flex; gap: 12px; align-items: flex-start; width: 100%; text-align: left; padding: 12px 14px; border: 0; border-bottom: 1px solid var(--line);
+  background: var(--paper); cursor: pointer; font-size: 0.92rem; }
+.note:last-child { border-bottom: 0; }
+.note svg { margin-top: 2px; color: var(--ink-3); flex: none; }
+.note.unread { background: var(--blue-soft); }
+.note.unread svg { color: var(--blue-ink); }
+.note .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--coral); margin-top: 6px; flex: none; }
+.grid-2 > * { min-width: 0; }
+.grid-2 .input { min-width: 0; }

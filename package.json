@@ -13,7 +13,8 @@
     "start": "node --no-warnings server/index.js",
     "seed": "node server/seed.js",
     "test": "node --test --no-warnings test/*.test.js",
-    "test:browser": "node test/e2e.browser.cjs"
+    "test:browser": "node test/e2e.browser.cjs",
+    "check:i18n": "node scripts/check-i18n.mjs"
   },
   "dependencies": {
     "express": "^4.21.2",

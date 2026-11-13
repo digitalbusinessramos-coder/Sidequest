@@ -8,6 +8,7 @@ import path from 'node:path';
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sq-test-'));
 process.env.DB_PATH = path.join(dir, 'test.db');
 process.env.AUTH_RATE_LIMIT = '10000';
+process.env.NODE_ENV = 'test';
 const { openDb } = await import('../server/db.js');
 const { createApp } = await import('../server/index.js');
 const { seed } = await import('../server/seed.js');
@@ -269,4 +270,48 @@ test('data persists across a server restart (same database file)', async () => {
   const row = db2.prepare('SELECT title FROM activities WHERE id = ?').get(id);
   s2.close();
   assert.equal(row.title, 'Persistent plan');
+});
+
+test('notifications: organiser hears about requests, requester about the decision, members about cancellation', async () => {
+  const org = await user('Nora'); const a = await user('Nils');
+  const id = await makeActivity(org);
+  await a.post(`/activities/${id}/requests`);
+  const n1 = (await org.get('/notifications')).body.notifications;
+  assert.equal(n1[0].kind, 'request_received'); assert.equal(n1[0].actor.first_name, 'Nils'); assert.equal(n1[0].read, false);
+  assert.equal((await org.get('/me')).body.counts.notifications, 1);
+  await org.post(`/activities/${id}/members/${a.id}/accept`);
+  assert.equal((await a.get('/notifications')).body.notifications[0].kind, 'request_accepted');
+  await org.post('/notifications/read', { all: true });
+  assert.equal((await org.get('/me')).body.counts.notifications, 0);
+  // unread chat counts
+  await org.post(`/activities/${id}/messages`, { body: 'Hello!' });
+  assert.equal((await a.get('/me')).body.counts.chats, 1);
+  assert.equal((await a.get(`/activities/${id}`)).body.activity.unread, 1);
+  await a.get(`/activities/${id}/messages`);
+  assert.equal((await a.get('/me')).body.counts.chats, 0);
+  await org.post(`/activities/${id}/cancel`, { reason: 'Storm' });
+  const n2 = (await a.get('/notifications')).body.notifications[0];
+  assert.equal(n2.kind, 'cancelled'); assert.equal(n2.detail, 'Storm');
+  // a person never sees others' notifications
+  const other = await user('Nobody');
+  assert.equal((await other.get('/notifications')).body.notifications.length, 0);
+});
+
+test('email verification: token link confirms the address; badge only after confirmation', async () => {
+  const { outbox } = await import('../server/email.js');
+  const a = await user('Vera');
+  assert.equal((await a.get('/me')).body.user.email_verified, false);
+  const mail = outbox.filter((m) => m.to === a.email).pop();
+  assert.ok(mail, 'verification email prepared on sign-up');
+  assert.match(mail.text, /does not verify student status/);
+  const token = /token=([\w-]+)/.exec(mail.text)[1];
+  const bad = await fetch(`${base}/auth/verify?token=wrong`, { redirect: 'manual' });
+  assert.match(bad.headers.get('location'), /verified=invalid/);
+  const ok = await fetch(`${base}/auth/verify?token=${token}`, { redirect: 'manual' });
+  assert.match(ok.headers.get('location'), /verified=1/);
+  assert.equal((await a.get('/me')).body.user.email_verified, true);
+  const b = await user('Walt');
+  assert.equal((await b.get(`/users/${a.id}`)).body.profile.email_verified, true);
+  const reuse = await fetch(`${base}/auth/verify?token=${token}`, { redirect: 'manual' });
+  assert.match(reuse.headers.get('location'), /verified=invalid/, 'token works only once');
 });
