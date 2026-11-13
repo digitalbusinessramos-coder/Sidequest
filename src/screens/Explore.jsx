@@ -80,12 +80,12 @@ export default function Explore() {
         <button className="btn btn-sm hero-help" onClick={openTour}><Icon name="info" size={15} />{tx('How it works')}</button>
       </PhotoHero>
       {people.data?.people.length > 0 && (
-        <section className="stack-sm" aria-labelledby="ppl-h">
+        <section className="stack-sm" aria-labelledby="ppl-h" data-tour="people">
           <div className="section-title"><h2 id="ppl-h">{tx('Students looking for company')}</h2><a className="small" href="#/buddies">{tx('See all')}</a></div>
           <PeopleStrip people={people.data.people.slice(0, 10)} />
         </section>
       )}
-      <form className="search" role="search" onSubmit={(e) => e.preventDefault()}>
+      <form className="search" role="search" data-tour="search" onSubmit={(e) => e.preventDefault()}>
         <label className="sr-only" htmlFor="q">{t('explore.search')}</label>
         <input id="q" type="search" placeholder={tx("Surf, night out, coffee…")} value={q} onChange={(e) => setQ(e.target.value)} />
       </form>
@@ -107,7 +107,7 @@ export default function Explore() {
       </div>
 
       <div className="row" style={{ justifyContent: 'space-between' }}>
-        <div className="seg" role="group" aria-label={tx('View')}>
+        <div className="seg" role="group" data-tour="view-toggle" aria-label={tx('View')}>
           <button className={view === 'list' ? 'on' : ''} aria-pressed={view === 'list'} onClick={() => pickView('list')}><Icon name="list" size={16} />{tx('List')}</button>
           <button className={view === 'map' ? 'on' : ''} aria-pressed={view === 'map'} onClick={() => pickView('map')}><Icon name="map" size={16} />{tx('Map')}</button>
         </div>
@@ -121,7 +121,7 @@ export default function Explore() {
       )}
 
       {view === 'list' && showEvents && (
-        <section className="stack" aria-labelledby="ev-h">
+        <section className="stack" aria-labelledby="ev-h" data-tour="events">
           <div className="stack-sm">
             <h2 id="ev-h">{t('explore.events')}</h2>
             <p className="small muted">{t('explore.eventsHint')}</p>
@@ -132,7 +132,7 @@ export default function Explore() {
         </section>
       )}
 
-      {view === 'list' && <section className="stack" aria-labelledby="act-h">
+      {view === 'list' && <section className="stack" aria-labelledby="act-h" data-tour="plans-list">
         <div className="section-title">
           <h2 id="act-h">{t('explore.activities')}</h2>
           {acts.data && <span className="small muted">{tx('{n} found', { n: sorted.length })}</span>}
@@ -148,7 +148,7 @@ export default function Explore() {
           ) : <div className="card-list">{sorted.map((a) => <ActivityCard key={a.id} a={a} reason={a.my_status ? null : reasonFor(a, me, myArea)} />)}</div>}
       </section>}
 
-      <a href="#/create" className="btn btn-primary fab"><Icon name="plus" />{t('explore.create')}</a>
+      <a href="#/create" className="btn btn-primary fab" data-tour="create"><Icon name="plus" />{t('explore.create')}</a>
 
       {showFilters && (
         <Sheet title={t('explore.moreFilters')} onClose={() => setShowFilters(false)}>

@@ -165,7 +165,7 @@ export default function Plans() {
   const total = data ? SECTIONS.reduce((n, [k]) => n + data[k].length, 0) + (data.events?.length || 0) : 0;
   return (
     <div className="page">
-      <div className="page-head">
+      <div className="page-head" data-tour="plans-head">
         <div className="stack-sm"><span className="eyebrow">{tx("Your week")}</span><h1>{t('plans.title')}</h1></div>
         <a className="btn btn-primary btn-sm" href="#/create"><Icon name="plus" size={16} />{tx("New plan")}</a>
       </div>
@@ -175,7 +175,7 @@ export default function Plans() {
           <a className="btn btn-primary btn-sm" href="#/explore">{tx("Go to Explore")}</a>
         </Empty>
       ) : (<>
-        <div className="seg" role="group" aria-label={tx('View')}>
+        <div className="seg" role="group" data-tour="plans-view" aria-label={tx('View')}>
           <button className={view === 'list' ? 'on' : ''} aria-pressed={view === 'list'} onClick={() => pickView('list')}><Icon name="list" size={16} />{tx('List')}</button>
           <button className={view === 'calendar' ? 'on' : ''} aria-pressed={view === 'calendar'} onClick={() => pickView('calendar')}><Icon name="calendar" size={16} />{tx('Calendar')}</button>
         </div>

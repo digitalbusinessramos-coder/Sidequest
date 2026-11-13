@@ -71,7 +71,7 @@ export default function Buddies() {
         </section>
       )}
 
-      <section className="stack" aria-labelledby="ppl-h">
+      <section className="stack" aria-labelledby="ppl-h" data-tour="students">
         <div className="section-title"><h2 id="ppl-h">{tx('Students in {city}', { city: 'Las Palmas' })}</h2>
           {people.data && <span className="small muted">{tx('{n} people', { n: people.data.people.length })}</span>}</div>
         <p className="small muted">{tx('People who share your interests come first. Tap someone to see their profile, or invite them to a plan.')}</p>
@@ -103,7 +103,7 @@ export default function Buddies() {
         {people.data?.people.length > 6 && <button className="btn btn-ghost btn-sm" style={{ alignSelf: 'center' }} onClick={() => setShowAll(!showAll)}>{showAll ? tx('Show fewer') : tx('Show all {n}', { n: people.data.people.length })}</button>}
       </section>
 
-      <section className="stack" aria-labelledby="sug-h">
+      <section className="stack" aria-labelledby="sug-h" data-tour="matches">
         <h2 id="sug-h">{t('buddies.suggestions')}</h2>
         {sugg.loading && !sugg.data ? <Loading rows={1} /> : sugg.error ? <ErrorState error={sugg.error} onRetry={sugg.reload} />
           : sugg.data.suggestions.length === 0 ? <p className="small muted">{wishes.data?.wishes.length ? t('buddies.noSuggestions') : tx("Add a wish below to see people who want the same thing.")}</p>
