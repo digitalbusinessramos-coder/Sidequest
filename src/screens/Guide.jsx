@@ -1,10 +1,18 @@
-import { locale, t, tx } from '../i18n.js';
+import { getAppName, locale, t, tx } from '../i18n.js';
 import { ErrorState, Icon, Loading, PhotoHero, useApp } from '../components.jsx';
 import Tips from './Tips.jsx';
 import { FeedbackSheet } from './Market.jsx';
 import { useState } from 'react';
 import { MARKET_PHOTOS, PHOTOS } from '../../shared/photos.js';
 import { useApi } from '../util.js';
+
+// Plain-text names and our own one-line descriptions, checked against each organisation's page on 19 Nov 2026. No logos.
+const COMMUNITIES = [
+  { name: 'ESN Las Palmas · ULPGC Buddy Programme', source: 'ULPGC International Relations', url: 'https://internacional.ulpgc.es/en/movilidad-incoming/estudiantes-incoming/study-at-the-ulpgc-incoming/exchange-students/',
+    text: 'The student association ESN Las Palmas runs the ULPGC Buddy Programme with the university, pairing incoming students with a local mentor. The ULPGC page explains how it works and when sign-up opens.' },
+  { name: 'Erasmus Life Las Palmas', source: 'International Students Life Association', url: 'https://internationalstudentslife.org/erasmus-life-las-palmas/',
+    text: 'A separate student community with WhatsApp groups, weekly social events, trips around the island and member discounts.' },
+];
 
 // Student tips now have their own section with likes and saves, so the old "students" placeholder is not shown.
 const SECTIONS = [['transport', 'bus'], ['health', 'health'], ['housing', 'home'], ['university', 'school'], ['links', 'link']];
@@ -20,6 +28,23 @@ export default function Guide() {
       </PhotoHero>
       <p className="small muted">{t('guide.lead')}</p>
       <div className="notice coral"><Icon name="shield" /><span><strong>112</strong>: {tx('In an emergency, call 112, the EU-wide emergency number (source: Your Europe, EU portal). This guide is not medical advice.')}</span></div>
+      <section className="stack-sm" aria-labelledby="g-communities">
+        <h2 id="g-communities" className="row"><Icon name="group" />{tx('Student communities in Las Palmas')}</h2>
+        <p className="tiny muted">{tx('Separate organisations, each with its own activities. {app} is not part of either of them.', { app: getAppName() })}</p>
+        <div className="card">
+          {COMMUNITIES.map((c) => (
+            <a key={c.name} className="guide-item" href={c.url} target="_blank" rel="noopener noreferrer">
+              <strong>{c.name}</strong>
+              <p className="small" style={{ color: 'var(--ink-2)', marginTop: 4 }}>{tx(c.text)}</p>
+              <div className="row wrap tiny muted" style={{ marginTop: 6, gap: 10 }}>
+                <span>{t('guide.source', { name: c.source })}</span>
+                <span>{t('guide.checked', { date: new Date('2026-11-19').toLocaleDateString(locale(), { day: 'numeric', month: 'short', year: 'numeric' }) })}</span>
+                <span className="row" style={{ gap: 3, color: 'var(--blue-ink)' }}>{tx('Open')} <Icon name="external" size={13} /></span>
+              </div>
+            </a>
+          ))}
+        </div>
+      </section>
       <Tips />
       <div className="row wrap small" style={{ gap: 8 }}>
         <span className="badge badge-official">{t('guide.official')}</span><span className="muted">{tx("from the organisation itself")}</span>

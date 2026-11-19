@@ -6,7 +6,7 @@ const MapView = lazy(() => import('../MapView.jsx'));
 const HERO = ['canteras', 'vegueta', 'cathedral', 'auditorio', 'roque', 'dunes'];
 import { areaName, collapseSeries, useApi } from '../util.js';
 
-const WHEN = ['any', 'today', 'tomorrow', 'week', 'weekend'];
+const WHEN = ['any', 'weekend', 'today', 'tomorrow', 'week'];
 
 /** Plain-language reason why a card might suit the viewer. Simple rules, no scores. */
 function reasonFor(a, me, myAreaName) {
@@ -90,14 +90,14 @@ export default function Explore() {
             <input id="q" type="search" placeholder={tx("Surf, night out, coffee…")} value={q} onChange={(e) => setQ(e.target.value)} />
           </form>
           <div className="seg" role="group" data-tour="view-toggle" aria-label={tx('View')}>
-            <button className={view === 'list' ? 'on' : ''} aria-pressed={view === 'list'} onClick={() => pickView('list')}><Icon name="list" size={16} />{tx('List')}</button>
-            <button className={view === 'map' ? 'on' : ''} aria-pressed={view === 'map'} onClick={() => pickView('map')}><Icon name="map" size={16} />{tx('Map')}</button>
+            <button className={view === 'list' ? 'on' : ''} aria-label={tx('List')} aria-pressed={view === 'list'} onClick={() => pickView('list')}><Icon name="list" size={16} /><span className="seg-label">{tx('List')}</span></button>
+            <button className={view === 'map' ? 'on' : ''} aria-label={tx('Map')} aria-pressed={view === 'map'} onClick={() => pickView('map')}><Icon name="map" size={16} /><span className="seg-label">{tx('Map')}</span></button>
           </div>
         </div>
         <div className="row wrap tools-row">
           <div className="chips" role="group" aria-label={tx("When")}>
             {WHEN.map((w) => (
-              <button key={w} className="chip" aria-pressed={when === w} onClick={() => setWhen(w)}>{t(`when.${w}`)}</button>
+              <button key={w} className={`chip ${w === 'weekend' ? 'chip-weekend' : ''}`} aria-pressed={when === w} onClick={() => setWhen(w)}>{w === 'weekend' && <Icon name="beach" size={15} />}{t(`when.${w}`)}</button>
             ))}
           </div>
           <div className="chips" role="group" aria-label={tx("Quick filters")}>
@@ -127,8 +127,8 @@ export default function Explore() {
           : sorted.length === 0 ? (
             <Empty icon="search" title={t('explore.noResults')} hint={t('explore.noResultsHint')}>
               <div className="row wrap" style={{ justifyContent: 'center' }}>
-                {anyFilter && <button className="btn btn-secondary btn-sm" onClick={clear}>{t('explore.clear')}</button>}
-                <a className="btn btn-primary btn-sm" href="#/create">{tx("Create a plan")}</a>
+                {anyFilter && <button className="btn btn-primary btn-sm" onClick={clear}>{tx('See all upcoming plans')}</button>}
+                <a className={`btn btn-sm ${anyFilter ? 'btn-secondary' : 'btn-primary'}`} href="#/create">{tx("Create a plan")}</a>
               </div>
             </Empty>
           ) : <div className="card-list">{sorted.map((a) => <ActivityCard key={a.id} a={a} reason={a.my_status ? null : reasonFor(a, me, myArea)} />)}</div>}

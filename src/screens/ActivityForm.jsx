@@ -22,12 +22,14 @@ const blank = (tpl, city, me) => ({
 function applyQuery(v, query, city) {
   const out = { ...v };
   if (query.title) out.title = String(query.title).slice(0, 80);
+  if (query.cost !== undefined && query.cost !== '' && !Number.isNaN(Number(query.cost))) out.cost_eur = Number(query.cost);
   if (query.category) out.category = query.category;
   const area = city.areas.find((a) => a.key === query.area || a.name === query.area);
   if (area) out.meeting_area = area.name;
   else if (query.area) out.meeting_area = String(query.area).slice(0, 80);
   const slot = query.slot && nextSlot(query.slot, city.timezone);
   if (slot) out.starts_local = `${slot.date}T${slot.time}`;
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(query.start || '')) out.starts_local = query.start;
   if (/^\d{4}-\d{2}-\d{2}$/.test(query.date || '')) out.starts_local = `${query.date}T${out.starts_local.slice(11) || '17:00'}`;
   return out;
 }
@@ -116,7 +118,9 @@ export default function ActivityForm({ editId, query = {} }) {
         {query.invite && <div className="notice lime"><Icon name="heart" />{invitee
           ? tx('Check the details, then publish to send {name} the invitation. Nothing is sent before that, and nobody is added until they accept.', { name: invitee.first_name })
           : tx("After you create this plan, we’ll send an invitation. Nobody is added until they accept.")}</div>}
-        {query.from === 'event' && <div className="notice"><Icon name="info" />{tx('This student plan is linked to the event. Pick the day and time you want to go. It does not reserve tickets or places at the event.')}</div>}
+        {query.from === 'event' && <div className="notice"><Icon name="info" />{query.start
+          ? tx('This group is linked to the event and its time is filled in (30 minutes before it starts). Choose where to meet and how many can join, then review and publish. It does not reserve tickets.')
+          : tx('This student plan is linked to the event. Pick the day and time you want to go. It does not reserve tickets or places at the event.')}</div>}
         {query.from === 'tip' && <div className="notice"><Icon name="info" />{tx('Title and area come from the tip. Pick the date, time and group size.')}</div>}
         <label className="field"><span>{tx("Title")}</span>
           <input className="input" required maxLength={80} value={v.title} onChange={(e) => set({ title: e.target.value })} placeholder={tx("e.g. Sunset walk on the promenade")} />

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from './api.js';
 import { getAppName, getLanguage, setAppName, setLanguage, t, tx } from './i18n.js';
-import { AppCtx, ErrorState, Icon, Loading, useToast } from './components.jsx';
+import { AppCtx, ErrorState, Icon, LanguageSwitch, Loading, useToast } from './components.jsx';
 import Welcome from './screens/Welcome.jsx';
 import Onboarding from './screens/Onboarding.jsx';
 import Explore from './screens/Explore.jsx';
@@ -82,7 +82,7 @@ export default function App() {
       if (!u && m.demoMode && store('sq_wants_login') !== '1') {
         try { await api.post('/auth/guest', {}); u = await reloadMe(); } catch { /* fall back to the welcome screen */ }
       }
-      if (u && store('sq_tour_done') !== '1') setTour(true);
+      // No popup on arrival: Explore opens directly. The tour stays under “How it works”.
     } catch (e) { setBootError(e); }
   }, [reloadMe]);
 
@@ -138,7 +138,7 @@ export default function App() {
           <button className="btn btn-sm btn-ghost" onClick={() => openAccount('login')}>{tx('Log in')}</button>
         </div>
       )}
-      <header className="mobile-brand"><a href="#/explore"><img src="/brand/erasquest-logo-480.png" alt={`${getAppName()} · Las Palmas`} height="34" /></a></header>
+      <header className="mobile-brand"><a href="#/explore"><img src="/brand/erasquest-logo-480.png" alt={`${getAppName()} · Las Palmas`} height="34" /></a><LanguageSwitch compact /></header>
       <div className="app">
         <main id="main" key={lang}>{screen}</main>
       </div>
@@ -155,7 +155,11 @@ export default function App() {
             </li>
           ))}
         </ul>
-        <button className="side-help" onClick={openTour}><Icon name="info" size={18} />{tx('How it works')}</button>
+        <div className="side-foot">
+          <LanguageSwitch compact />
+          <button className="side-help" onClick={openTour}><Icon name="info" size={18} />{tx('How it works')}</button>
+          <p className="side-indep">{tx('{app} is an independent student project developed for the Digital Business course at ULPGC.', { app: getAppName() })}</p>
+        </div>
       </nav>
       {tour && <Tour onDone={closeTour} />}
       {account && <AccountSheet initial={account} onClose={() => setAccount(null)} />}

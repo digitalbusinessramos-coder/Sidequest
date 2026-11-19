@@ -25,7 +25,7 @@ function migrate(db) {
   db.exec('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)');
   if (!cols('events').includes('lat')) { db.exec('ALTER TABLE events ADD COLUMN lat REAL'); db.exec('ALTER TABLE events ADD COLUMN lng REAL'); }
   // Real events imported from organisers' own pages (see server/events-import.js). All nullable; sample events leave them empty.
-  for (const [c, type] of [['ext_id', 'TEXT'], ['desc_es', 'TEXT'], ['price_es', 'TEXT'], ['price_short', 'TEXT'], ['note_en', 'TEXT'], ['note_es', 'TEXT'], ['venue_address', 'TEXT'],
+  for (const [c, type] of [['ext_id', 'TEXT'], ['desc_es', 'TEXT'], ['price_es', 'TEXT'], ['price_short', 'TEXT'], ['listed_by', 'TEXT'], ['note_en', 'TEXT'], ['note_es', 'TEXT'], ['venue_address', 'TEXT'],
     ['ticket_platform', 'TEXT'], ['ticket_url', 'TEXT'], ['age_note', 'TEXT'], ['source_name', 'TEXT'], ['source_url', 'TEXT'], ['checked_at', 'TEXT'],
     ['series_key', 'TEXT'], ['series_label', 'TEXT'], ['time_known', 'INTEGER NOT NULL DEFAULT 1'], ['listed_until', 'TEXT']]) {
     if (!cols('events').includes(c)) db.exec(`ALTER TABLE events ADD COLUMN ${c} ${type}`);

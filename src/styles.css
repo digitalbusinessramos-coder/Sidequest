@@ -552,3 +552,32 @@ a[href^="#/person"]:hover strong { text-decoration: underline; }
 .month-h { display: flex; align-items: center; gap: 8px; font-size: 1.15rem; text-transform: capitalize; }
 a.chip { text-decoration: none; }
 a.chip[aria-pressed='true'] { background: var(--blue); color: #fff; border-color: var(--blue); }
+
+/* ---------- v0.7: first visit ---------- */
+.mobile-brand { justify-content: space-between; align-items: center; padding: 8px 16px 0; }
+.lang-switch.compact .chip { padding: 0 10px; font-size: .8rem; }
+.lang-switch.compact svg { color: var(--ink-3); }
+.tabbar .side-foot { display: none; }
+@media (min-width: 1000px) {
+  .tabbar .side-foot { display: flex; flex-direction: column; gap: 8px; margin-top: auto; padding: 0 6px; }
+  .tabbar .side-foot .side-help { margin-top: 0; }
+  .tabbar .side-foot .lang-switch { padding: 0 8px; }
+  .side-indep { font-size: .72rem; line-height: 1.35; color: var(--ink-3); margin: 0; padding: 0 8px; }
+}
+.chip-weekend:not([aria-pressed='true']) { border-color: var(--coral); color: var(--coral-ink); font-weight: 700; }
+.guest-bar { flex-wrap: nowrap; padding-top: 6px; padding-bottom: 6px; }
+.guest-bar .btn { min-height: 30px; padding: 0 10px; font-size: .82rem; }
+@media (max-width: 599px) {
+  .explore-tools .tools-top { flex-wrap: nowrap; }
+  .explore-tools .tools-top .search { flex: 1 1 auto; }
+  .explore-tools .search input { min-height: 40px; padding: 0 14px; }
+  .explore-tools .seg button { padding: 6px 10px; min-height: 34px; }
+  .explore-tools .seg button span.seg-label { display: none; }
+  .explore-tools .tools-row.wrap { flex-direction: row; flex-wrap: nowrap; overflow-x: auto; gap: 6px; margin: 0 -16px; padding: 0 16px 4px; scrollbar-width: none; }
+  .explore-tools .tools-row.wrap .chips { margin: 0; padding: 0; overflow: visible; flex-wrap: nowrap; }
+  .explore-tools .chip { min-height: 36px; padding: 0 12px; }
+  .photo-hero.hero-compact { min-height: 92px !important; }
+}
+.event-actions { display: grid; grid-template-columns: 1fr; gap: 10px; }
+@media (min-width: 600px) { .event-actions { grid-template-columns: 1fr 1fr; } }
+.event-note { display: flex; gap: 6px; align-items: center; color: var(--ink-2); margin-top: -4px; }

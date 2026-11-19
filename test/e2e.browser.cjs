@@ -12,7 +12,7 @@ const S = (process.env.SHOTS || require('os').tmpdir()) + '/';
     await x.p.getByLabel(/Approximate area/).selectOption('canteras'); await x.p.getByRole('button', { name: 'Continue' }).click();
     await x.p.getByRole('button', { name: 'English' }).click(); await x.p.getByRole('button', { name: 'Museums' }).click();
     await x.p.getByRole('button', { name: 'Start exploring' }).click();
-    await x.p.getByText('Who’s up for a plan?').waitFor();
+    await x.p.getByText('Plans in Las Palmas').waitFor();
   }
   await A.p.goto(B); await A.p.screenshot({ path: S + '01-welcome.png', fullPage: true });
   await signup(A, 'alex@test.example', 'Alex');
@@ -37,7 +37,7 @@ const S = (process.env.SHOTS || require('os').tmpdir()) + '/';
   await Bu.p.getByRole('button', { name: 'Ask to join' }).click();
   await Bu.p.getByLabel(/Short message/).fill('Hi, first time here!');
   await Bu.p.getByRole('button', { name: 'Send request' }).click();
-  await Bu.p.getByText('Your request is waiting').waitFor();
+  await Bu.p.getByText('Request sent. The organiser decides').waitFor();
   await Bu.p.screenshot({ path: S + '06-pending.png', fullPage: true });
   // A accepts
   await A.p.reload(); await A.p.getByRole('button', { name: 'Accept' }).click();
@@ -66,7 +66,7 @@ const S = (process.env.SHOTS || require('os').tmpdir()) + '/';
   await A.p.getByRole('button', { name: 'Cancel activity' }).last().click(); await A.p.getByText(/cancelled by the organiser/).waitFor();
   await A.p.screenshot({ path: S + '10-cancelled.png', fullPage: true });
   // other screens
-  await A.p.goto(B + '#/event/1'); await A.p.getByRole('button', { name: 'Find someone to go with' }).click(); await A.p.getByRole('button', { name: 'Show me who else is going' }).click();
+  await A.p.goto(B + '#/event/1'); await A.p.getByRole('button', { name: 'Find someone to go with' }).click(); await A.p.getByRole('button', { name: 'Say you’re looking and see who else is' }).click(); await A.p.getByRole('button', { name: 'Show me who else is going' }).click();
   await A.p.getByText('People also looking for company').waitFor(); await A.p.waitForTimeout(500); await A.p.screenshot({ path: S + '11-event.png', fullPage: true });
   await A.p.goto(B + '#/buddies'); await A.p.getByRole('button', { name: 'Add a wish' }).click(); await A.p.getByRole('dialog').getByRole('button', { name: 'Museums' }).click();
   await A.p.getByRole('button', { name: 'Thursday afternoon' }).click(); await A.p.getByRole('button', { name: 'Save wish' }).click(); await A.p.waitForTimeout(800);
