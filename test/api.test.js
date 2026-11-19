@@ -454,7 +454,10 @@ test('guest access: one click, private by default, can be saved as an account', 
   assert.equal((await g.post('/auth/guest')).status, 201);
   const me = (await g.get('/me')).body.user;
   assert.equal(me.is_guest, true); assert.equal(me.onboarded, true); assert.equal(me.email, null);
-  assert.ok((await g.get('/wishes/suggestions')).body.suggestions.length > 0); // starter wishes show matching straight away
+  // A fresh guest has told us nothing: no invented interests, languages, area or wishes, so no shared-interest claims.
+  assert.deepEqual(me.interests, []); assert.deepEqual(me.languages, []); assert.equal(me.area, null);
+  assert.equal((await g.get('/wishes')).body.wishes.length, 0);
+  assert.ok((await g.get('/people')).body.people.every((p) => p.shared.length === 0));
   // A second guest is a different person: separate permissions.
   const g2 = client(); await g2.post('/auth/guest');
   assert.notEqual((await g2.get('/me')).body.user.id, me.id);

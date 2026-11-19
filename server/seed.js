@@ -37,7 +37,7 @@ const GUIDE = [
   ['health', 'official', 'Insurance rules for ULPGC exchange students', 'ULPGC’s exchange-student page asks incoming students for private medical insurance and says this is not the EHIC. Check the page for the exact requirement.', 'https://internacional.ulpgc.es/en/movilidad-incoming/estudiantes-incoming/study-at-the-ulpgc-incoming/exchange-students', 'ULPGC International Office'],
   // housing
   ['housing', 'official', 'ULPGC scholarships and accommodation', 'The university’s “Becas y alojamiento” section, linked from its homepage. We could not load its contents when checking, so open it to see the current options.', 'https://www10.ulpgc.es/becas_y_alojamiento', 'ULPGC'],
-  ['housing', 'community', 'Before you pay for a room', 'General advice from the project team (not legal advice): see the room in person or by live video before paying, ask for a written contract, and get a receipt for any deposit.', null, 'SIDEQUEST project team'],
+  ['housing', 'community', 'Before you pay for a room', 'General advice from the project team (not legal advice): see the room in person or by live video before paying, ask for a written contract, and get a receipt for any deposit.', null, 'Erasquest project team'],
   // university & students
   ['university', 'official', 'ULPGC exchange students', 'Practical guide for incoming exchange students: Welcome Day, the university Buddy Program, Spanish courses and paperwork.', 'https://internacional.ulpgc.es/en/movilidad-incoming/estudiantes-incoming/study-at-the-ulpgc-incoming/exchange-students', 'ULPGC International Office'],
   ['university', 'official', 'ESN Las Palmas', 'The local Erasmus Student Network section’s own site: ESNcard, discounts, events and its Buddy Program. Not affiliated with this app.', 'https://esnlaspalmas.org/', 'ESN Las Palmas'],
@@ -96,6 +96,13 @@ export function seed(db, { force = false } = {}) {
     const ins = db.prepare('INSERT INTO guide_items (city_id, section, kind, title, summary, url, source_name, checked_at, sort) VALUES (?,?,?,?,?,?,?,?,?)');
     GUIDE.forEach((g, i) => ins.run(city.id, ...g, g[4] ? GUIDE_CHECKED : null, i));
   }
+  // Rename: the guide's own advice used to be credited to the old working name.
+  db.prepare("UPDATE guide_items SET source_name = 'Erasquest project team' WHERE source_name = 'SIDEQUEST project team'").run();
+  // Guests used to start with preset interests, area and wishes; clear those untouched presets (no invented preferences).
+  db.prepare(`UPDATE profiles SET interests = '[]', languages = '[]', area = NULL WHERE interests = '["beach","coffee","nightout","hiking"]'
+    AND user_id IN (SELECT id FROM users WHERE is_guest = 1)`).run();
+  db.prepare(`DELETE FROM wishes WHERE user_id IN (SELECT id FROM users WHERE is_guest = 1) AND note = '' AND
+    ((category = 'hiking' AND slots = '["sat_morning","sun_morning"]' AND budget = 'any') OR (category = 'beach' AND slots = '["sat_afternoon","sun_afternoon","fri_evening"]' AND budget = 'free'))`).run();
   if (!config.demoMode) return;
 
   const SEED_VERSION = 5;

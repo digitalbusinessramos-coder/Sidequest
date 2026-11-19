@@ -74,42 +74,42 @@ export default function Explore() {
   return (
     <div className="page">
       <ExploreSwitch active="plans" />
-      <PhotoHero photoKey={heroKey} height={190}>
-        <span className="eyebrow">{t('explore.eyebrow')}</span>
-        <h1 style={{ marginTop: 6 }}>{t('explore.title')}</h1>
-        <button className="btn btn-sm hero-help" onClick={openTour}><Icon name="info" size={15} />{tx('How it works')}</button>
+      <PhotoHero photoKey={heroKey} height={120} className="hero-compact">
+        <div className="row hero-row">
+          <div style={{ minWidth: 0 }}>
+            <span className="eyebrow">{t('explore.eyebrow')}</span>
+            <h1>{t('explore.title')}</h1>
+          </div>
+          <span className="spacer" />
+          <button className="btn btn-sm hero-help" onClick={openTour} aria-label={tx('How it works')}><Icon name="info" size={15} /><span className="hide-narrow">{tx('How it works')}</span></button>
+        </div>
       </PhotoHero>
-      {people.data?.people.length > 0 && (
-        <section className="stack-sm" aria-labelledby="ppl-h" data-tour="people">
-          <div className="section-title"><h2 id="ppl-h">{tx('Students looking for company')}</h2><a className="small" href="#/buddies">{tx('See all')}</a></div>
-          <PeopleStrip people={people.data.people.slice(0, 10)} />
-        </section>
-      )}
-      <form className="search" role="search" data-tour="search" onSubmit={(e) => e.preventDefault()}>
-        <label className="sr-only" htmlFor="q">{t('explore.search')}</label>
-        <input id="q" type="search" placeholder={tx("Surf, night out, coffee…")} value={q} onChange={(e) => setQ(e.target.value)} />
-      </form>
 
-      <div className="stack-sm">
-        <div className="chips" role="group" aria-label={tx("When")}>
-          {WHEN.map((w) => (
-            <button key={w} className="chip" aria-pressed={when === w} onClick={() => setWhen(w)}>{t(`when.${w}`)}</button>
-          ))}
+      <div className="explore-tools">
+        <div className="row tools-row tools-top">
+          <form className="search" role="search" data-tour="search" onSubmit={(e) => e.preventDefault()}>
+            <label className="sr-only" htmlFor="q">{t('explore.search')}</label>
+            <input id="q" type="search" placeholder={tx("Surf, night out, coffee…")} value={q} onChange={(e) => setQ(e.target.value)} />
+          </form>
+          <div className="seg" role="group" data-tour="view-toggle" aria-label={tx('View')}>
+            <button className={view === 'list' ? 'on' : ''} aria-pressed={view === 'list'} onClick={() => pickView('list')}><Icon name="list" size={16} />{tx('List')}</button>
+            <button className={view === 'map' ? 'on' : ''} aria-pressed={view === 'map'} onClick={() => pickView('map')}><Icon name="map" size={16} />{tx('Map')}</button>
+          </div>
         </div>
-        <div className="chips" role="group" aria-label={tx("Quick filters")}>
-          <button className="chip" aria-pressed={showFilters || moreCount > 0} onClick={() => setShowFilters(true)}>
-            <Icon name="filter" size={16} />{t('explore.moreFilters')}{moreCount > 0 && ` (${moreCount})`}
-          </button>
-          {[['free', 'filter.free'], ['beginner', 'filter.beginner'], ['solo', 'filter.solo']].map(([k, label]) => (
-            <button key={k} className="chip" aria-pressed={quick[k]} onClick={() => setQuick({ ...quick, [k]: !quick[k] })}>{t(label)}</button>
-          ))}
-        </div>
-      </div>
-
-      <div className="row" style={{ justifyContent: 'space-between' }}>
-        <div className="seg" role="group" data-tour="view-toggle" aria-label={tx('View')}>
-          <button className={view === 'list' ? 'on' : ''} aria-pressed={view === 'list'} onClick={() => pickView('list')}><Icon name="list" size={16} />{tx('List')}</button>
-          <button className={view === 'map' ? 'on' : ''} aria-pressed={view === 'map'} onClick={() => pickView('map')}><Icon name="map" size={16} />{tx('Map')}</button>
+        <div className="row wrap tools-row">
+          <div className="chips" role="group" aria-label={tx("When")}>
+            {WHEN.map((w) => (
+              <button key={w} className="chip" aria-pressed={when === w} onClick={() => setWhen(w)}>{t(`when.${w}`)}</button>
+            ))}
+          </div>
+          <div className="chips" role="group" aria-label={tx("Quick filters")}>
+            {[['solo', 'filter.solo'], ['free', 'filter.free'], ['beginner', 'filter.beginner']].map(([k, label]) => (
+              <button key={k} className="chip" aria-pressed={quick[k]} onClick={() => setQuick({ ...quick, [k]: !quick[k] })}>{t(label)}</button>
+            ))}
+            <button className="chip" aria-pressed={showFilters || moreCount > 0} onClick={() => setShowFilters(true)}>
+              <Icon name="filter" size={16} />{t('explore.moreFilters')}{moreCount > 0 && ` (${moreCount})`}
+            </button>
+          </div>
         </div>
         {view === 'map' && <label className="check small" style={{ margin: 0 }}><input type="checkbox" checked={showTips} onChange={(e) => setShowTips(e.target.checked)} />{tx('Show student tips')}</label>}
       </div>
@@ -118,18 +118,6 @@ export default function Explore() {
         <Suspense fallback={<Loading rows={2} />}>
           <MapView items={mapItems} center={[28.12, -15.43]} height={window.innerWidth >= 1000 ? 620 : 460} />
         </Suspense>
-      )}
-
-      {view === 'list' && showEvents && (
-        <section className="stack" aria-labelledby="ev-h" data-tour="events">
-          <div className="stack-sm">
-            <h2 id="ev-h">{t('explore.events')}</h2>
-            <p className="small muted">{t('explore.eventsHint')}</p>
-          </div>
-          {evs.loading && !evs.data ? <Loading rows={1} /> : evs.error ? <ErrorState error={evs.error} onRetry={evs.reload} />
-            : evs.data.events.length === 0 ? <p className="small muted">{tx("No upcoming events listed for this time.")}</p>
-              : <div className="card-list">{evs.data.events.slice(0, 4).map((e) => <EventCard key={e.id} e={e} />)}</div>}
-        </section>
       )}
 
       {view === 'list' && <section className="stack" aria-labelledby="act-h" data-tour="plans-list">
@@ -147,6 +135,26 @@ export default function Explore() {
             </Empty>
           ) : <div className="card-list">{sorted.map((a) => <ActivityCard key={a.id} a={a} reason={a.my_status ? null : reasonFor(a, me, myArea)} />)}</div>}
       </section>}
+
+      {view === 'list' && people.data?.people.length > 0 && (
+        <section className="stack-sm" aria-labelledby="ppl-h" data-tour="people">
+          <div className="section-title"><h2 id="ppl-h">{tx('Students looking for company')}</h2><a className="small" href="#/buddies">{tx('See all')}</a></div>
+          <PeopleStrip people={people.data.people.slice(0, 10)} />
+        </section>
+      )}
+
+      {view === 'list' && showEvents && (
+        <section className="stack" aria-labelledby="ev-h" data-tour="events">
+          <div className="stack-sm">
+            <h2 id="ev-h">{t('explore.events')}</h2>
+            <p className="small muted">{t('explore.eventsHint')}</p>
+          </div>
+          {evs.loading && !evs.data ? <Loading rows={1} /> : evs.error ? <ErrorState error={evs.error} onRetry={evs.reload} />
+            : evs.data.events.length === 0 ? <p className="small muted">{tx("No upcoming events listed for this time.")}</p>
+              : <div className="card-list">{evs.data.events.slice(0, 4).map((e) => <EventCard key={e.id} e={e} />)}</div>}
+        </section>
+      )}
+
 
       <a href="#/create" className="btn btn-primary fab" data-tour="create"><Icon name="plus" />{t('explore.create')}</a>
 

@@ -18,7 +18,7 @@ const en = {
   'welcome.emailNote': 'We don’t verify email addresses yet. Your email is never shown to other users.',
 
   'explore.eyebrow': 'Las Palmas, today and this week',
-  'explore.title': 'What could you do, and who could you do it with?',
+  'explore.title': 'Who’s up for a plan?',
   'explore.search': 'Search activities',
   'explore.events': 'Events: find someone to go with',
   'explore.eventsHint': 'Register with the organiser. Use {app} to find company.',
@@ -113,7 +113,7 @@ const dictionaries = { en, es: esKeys };
 const phrases = { es }; // English sentence -> translation, for tx()
 const LOCALES = { en: 'en-GB', es: 'es-ES' };
 let lang = 'en';
-let appName = 'SIDEQUEST';
+let appName = 'Erasquest';
 
 function initialLanguage() {
   try {

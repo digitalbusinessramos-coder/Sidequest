@@ -101,10 +101,10 @@ export function Avatar({ person, size = '' }) {
 }
 
 /** A Las Palmas photo with a readable overlay and its required credit line. */
-export function PhotoHero({ photoKey, children, height = 200 }) {
+export function PhotoHero({ photoKey, children, height = 200, className = '' }) {
   const ph = PHOTOS.find((p) => p.key === photoKey) || PHOTOS[0];
   return (
-    <figure className="photo-hero" style={{ minHeight: height }}>
+    <figure className={`photo-hero ${className}`} style={{ minHeight: height }}>
       <img src={ph.src} alt={tx(ph.alt)} loading="lazy" />
       <div className="photo-hero-body">{children}</div>
       <figcaption className="photo-credit">
@@ -144,7 +144,9 @@ export function PeopleStrip({ people }) {
           <a href={`#/person/${p.id}`} className="person-chip">
             <Avatar person={p} size="lg" />
             <strong>{p.first_name}</strong>
-            <span className="tiny muted">{p.shared?.length ? tx('Also into {what}', { what: tx(categoryLabel(p.shared[0])).toLowerCase() }) : (p.area || '').split(' / ')[0]}</span>
+            {p.is_demo && <SampleBadge />}
+            <span className="tiny muted">{p.shared?.length ? tx('You both like {what}', { what: tx(categoryLabel(p.shared[0])).toLowerCase() })
+              : p.interests?.length ? tx('Likes {what}', { what: tx(categoryLabel(p.interests[0])).toLowerCase() }) : (p.area || '').split(' / ')[0]}</span>
           </a>
         </li>
       ))}

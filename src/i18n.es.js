@@ -19,7 +19,7 @@ export const esKeys = {
   'welcome.emailNote': 'Tu email nunca se muestra a otras personas.',
 
   'explore.eyebrow': 'Las Palmas, hoy y esta semana',
-  'explore.title': '¿Qué podrías hacer y con quién?',
+  'explore.title': '¿Quién se apunta?',
   'explore.search': 'Buscar actividades',
   'explore.events': 'Eventos: encuentra con quién ir',
   'explore.eventsHint': 'Inscríbete con el organizador. Usa {app} para encontrar compañía.',
@@ -939,4 +939,13 @@ export const es = {
   "Recommendations from other students. Like the ones you agree with and save the ones you want to try. Official links are further down.": "Recomendaciones de otros estudiantes. Dale me gusta a las que compartes y guarda las que quieres probar. Los enlaces oficiales están más abajo.",
   "Your profile": "Tu perfil",
   "Add a photo, choose what others see, switch language, send us feedback. You can block or report anyone from their profile.": "Añade una foto, elige qué ven los demás, cambia el idioma y envíanos tu opinión. Puedes bloquear o denunciar a cualquiera desde su perfil.",
+  "You both like {what}": "A los dos os gusta: {what}",
+  "Likes {what}": "Le gusta: {what}",
+  "Tap someone to see their profile, or invite them to a plan. Add your interests in your profile and we show what you have in common.": "Toca a alguien para ver su perfil o invitarle a un plan. Añade tus intereses en tu perfil y te mostramos lo que tenéis en común.",
+  "Find people to do things with in Las Palmas.": "Encuentra gente con quien hacer planes en Las Palmas.",
+  "Join small plans made by students, or start your own: coffee, surf, hikes, nights out.": "Únete a planes pequeños de estudiantes o crea el tuyo: café, surf, senderismo, salir de noche.",
+  "Students, plans and events marked “Example” are made up for this preview.": "Los estudiantes, planes y eventos marcados como «Ejemplo» son inventados para esta vista previa.",
+  "Explore plans": "Explorar planes",
+  "Take a tour": "Ver cómo funciona",
+  "Plans by students come first, then the people looking for company and events in the city. This is where you start.": "Primero los planes de estudiantes, luego la gente que busca compañía y los eventos de la ciudad. Aquí empiezas.",
 };

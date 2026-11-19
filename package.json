@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Find company for activities - Erasmus & international students (working name SIDEQUEST)",
+  "description": "Find company for activities - Erasmus & international students - Erasquest · Las Palmas",
   "engines": {
     "node": ">=22.13"
   },

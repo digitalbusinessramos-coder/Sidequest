@@ -203,12 +203,9 @@ export function createApi(db) {
       const { lastInsertRowid } = db.prepare('INSERT INTO users (email, password_hash, is_guest) VALUES (?, ?, 1)')
         .run(`guest-${crypto.randomBytes(9).toString('hex')}@guest.invalid`, `nologin$${crypto.randomBytes(8).toString('hex')}`);
       const id = Number(lastInsertRowid);
+      // No preset interests, languages, area or wishes: a guest has told us nothing yet, so nothing is claimed about them.
       db.prepare(`INSERT INTO profiles (user_id, first_name, intro, city_id, area, role, languages, interests, visible, onboarded, avatar_hue)
-        VALUES (?, 'Guest', '', ?, 'santacatalina', 'exchange', '["English","Spanish"]', '["beach","coffee","nightout","hiking"]', 0, 1, ?)`).run(id, city.id, Math.floor(Math.random() * 360));
-      // Two starter wishes so the Buddies tab shows how matching works straight away. Guests can delete them.
-      const w = db.prepare('INSERT INTO wishes (user_id, city_id, category, note, slots, budget) VALUES (?,?,?,?,?,?)');
-      w.run(id, city.id, 'hiking', '', JSON.stringify(['sat_morning', 'sun_morning']), 'any');
-      w.run(id, city.id, 'beach', '', JSON.stringify(['sat_afternoon', 'sun_afternoon', 'fri_evening']), 'free');
+        VALUES (?, 'Guest', '', ?, NULL, 'exchange', '[]', '[]', 0, 1, ?)`).run(id, city.id, Math.floor(Math.random() * 360));
       return id;
     });
     createSession(db, res, uid);

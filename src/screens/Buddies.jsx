@@ -74,7 +74,7 @@ export default function Buddies() {
       <section className="stack" aria-labelledby="ppl-h" data-tour="students">
         <div className="section-title"><h2 id="ppl-h">{tx('Students in {city}', { city: 'Las Palmas' })}</h2>
           {people.data && <span className="small muted">{tx('{n} people', { n: people.data.people.length })}</span>}</div>
-        <p className="small muted">{tx('People who share your interests come first. Tap someone to see their profile, or invite them to a plan.')}</p>
+        <p className="small muted">{tx('Tap someone to see their profile, or invite them to a plan. Add your interests in your profile and we show what you have in common.')}</p>
         {people.loading && !people.data ? <Loading rows={2} /> : people.error ? <ErrorState error={people.error} onRetry={people.reload} />
           : (
             <div className="people-grid">
@@ -92,7 +92,7 @@ export default function Buddies() {
                     {p.interests.slice(0, 4).map((c) => <span key={c} className={`mini-chip ${p.shared.includes(c) ? 'on' : ''}`}><Icon name={c} size={13} />{tx(categoryLabel(c))}</span>)}
                   </div>
                   <div className="row" style={{ marginTop: 'auto' }}>
-                    {p.shared.length > 0 && <span className="tiny" style={{ color: 'var(--lime-ink)', fontWeight: 650, flex: 1 }}>{tx('{n} shared interests', { n: p.shared.length })}</span>}
+                    {p.shared.length > 0 && <span className="tiny" style={{ color: 'var(--lime-ink)', fontWeight: 650, flex: 1 }}>{tx('You both like {what}', { what: p.shared.slice(0, 2).map((c) => tx(categoryLabel(c)).toLowerCase()).join(tx(' and ')) })}</span>}
                     <span className="spacer" />
                     <a className="btn btn-secondary btn-sm" href={`#/create?template=${tplFor(p.shared[0] || p.interests[0]) || 'other'}&category=${p.shared[0] || p.interests[0] || 'other'}&invite=${p.id}`}><Icon name="plus" size={15} />{tx('Invite')}</a>
                   </div>
