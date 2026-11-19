@@ -546,6 +546,9 @@ export function createApi(db) {
         city.id, req.user.id, d.template, d.category, d.title, d.description, d.starts_at, d.duration_min, d.meeting_area, d.meeting_point,
         d.cost_eur, d.max_participants, d.beginner_friendly, d.pace, d.transport, d.languages, d.solo_format, d.welcome_plan, d.recognise_tip,
         req.user.is_demo ? 1 : 0, d.join_mode);
+      // A student plan can point at an event (e.g. a visit to the Christmas market on a chosen day). It reserves nothing there.
+      const ev = req.body.event_id && db.prepare("SELECT id FROM events WHERE id = ? AND city_id = ? AND status = 'active'").get(Number(req.body.event_id), city.id);
+      if (ev) db.prepare('UPDATE activities SET event_id = ? WHERE id = ?').run(ev.id, lastInsertRowid);
       systemMsg(lastInsertRowid, `${p.first_name} created this activity. Confirmed participants can chat here.`);
       return Number(lastInsertRowid);
     });
@@ -779,6 +782,9 @@ export function createApi(db) {
   });
 
   // ---------- events (official or sample events; we never handle registration) ----------
+  // A multi-day listing (e.g. a market) stays open until its last listed day.
+  const eventPast = (e) => (e.listed_until ? new Date(e.listed_until).getTime() < Date.now() : isPast(e));
+
   function eventView(e, uid) {
     const city = cityById(e.city_id);
     const blocked = blockedSet(uid);
@@ -790,7 +796,12 @@ export function createApi(db) {
       starts_local: utcToLocalInput(e.starts_at, city.timezone), timezone: city.timezone,
       duration_min: e.duration_min, venue: e.venue, organiser_name: e.organiser_name, official_url: e.official_url,
       price_note: e.price_note, is_sample: !!e.is_sample, status: e.status, photo_key: e.photo_key || null,
-      state: e.status === 'cancelled' ? 'cancelled' : isPast(e) ? 'past' : 'open',
+      // Real-event details (empty for example events): Spanish texts, venue address, ticketing, age, source and when it was checked.
+      ext_id: e.ext_id || null, description_es: e.desc_es || null, price_es: e.price_es || null, price_short: e.price_short || null, note_en: e.note_en || null, note_es: e.note_es || null,
+      venue_address: e.venue_address || null, ticket_platform: e.ticket_platform || null, ticket_url: e.ticket_url || null, age_note: e.age_note || null,
+      source_name: e.source_name || null, source_url: e.source_url || null, checked_at: e.checked_at || null,
+      series_key: e.series_key || null, series_label: e.series_label || null, time_known: e.time_known !== 0, listed_until: e.listed_until || null,
+      state: e.status === 'cancelled' ? 'cancelled' : eventPast(e) ? 'past' : 'open',
       seeking_count: seekers.filter((s) => s.user_id !== uid).length,
       approx: e.lat != null ? { lat: e.lat, lng: e.lng, area: e.venue } : approxSpot(city, e.venue),
       chat_count: db.prepare('SELECT COUNT(*) AS n FROM event_messages WHERE event_id = ?').get(e.id).n,
@@ -803,7 +814,8 @@ export function createApi(db) {
   r.get('/events', auth, (req, res) => {
     const city = cityBySlug(req.query.city) || fail(404, 'not_found', 'Unknown city.');
     const showSample = !!profileOf(req.user.id)?.show_sample;
-    const rows = db.prepare(`SELECT * FROM events WHERE city_id = ? AND datetime(starts_at, '+' || duration_min || ' minutes') > datetime('now') ORDER BY starts_at`).all(city.id)
+    const rows = db.prepare(`SELECT * FROM events WHERE city_id = ? AND status = 'active'
+      AND COALESCE(datetime(listed_until), datetime(starts_at, '+' || duration_min || ' minutes')) > datetime('now') ORDER BY starts_at`).all(city.id)
       .filter((e) => showSample || !e.is_sample).filter((e) => whenMatch(e, req.query.when, city.timezone))
       .filter((e) => !req.query.category || e.category === req.query.category);
     res.json({ events: rows.map((e) => { const { _seekers, ...v } = eventView(e, req.user.id); return v; }) });
@@ -829,6 +841,9 @@ export function createApi(db) {
         match: { shared_languages: shared, same_pref: mine.group_pref !== 'either' && s.group_pref === mine.group_pref ? mine.group_pref : null, same_meeting: !!s.meeting_option && s.meeting_option === mine.meeting_option } };
     }) : null;
     const blocked = blockedSet(uid);
+    // Other dates or sessions of the same listing, each its own event with its own link.
+    v.sessions = e.series_key ? db.prepare(`SELECT id, starts_at FROM events WHERE series_key = ? AND status = 'active'
+      AND datetime(starts_at, '+' || duration_min || ' minutes') > datetime('now') ORDER BY starts_at`).all(e.series_key) : [];
     v.groups = db.prepare("SELECT * FROM activities WHERE event_id = ? AND status = 'active'").all(e.id)
       .filter((a) => !blocked.has(a.organiser_id)).map((a) => activityView(a, uid));
     res.json({ event: v });
@@ -836,7 +851,7 @@ export function createApi(db) {
 
   r.put('/events/:id/interest', auth, (req, res) => {
     const e = db.prepare('SELECT * FROM events WHERE id = ?').get(Number(req.params.id)) || fail(404, 'not_found', 'Event not found.');
-    if (e.status === 'cancelled' || isPast(e)) fail(409, 'state', 'This event is not upcoming.');
+    if (e.status === 'cancelled' || eventPast(e)) fail(409, 'state', 'This event is not upcoming.');
     const b = req.body;
     const pref = ['buddy', 'small', 'either'].includes(b.group_pref) ? b.group_pref : 'either';
     db.prepare(`INSERT INTO event_interests (event_id, user_id, group_pref, languages, meeting_option, note) VALUES (?,?,?,?,?,?)
@@ -1061,7 +1076,7 @@ export function createApi(db) {
     const rows = db.prepare('SELECT * FROM event_messages WHERE event_id = ? AND id > ? ORDER BY id LIMIT 500').all(e.id, Number(req.query.after) || 0);
     const members = db.prepare('SELECT COUNT(*) AS n FROM event_interests WHERE event_id = ?').get(e.id).n;
     res.json({
-      title: e.title, is_sample: !!e.is_sample, members, can_post: e.status === 'active' && !isPast(e),
+      title: e.title, is_sample: !!e.is_sample, members, can_post: e.status === 'active' && !eventPast(e),
       messages: rows.map((m) => ({
         id: m.id, kind: 'user', created_at: m.created_at, mine: m.user_id === req.user.id, author: personSummary(profileOf(m.user_id)),
         body: blocked.has(m.user_id) ? null : m.body, hidden: blocked.has(m.user_id),
@@ -1072,7 +1087,7 @@ export function createApi(db) {
     if (!msgLimit(String(req.user.id))) fail(429, 'rate', 'You are sending messages too quickly.');
     const e = eventFor(req.params.id);
     if (!inEvent(e.id, req.user.id)) fail(403, 'forbidden', 'Join the event group first to write in this chat.');
-    if (e.status !== 'active' || isPast(e)) fail(409, 'state', 'This event is over, so the chat is read-only.');
+    if (e.status !== 'active' || eventPast(e)) fail(409, 'state', 'This event is over, so the chat is read-only.');
     const body = str(req.body.body, 1000, 'Message', { required: true });
     const { lastInsertRowid } = db.prepare('INSERT INTO event_messages (event_id, user_id, body) VALUES (?, ?, ?)').run(e.id, req.user.id, body);
     res.status(201).json({ id: Number(lastInsertRowid) });

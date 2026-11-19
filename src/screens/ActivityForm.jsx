@@ -28,6 +28,7 @@ function applyQuery(v, query, city) {
   else if (query.area) out.meeting_area = String(query.area).slice(0, 80);
   const slot = query.slot && nextSlot(query.slot, city.timezone);
   if (slot) out.starts_local = `${slot.date}T${slot.time}`;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(query.date || '')) out.starts_local = `${query.date}T${out.starts_local.slice(11) || '17:00'}`;
   return out;
 }
 
@@ -99,7 +100,7 @@ export default function ActivityForm({ editId, query = {} }) {
         toast(tx("Changes saved."));
         location.hash = `#/activity/${editId}`;
       } else {
-        const { id } = await api.post('/activities', v);
+        const { id } = await api.post('/activities', query.event ? { ...v, event_id: Number(query.event) } : v);
         if (query.invite) {
           try { await api.post(`/activities/${id}/invite`, { userId: Number(query.invite) }); toast(tx("Plan created and invitation sent. They decide whether to join.")); } catch (x) { toast(tx('Plan created, but the invitation failed: {error}', { error: tx(x.message) }), true); }
         } else toast(tx("Your plan is live. You’ll see requests in My Plans."));
@@ -115,6 +116,7 @@ export default function ActivityForm({ editId, query = {} }) {
         {query.invite && <div className="notice lime"><Icon name="heart" />{invitee
           ? tx('Check the details, then publish to send {name} the invitation. Nothing is sent before that, and nobody is added until they accept.', { name: invitee.first_name })
           : tx("After you create this plan, we’ll send an invitation. Nobody is added until they accept.")}</div>}
+        {query.from === 'event' && <div className="notice"><Icon name="info" />{tx('This student plan is linked to the event. Pick the day and time you want to go. It does not reserve tickets or places at the event.')}</div>}
         {query.from === 'tip' && <div className="notice"><Icon name="info" />{tx('Title and area come from the tip. Pick the date, time and group size.')}</div>}
         <label className="field"><span>{tx("Title")}</span>
           <input className="input" required maxLength={80} value={v.title} onChange={(e) => set({ title: e.target.value })} placeholder={tx("e.g. Sunset walk on the promenade")} />

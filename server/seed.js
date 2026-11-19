@@ -1,5 +1,6 @@
 // Seeds the city, the city guide and (in demo mode) example students, plans and events. They are fictional: the app tells
 // visitors this once (welcome tour, Profile > About) and marks them with a small "Example" tag instead of repeating it everywhere.
+import { importEvents } from './events-import.js';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -103,6 +104,8 @@ export function seed(db, { force = false } = {}) {
     AND user_id IN (SELECT id FROM users WHERE is_guest = 1)`).run();
   db.prepare(`DELETE FROM wishes WHERE user_id IN (SELECT id FROM users WHERE is_guest = 1) AND note = '' AND
     ((category = 'hiking' AND slots = '["sat_morning","sun_morning"]' AND budget = 'any') OR (category = 'beach' AND slots = '["sat_afternoon","sun_afternoon","fri_evening"]' AND budget = 'free'))`).run();
+  // Real events (stable ids, safe to re-run).
+  importEvents(db);
   if (!config.demoMode) return;
 
   const SEED_VERSION = 5;

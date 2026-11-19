@@ -522,3 +522,46 @@ test('buddies status: only what the owner sets, editable, clearable, hidden once
   assert.equal((await a.del('/me/status')).status, 200);
   assert.equal((await visible()).status, null);
 });
+
+test('real events: stable ids, safe re-import, Canary time, organiser links, no invented prices', async (t) => {
+  const { importEvents, REAL_EVENTS } = await import('../server/events-import.js');
+  const a = await user('Eve'); const b = await user('Finn');
+  const count = () => db.prepare('SELECT COUNT(*) AS n FROM events WHERE ext_id IS NOT NULL').get().n;
+  assert.equal(count(), REAL_EVENTS.length);
+  const byExt = (x) => db.prepare('SELECT * FROM events WHERE ext_id = ?').get(x);
+  const alb = byExt('nyxell-30297'); // Thursday 3 December, 23:00 to 05:00
+  assert.equal(alb.starts_at, '2026-12-03T23:00:00.000Z'); // Canary time is UTC+0 in winter
+  assert.equal(alb.duration_min, 360);
+  assert.equal(alb.organiser_name, 'Erasmus Life (promoter)'); assert.equal(alb.venue, 'Alboroto'); assert.equal(alb.ticket_platform, 'Nyxell');
+  assert.match(alb.ticket_url, /^https:\/\/open\.nyxell\.com\/en\/rrpp\/122923-erasmus-life\/event\/30297-/);
+  assert.match(alb.price_note, /not free entry/);
+  // Unknown admission stays unknown, never "free".
+  const gospel = byExt('aak-TNOGC1226');
+  assert.equal(gospel.price_note, null); assert.match(gospel.ticket_url, /janto/);
+  // Student activity around an event survives a re-import, and nothing is duplicated.
+  if (Date.now() < new Date(alb.starts_at).getTime()) {
+    assert.equal((await a.put(`/events/${alb.id}/interest`, { group_pref: 'small', languages: ['English'] })).status, 200);
+    const plan = await a.post('/activities', { title: 'Market visit', category: 'shopping', starts_local: localIn(3), duration_min: 90, meeting_area: 'Santa Catalina / Puerto',
+      cost_eur: 0, max_participants: 4, languages: ['English'], event_id: byExt('lpgc-mercado-navidad-2026').id });
+    assert.equal(plan.status, 201);
+    db.prepare("UPDATE events SET title = 'changed by hand' WHERE ext_id = 'nyxell-30297'").run();
+    const r = importEvents(db);
+    assert.equal(r.inserted, 0); assert.equal(r.updated, REAL_EVENTS.length);
+    assert.equal(count(), REAL_EVENTS.length);
+    assert.equal(byExt('nyxell-30297').id, alb.id);
+    assert.equal(byExt('nyxell-30297').title, 'Erasmus Life · Jueves 3 • Diciembre');
+    assert.ok(db.prepare('SELECT 1 FROM event_interests WHERE event_id = ? AND user_id = ?').get(alb.id, a.id));
+    assert.equal(db.prepare('SELECT event_id FROM activities WHERE id = ?').get(plan.body.id).event_id, byExt('lpgc-mercado-navidad-2026').id);
+    // The API lists the 15 January concert, sessions of the New Year concert, and the market with no invented time.
+    const list = (await b.get('/events?city=las-palmas&when=any')).body.events;
+    assert.ok(list.some((e) => e.ext_id === 'aak-CRyLT0127-20270115' && e.starts_local === '2027-01-15T20:00'));
+    const market = list.find((e) => e.ext_id === 'lpgc-mercado-navidad-2026');
+    assert.equal(market.time_known, false); assert.match(market.note_en, /Check the city programme/);
+    const conpop = list.find((e) => e.series_key === 'conpop-2026');
+    const detail = (await b.get(`/events/${conpop.id}`)).body.event;
+    assert.equal(detail.sessions.length, 5);
+    assert.ok(detail.groups.length === 0);
+    // Attendance counts start from real app activity: one person looking, nobody invented.
+    assert.equal((await b.get(`/events/${alb.id}`)).body.event.seeking_count, 1);
+  } else t.diagnostic('listed dates are in the past; skipped the live part');
+});

@@ -14,7 +14,8 @@
     "seed": "node server/seed.js",
     "test": "node --test --no-warnings test/*.test.js",
     "test:browser": "node test/e2e.browser.cjs",
-    "check:i18n": "node scripts/check-i18n.mjs"
+    "check:i18n": "node scripts/check-i18n.mjs",
+    "import:events": "node scripts/import-events.mjs"
   },
   "dependencies": {
     "@dicebear/collection": "^9.4.2",

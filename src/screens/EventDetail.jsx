@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { t, tx } from '../i18n.js';
+import { getAppName, t, tx } from '../i18n.js';
 import { ActivityCard, Avatar, ChoiceChips, ErrorState, Icon, Loading, SampleBadge, Sheet, Stamp, TopBar, useApp, DetailPhoto, GoogleMap } from '../components.jsx';
 import { photo, photoFor } from '../../shared/photos.js';
-import { fmtDuration, fmtWhen, tzLabel, useApi } from '../util.js';
+import { eventText, fmtDay, fmtDuration, fmtEventWhen, tzLabel, useApi } from '../util.js';
 
 const MEET_OPTIONS = ["Meet at the venue entrance", "Meet nearby 20 minutes before", "Walk or take the bus there together"];
 
@@ -16,6 +16,7 @@ export default function EventDetail({ id }) {
   if (error && !data) return <><TopBar title="" /><div className="page"><ErrorState error={error} onRetry={reload} /></div></>;
   const e = data.event;
   const open = e.state === 'open';
+  const txt = eventText(e);
 
   const startFind = () => setForm(e.my_interest ? { ...e.my_interest } : { group_pref: 'either', languages: me.languages.slice(0, 2), meeting_option: MEET_OPTIONS[0], note: '' });
   const save = async (ev) => {
@@ -52,21 +53,35 @@ export default function EventDetail({ id }) {
           </div>
         </div>
         {e.is_sample && <div className="notice"><Icon name="info" />{tx("Example event for this preview. A real listing would come from the organiser, with their own registration page. Not linked to ESN or any other organisation.")}</div>}
+        {!e.is_sample && <div className="notice"><Icon name="info" />{tx('Run by {name}, not by {app} or by students. {app} is not linked to ESN, Erasmus Life or any university.', { name: e.organiser_name.split(' (')[0], app: getAppName() })}</div>}
+        {txt.note && <div className="notice lime"><Icon name="info" />{txt.note}</div>}
+        {e.sessions?.length > 1 && (
+          <div className="stack-sm">
+            <span className="label">{e.series_key?.startsWith('conpop') ? tx('Choose a session') : tx('Other dates of this listing')}</span>
+            <div className="chips" role="group" aria-label={tx('Sessions')}>
+              {e.sessions.map((x) => <a key={x.id} className="chip" aria-pressed={x.id === e.id} href={`#/event/${x.id}`}>{fmtDay(x.starts_at, e.timezone)}, {new Intl.DateTimeFormat('en-GB', { timeZone: e.timezone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(x.starts_at))}</a>)}
+            </div>
+          </div>
+        )}
         <div className="card card-pad facts-list">
-          <Icon name="clock" /><div><strong>{fmtWhen(e.starts_at, e.timezone)}</strong> · {fmtDuration(e.duration_min)}<div className="tiny muted">{tzLabel(e.timezone)}</div></div>
-          <Icon name="pin" /><div>{e.venue}</div>
-          {e.price_note && <><Icon name="euro" /><div className="small">{e.price_note}</div></>}
+          <Icon name="clock" /><div><strong>{fmtEventWhen(e)}</strong>{e.time_known !== false && <> · {fmtDuration(e.duration_min)}</>}<div className="tiny muted">{tzLabel(e.timezone)}</div></div>
+          <Icon name="pin" /><div>{e.venue}{e.venue_address && <div className="tiny muted">{e.venue_address}</div>}</div>
+          <Icon name="flag" /><div>{tx('Organiser')}: {e.organiser_name}{e.ticket_platform && <div className="tiny muted">{tx('Tickets via {platform}', { platform: e.ticket_platform })}</div>}</div>
+          {txt.price && <><Icon name="euro" /><div className="small">{txt.price}</div></>}
+          {e.age_note && <><Icon name="shield" /><div className="small">{tx('Age: {age}', { age: e.age_note })}</div></>}
         </div>
-        <p>{e.description}</p>
-        <GoogleMap query={e.venue.replace(/ area$/, '')} title={tx('Map of {place}', { place: e.venue })} />
+        <p>{txt.description}</p>
+        <GoogleMap query={e.venue_address || e.venue.replace(/ area$/, '')} title={tx('Map of {place}', { place: e.venue })} />
 
         <section className="card card-pad stack" aria-label={tx("Two separate steps")}>
           <div className="stack-sm">
             <span className="label">{tx("1 · Get a place at the event")}</span>
+            {e.ticket_url && <a className="btn btn-secondary btn-block" href={e.ticket_url} target="_blank" rel="noopener noreferrer"><Icon name="external" size={18} />{tx('Tickets on {platform}', { platform: e.ticket_platform.split(' (')[0] })}</a>}
             {e.official_url
-              ? <a className="btn btn-secondary btn-block" href={e.official_url} target="_blank" rel="noopener noreferrer"><Icon name="external" size={18} />{t('event.register')}</a>
+              ? <a className={`btn btn-block ${e.ticket_url ? 'btn-ghost' : 'btn-secondary'}`} href={e.official_url} target="_blank" rel="noopener noreferrer"><Icon name="external" size={18} />{e.ext_id ? tx('Organiser’s page') : t('event.register')}</a>
               : <button className="btn btn-secondary btn-block" disabled>{t('event.registerSample')}</button>}
             <p className="tiny muted">{tx("Registration, tickets and payment happen with the organiser, never in this app.")}</p>
+            {e.source_url && <p className="tiny muted">{tx('Source: {source}, checked {date}.', { source: e.source_name, date: e.checked_at })} <a href={e.source_url} target="_blank" rel="noopener noreferrer">{tx('Open source')}</a></p>}
           </div>
           <hr className="divider" />
           <div className="stack-sm">
@@ -80,7 +95,11 @@ export default function EventDetail({ id }) {
                 <button className="btn btn-ghost btn-sm" onClick={stop} disabled={busy}>{t('event.optOut')}</button>
               </div>
             )}
-            <p className="tiny muted">{t('event.separate')}</p>
+            {e.time_known === false && open && (
+              <a className="btn btn-secondary btn-block" href={`#/create?${new URLSearchParams({ template: 'market', category: e.category, title: tx('Visit: {name}', { name: e.title }), area: 'santacatalina', event: String(e.id), from: 'event', date: new Date(Math.max(Date.now() + 864e5, new Date(e.starts_at).getTime())).toISOString().slice(0, 10) })}`}>
+                <Icon name="plus" size={18} />{tx('Plan a student visit on a day you choose')}</a>
+            )}
+            <p className="tiny muted">{t('event.separate')} {tx('Joining a group does not reserve a ticket.')}</p>
           </div>
           <hr className="divider" />
           <div className="stack-sm">
