@@ -1,8 +1,8 @@
 import { Fragment, useState } from 'react';
-import { t, tx } from '../i18n.js';
-import { ActivityCard, Avatar, ChoiceChips, Empty, ErrorState, Icon, Loading, SampleBadge, Sheet, Stamp, useApp } from '../components.jsx';
+import { locale, t, tx } from '../i18n.js';
+import { ActivityCard, Avatar, ChoiceChips, Empty, ErrorState, Icon, Loading, SampleBadge, Sheet, Stamp, StatusLine, useApp } from '../components.jsx';
 import { ROLE_LABEL } from './Person.jsx';
-import { useApi } from '../util.js';
+import { INVITE_FOR, inviteHref, localDate, nextSlot, useApi } from '../util.js';
 import { DAYS, PARTS, categoryLabel, categoryPhrase } from '../../shared/catalog.js';
 
 // The server decides the match with simple rules; the sentence is built here so it can be shown in any language.
@@ -21,6 +21,91 @@ function extrasText(s) {
 }
 
 const slotText = (slot) => { const [d, p] = slot.split('_'); return `${tx(DAYS.find((x) => x[0] === d)?.[1] || d)} ${tx(p)}`; };
+
+/** The owner's own status: what I feel like doing, when, roughly where, and until when it is shown. */
+function MyStatus() {
+  const { me, meta, city, api, toast, reloadMe } = useApp();
+  const [form, setForm] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const st = me.status;
+  const tz = city.timezone;
+  const days = [['', tx('Flexible')], ...DAYS.map(([d, n]) => [d, tx(n)])];
+  const open = () => {
+    const [d = '', p = ''] = (st?.slot || '').split('_');
+    setForm({ category: st?.category || '', day: d, part: p || 'afternoon', area: st?.area || '', note: st?.note || '',
+      until: st ? new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(st.expires_at)) : localDate(tz, 2) });
+  };
+  const pickDay = (day) => {
+    const next = day && nextSlot(`${day}_${form.part}`, tz);
+    setForm({ ...form, day, until: next ? next.date : form.until });
+  };
+  const save = async (e) => {
+    e.preventDefault(); setBusy(true);
+    try {
+      await api.put('/me/status', { category: form.category, slot: form.day ? `${form.day}_${form.part}` : null, area: form.area || null, note: form.note, until: form.until });
+      await reloadMe(); setForm(null); toast(tx('Status saved. It disappears automatically after the end date.'));
+    } catch (x) { toast(x.message, true); } finally { setBusy(false); }
+  };
+  const clear = async () => {
+    setBusy(true);
+    try { await api.del('/me/status'); await reloadMe(); setForm(null); toast(tx('Status cleared.')); } catch (x) { toast(x.message, true); } finally { setBusy(false); }
+  };
+  const untilText = st && new Intl.DateTimeFormat(locale(), { timeZone: tz, weekday: 'short', day: 'numeric', month: 'short' }).format(new Date(st.expires_at));
+  return (
+    <section className="card card-pad stack-sm my-status" aria-labelledby="st-h" data-tour="status">
+      <div className="row" style={{ justifyContent: 'space-between', gap: 8 }}>
+        <h2 id="st-h" style={{ fontSize: '1.1rem' }}>{tx('What do you feel like doing?')}</h2>
+        {st && <span className="tiny muted">{tx('Shown until {date}', { date: untilText })}</span>}
+      </div>
+      {st ? <StatusLine status={st} /> : <p className="small muted">{tx('Optional. For example “Coffee, Friday afternoon, near Las Canteras”. Other students see it on your card until the date you choose.')}</p>}
+      {me.is_guest && <p className="tiny muted">{tx('As a guest, nobody else sees your status. Create an account to show it.')}</p>}
+      <div className="row wrap">
+        <button className="btn btn-secondary btn-sm" onClick={open}><Icon name={st ? 'edit' : 'plus'} size={15} />{st ? tx('Edit status') : tx('Set a status')}</button>
+        {st && <button className="btn btn-ghost btn-sm" onClick={clear} disabled={busy}>{tx('Clear')}</button>}
+      </div>
+      {form && (
+        <Sheet title={tx('What do you feel like doing?')} onClose={() => setForm(null)}>
+          <form className="stack" onSubmit={save}>
+            <div className="field"><span className="label">{tx('I feel like…')}</span>
+              <ChoiceChips label={tx('Activity')} value={form.category} onChange={(category) => setForm({ ...form, category })} options={meta.categories.map((c) => ({ key: c.key, label: c.label }))} />
+            </div>
+            <div className="grid-2">
+              <label className="field"><span>{tx('Day (optional)')}</span>
+                <select className="select" value={form.day} onChange={(e) => pickDay(e.target.value)}>
+                  {days.map(([k, n]) => <option key={k} value={k}>{n}</option>)}
+                </select>
+              </label>
+              <label className="field"><span>{tx('Time of day')}</span>
+                <select className="select" value={form.part} disabled={!form.day} onChange={(e) => setForm({ ...form, part: e.target.value })}>
+                  {PARTS.map(([k]) => <option key={k} value={k}>{tx(k)}</option>)}
+                </select>
+              </label>
+            </div>
+            <label className="field"><span>{tx('Rough area (optional)')}</span>
+              <select className="select" value={form.area} onChange={(e) => setForm({ ...form, area: e.target.value })}>
+                <option value="">{tx('Anywhere')}</option>
+                {city.areas.map((a) => <option key={a.key} value={a.key}>{a.name}</option>)}
+              </select>
+              <span className="hint">{tx('Only the neighbourhood is shown, never an address.')}</span>
+            </label>
+            <label className="field"><span>{tx('Note (optional)')}</span>
+              <input className="input" maxLength={80} value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder={tx('e.g. Happy to practise Spanish')} />
+            </label>
+            <label className="field"><span>{tx('Show until')}</span>
+              <input className="input" type="date" required min={localDate(tz)} max={localDate(tz, 30)} value={form.until} onChange={(e) => setForm({ ...form, until: e.target.value })} />
+              <span className="hint">{tx('After this day the status is hidden automatically.')}</span>
+            </label>
+            <div className="row">
+              {st && <button type="button" className="btn btn-ghost" onClick={clear} disabled={busy}>{tx('Clear status')}</button>}
+              <span className="spacer" />
+              <button className="btn btn-primary" disabled={busy || !form.category}>{tx('Save status')}</button>
+            </div>
+          </form>
+        </Sheet>
+      )}
+    </section>
+  );
+}
 
 function SlotPicker({ value, onChange }) {
   const toggle = (s) => onChange(value.includes(s) ? value.filter((x) => x !== s) : [...value, s]);
@@ -64,6 +149,8 @@ export default function Buddies() {
       <div className="stack-sm"><span className="eyebrow">{tx("Same wish, same time")}</span><h1>{t('buddies.title')}</h1>
         <p className="small muted">{t('buddies.lead')}</p></div>
 
+      <MyStatus />
+
       {inv.data?.invitations.length > 0 && (
         <section className="stack" aria-labelledby="inv-h">
           <h2 id="inv-h">{tx("Invitations for you")}</h2>
@@ -87,6 +174,7 @@ export default function Buddies() {
                       <div className="tiny muted">{tx(ROLE_LABEL[p.role] || 'Student')}{p.area ? ` · ${p.area.split(' / ')[0]}` : ''}</div>
                     </div>
                   </a>
+                  {p.status && <StatusLine status={p.status} />}
                   {p.intro && <p className="small person-intro">{p.intro}</p>}
                   <div className="chips-static">
                     {p.interests.slice(0, 4).map((c) => <span key={c} className={`mini-chip ${p.shared.includes(c) ? 'on' : ''}`}><Icon name={c} size={13} />{tx(categoryLabel(c))}</span>)}
@@ -94,7 +182,7 @@ export default function Buddies() {
                   <div className="row" style={{ marginTop: 'auto' }}>
                     {p.shared.length > 0 && <span className="tiny" style={{ color: 'var(--lime-ink)', fontWeight: 650, flex: 1 }}>{tx('You both like {what}', { what: p.shared.slice(0, 2).map((c) => tx(categoryLabel(c)).toLowerCase()).join(tx(' and ')) })}</span>}
                     <span className="spacer" />
-                    <a className="btn btn-secondary btn-sm" href={`#/create?template=${tplFor(p.shared[0] || p.interests[0]) || 'other'}&category=${p.shared[0] || p.interests[0] || 'other'}&invite=${p.id}`}><Icon name="plus" size={15} />{tx('Invite')}</a>
+                    <a className={`btn btn-sm ${p.status ? 'btn-primary' : 'btn-secondary'}`} href={inviteHref(p, meta.templates)}><Icon name="plus" size={15} />{p.status ? tx(INVITE_FOR[p.status.category] || 'Invite') : tx('Invite')}</a>
                   </div>
                 </article>
               ))}

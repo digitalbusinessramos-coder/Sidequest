@@ -494,3 +494,31 @@ test('students list: visible people, shared interests first, blocked people hidd
   await a.put('/me/privacy', { show_sample: false });
   assert.ok(!(await a.get('/people')).body.people.some((p) => p.is_demo));
 });
+
+test('buddies status: only what the owner sets, editable, clearable, hidden once expired', async () => {
+  const a = await user('Stat'); const b = await user('Viewer');
+  const visible = async () => (await b.get('/people')).body.people.find((p) => p.id === a.id);
+  // Nothing is invented: a new user has no status.
+  assert.equal((await a.get('/me')).body.user.status, null);
+  assert.equal((await visible())?.status ?? null, null);
+  const until = localIn(3).slice(0, 10);
+  assert.equal((await a.put('/me/status', { category: 'nope', until })).status, 400);
+  assert.equal((await a.put('/me/status', { category: 'coffee', until: localIn(-2).slice(0, 10) })).status, 400);
+  assert.equal((await a.put('/me/status', { category: 'coffee', until: localIn(40).slice(0, 10) })).status, 400);
+  const r = await a.put('/me/status', { category: 'coffee', slot: 'fri_afternoon', area: 'canteras', note: 'Spanish practice', until });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  let s = (await visible()).status;
+  assert.equal(s.category, 'coffee'); assert.equal(s.slot, 'fri_afternoon'); assert.equal(s.area_name, 'Las Canteras / Guanarteme'); assert.equal(s.note, 'Spanish practice');
+  assert.equal((await b.get(`/users/${a.id}`)).body.profile.status.category, 'coffee');
+  // Edit: no day and no area is fine.
+  await a.put('/me/status', { category: 'surf', until });
+  s = (await visible()).status; assert.equal(s.category, 'surf'); assert.equal(s.slot, null); assert.equal(s.area, null);
+  // Expired statuses are hidden everywhere.
+  db.prepare('UPDATE profiles SET status_expires_at = ? WHERE user_id = ?').run(new Date(Date.now() - 1000).toISOString(), a.id);
+  assert.equal((await visible()).status, null);
+  assert.equal((await a.get('/me')).body.user.status, null);
+  // Clear.
+  await a.put('/me/status', { category: 'coffee', until });
+  assert.equal((await a.del('/me/status')).status, 200);
+  assert.equal((await visible()).status, null);
+});

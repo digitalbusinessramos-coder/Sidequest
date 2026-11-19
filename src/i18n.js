@@ -6,6 +6,7 @@ const en = {
   'nav.plans': 'My Plans',
   'nav.guide': 'City Guide',
   'nav.profile': 'Profile',
+  'nav.market': 'Marketplace', 'nav.exploreShort': 'Explore', 'nav.buddiesShort': 'Buddies', 'nav.plansShort': 'Plans', 'nav.marketShort': 'Market', 'nav.guideShort': 'Guide', 'nav.profileShort': 'Profile',
 
   'welcome.tagline': 'Want to do something but have no one to go with? Find a buddy or a small group for it.',
   'welcome.step1': 'Pick something to do, or start a plan.',

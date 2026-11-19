@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { LANGUAGE_OPTIONS, t, tx } from './i18n.js';
 import { fmtCost, fmtWhen } from './util.js';
 import { PHOTOS, photo, photoFor } from '../shared/photos.js';
-import { categoryLabel } from '../shared/catalog.js';
+import { DAYS, categoryLabel } from '../shared/catalog.js';
 
 export const AppCtx = createContext(null);
 export const useApp = () => useContext(AppCtx);
@@ -406,5 +406,26 @@ export function EmailBadge() {
     <span className="badge badge-community" title={tx('They confirmed they can receive email at the address they signed up with. Student status is not verified.')}>
       <Icon name="check" size={13} />{tx('Email confirmed')}
     </span>
+  );
+}
+
+/** Day and part of day, e.g. "Friday afternoon". */
+export function slotText(slot) {
+  if (!slot) return '';
+  const [d, p] = slot.split('_');
+  return `${tx(DAYS.find((x) => x[0] === d)?.[1] || d)} ${tx(p)}`;
+}
+
+/** What someone feels like doing, when and roughly where. Only ever what they set themselves. */
+export function StatusLine({ status, compact = false }) {
+  if (!status) return null;
+  const bits = [tx(categoryLabel(status.category))];
+  if (status.slot) bits.push(slotText(status.slot));
+  if (status.area_name) bits.push(tx('near {place}', { place: status.area_name.split(' / ')[0] }));
+  return (
+    <div className={`status-line ${compact ? 'compact' : ''}`}>
+      <Icon name="bolt" size={14} />
+      <span><span className="sr-only">{tx('Feels like:')} </span>{bits.join(' · ')}{status.note && !compact ? <span className="muted"> · “{status.note}”</span> : null}</span>
+    </div>
   );
 }

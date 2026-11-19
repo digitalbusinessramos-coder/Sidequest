@@ -24,11 +24,12 @@ export const STEPS = [
   { route: 'explore', sel: '[data-tour=create]', title: 'Create your own plan', body: 'Pick a template (coffee, surf, night out…), set time and place, and choose: anyone can join, or you accept requests.' },
   { route: 'explore', sel: '[data-tour=people]', title: 'Students looking for company', body: 'Tap a face to see who they are, what they like and which languages they speak.' },
   { route: 'explore', sel: '[data-tour=events] .act-card', title: 'Events: find someone to go with', body: 'You register with the organiser as usual. Here you find people to go with and talk in the event’s group chat.' },
-  { route: 'explore', sel: '[data-tour=market-switch]', title: 'Student marketplace', body: 'Buy, sell or give away bikes, books and furniture. Event tickets can only be passed on at or below the price paid.' },
-  { route: 'buddies', sel: '[data-tour=students] .person-card', title: 'Invite someone', body: 'Every student has an Invite button. It starts a plan with that person already invited.' },
+  { route: 'market', sel: '[data-tour=nav-market]', title: 'Student marketplace', body: 'Buy, sell or give away bikes, books and furniture. Event tickets can only be passed on at or below the price paid.' },
+  { route: 'buddies', sel: ['[data-tour=status]'], title: 'What do you feel like doing?', body: 'Optionally say what you feel like doing, when and roughly where, for example coffee on Friday afternoon near Las Canteras. It disappears on the date you choose.' },
+  { route: 'buddies', sel: '[data-tour=students] .person-card', title: 'Invite someone', body: 'Every student has an Invite button. If they set a status, it says what for (“Invite for coffee”) and fills in the plan for you to check before sending.' },
   { route: 'buddies', sel: ['[data-tour=matches] .card', '[data-tour=matches]'], title: 'Same wish, same time', body: 'Save what you’d like to do and when. We show people with the same wish and say why in plain words. No secret score.' },
   { route: 'plans', sel: ['[data-tour=plans-view]', '[data-tour=plans-head]'], title: 'My Plans', body: 'Everything you joined, as a list or as a weekly timetable, with chats and updates.' },
-  { route: 'guide', sel: '[data-tour=tip]', title: 'Tips from students', body: 'Recommendations from other students. Like the ones you agree with and save the ones you want to try. Official links are further down.' },
+  { route: 'guide', sel: '[data-tour=tip]', title: 'Tips from students', body: 'Recommendations from other students. Like them, save them, or turn an activity tip into a plan with “Make this a plan”. Official links are further down.' },
   { route: 'profile', sel: '[data-tour=nav-profile]', title: 'Your profile', body: 'Add a photo, choose what others see, switch language, send us feedback. You can block or report anyone from their profile.' },
 ];
 

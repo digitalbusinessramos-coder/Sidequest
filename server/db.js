@@ -24,6 +24,10 @@ function migrate(db) {
   if (!cols('events').includes('photo_key')) db.exec('ALTER TABLE events ADD COLUMN photo_key TEXT');
   db.exec('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)');
   if (!cols('events').includes('lat')) { db.exec('ALTER TABLE events ADD COLUMN lat REAL'); db.exec('ALTER TABLE events ADD COLUMN lng REAL'); }
+  // Buddies status: what I feel like doing, when, roughly where, until when. All optional, set only by the user.
+  if (!cols('profiles').includes('status_category')) {
+    for (const c of ['status_category', 'status_slot', 'status_area', 'status_note', 'status_expires_at']) db.exec(`ALTER TABLE profiles ADD COLUMN ${c} TEXT`);
+  }
 }
 
 /** Run fn inside an IMMEDIATE transaction (takes the write lock first, so capacity checks cannot race). */

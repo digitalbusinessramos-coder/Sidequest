@@ -1,7 +1,7 @@
 import { t, tx } from '../i18n.js';
 import { useEffect, useState } from 'react';
 import { ChoiceChips, ErrorState, Icon, Loading, Stamp, TopBar, useApp } from '../components.jsx';
-import { tzLabel } from '../util.js';
+import { nextSlot, tzLabel, useApi } from '../util.js';
 import { api as rawApi } from '../api.js';
 
 function defaultStart(tz, hhmm = '17:00') {
@@ -17,6 +17,19 @@ const blank = (tpl, city, me) => ({
   cost_eur: tpl.cost, max_participants: tpl.max, beginner_friendly: !!tpl.beginner, pace: tpl.pace || '', transport: tpl.transport || '',
   languages: me.languages?.slice(0, 2) || [], solo_format: false, welcome_plan: '', recognise_tip: '',
 });
+
+/** Fill in what the link carries (from a buddy's status or a City Guide tip). The user still picks everything else. */
+function applyQuery(v, query, city) {
+  const out = { ...v };
+  if (query.title) out.title = String(query.title).slice(0, 80);
+  if (query.category) out.category = query.category;
+  const area = city.areas.find((a) => a.key === query.area || a.name === query.area);
+  if (area) out.meeting_area = area.name;
+  else if (query.area) out.meeting_area = String(query.area).slice(0, 80);
+  const slot = query.slot && nextSlot(query.slot, city.timezone);
+  if (slot) out.starts_local = `${slot.date}T${slot.time}`;
+  return out;
+}
 
 /** Pick a neighbourhood from the list (no typing needed), or type another public place. */
 function AreaPicker({ value, onChange, areas }) {
@@ -44,6 +57,7 @@ export default function ActivityForm({ editId, query = {} }) {
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const [showMore, setShowMore] = useState(false);
+  const invitee = useApi(query.invite ? `/users/${Number(query.invite)}` : null).data?.profile;
   const set = (patch) => setV((x) => ({ ...x, ...patch }));
 
   useEffect(() => {
@@ -53,7 +67,7 @@ export default function ActivityForm({ editId, query = {} }) {
         setV({ ...a, meeting_point: a.meeting_point || '', pace: a.pace || '', transport: a.transport || '' });
         setShowMore(true);
       }).catch(setLoadErr);
-    } else if (tpl) setV(blank(tpl, city, me));
+    } else if (tpl) setV(applyQuery(blank(tpl, city, me), query, city));
   }, [editId, tpl]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loadErr) return <><TopBar title={tx("Edit activity")} /><div className="page"><ErrorState error={loadErr} /></div></>;
@@ -98,7 +112,10 @@ export default function ActivityForm({ editId, query = {} }) {
     <>
       <TopBar title={editId ? tx("Edit activity") : tx("New plan")} />
       <form className="page" onSubmit={submit}>
-        {query.invite && <div className="notice lime"><Icon name="heart" />{tx("After you create this plan, we’ll send an invitation. Nobody is added until they accept.")}</div>}
+        {query.invite && <div className="notice lime"><Icon name="heart" />{invitee
+          ? tx('Check the details, then publish to send {name} the invitation. Nothing is sent before that, and nobody is added until they accept.', { name: invitee.first_name })
+          : tx("After you create this plan, we’ll send an invitation. Nobody is added until they accept.")}</div>}
+        {query.from === 'tip' && <div className="notice"><Icon name="info" />{tx('Title and area come from the tip. Pick the date, time and group size.')}</div>}
         <label className="field"><span>{tx("Title")}</span>
           <input className="input" required maxLength={80} value={v.title} onChange={(e) => set({ title: e.target.value })} placeholder={tx("e.g. Sunset walk on the promenade")} />
         </label>
