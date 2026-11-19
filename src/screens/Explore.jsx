@@ -4,7 +4,7 @@ import { ActivityCard, ChoiceChips, Empty, ErrorState, EventCard, Icon, Loading,
 
 const MapView = lazy(() => import('../MapView.jsx'));
 const HERO = ['canteras', 'vegueta', 'cathedral', 'auditorio', 'roque', 'dunes'];
-import { areaName, useApi } from '../util.js';
+import { areaName, collapseSeries, useApi } from '../util.js';
 
 const WHEN = ['any', 'today', 'tomorrow', 'week', 'weekend'];
 
@@ -144,12 +144,13 @@ export default function Explore() {
       {view === 'list' && showEvents && (
         <section className="stack" aria-labelledby="ev-h" data-tour="events">
           <div className="stack-sm">
-            <h2 id="ev-h">{t('explore.events')}</h2>
+            <div className="section-title"><h2 id="ev-h">{t('explore.events')}</h2><a className="small" href="#/events">{tx('See all')}</a></div>
             <p className="small muted">{t('explore.eventsHint')}</p>
           </div>
           {evs.loading && !evs.data ? <Loading rows={1} /> : evs.error ? <ErrorState error={evs.error} onRetry={evs.reload} />
             : evs.data.events.length === 0 ? <p className="small muted">{tx("No upcoming events listed for this time.")}</p>
-              : <div className="card-list">{evs.data.events.slice(0, 4).map((e) => <EventCard key={e.id} e={e} />)}</div>}
+              : <div className="card-list">{collapseSeries(evs.data.events).slice(0, 4).map(({ e, more }) => <EventCard key={e.id} e={e} more={more} />)}</div>}
+          <a className="btn btn-secondary" style={{ alignSelf: 'flex-start' }} href="#/events"><Icon name="plans" size={16} />{tx('All upcoming events, by month')}</a>
         </section>
       )}
 

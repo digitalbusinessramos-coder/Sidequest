@@ -24,6 +24,13 @@ function migrate(db) {
   if (!cols('events').includes('photo_key')) db.exec('ALTER TABLE events ADD COLUMN photo_key TEXT');
   db.exec('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)');
   if (!cols('events').includes('lat')) { db.exec('ALTER TABLE events ADD COLUMN lat REAL'); db.exec('ALTER TABLE events ADD COLUMN lng REAL'); }
+  // Real events imported from organisers' own pages (see server/events-import.js). All nullable; sample events leave them empty.
+  for (const [c, type] of [['ext_id', 'TEXT'], ['desc_es', 'TEXT'], ['price_es', 'TEXT'], ['price_short', 'TEXT'], ['note_en', 'TEXT'], ['note_es', 'TEXT'], ['venue_address', 'TEXT'],
+    ['ticket_platform', 'TEXT'], ['ticket_url', 'TEXT'], ['age_note', 'TEXT'], ['source_name', 'TEXT'], ['source_url', 'TEXT'], ['checked_at', 'TEXT'],
+    ['series_key', 'TEXT'], ['series_label', 'TEXT'], ['time_known', 'INTEGER NOT NULL DEFAULT 1'], ['listed_until', 'TEXT']]) {
+    if (!cols('events').includes(c)) db.exec(`ALTER TABLE events ADD COLUMN ${c} ${type}`);
+  }
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS events_ext_id ON events(ext_id)');
   // Buddies status: what I feel like doing, when, roughly where, until when. All optional, set only by the user.
   if (!cols('profiles').includes('status_category')) {
     for (const c of ['status_category', 'status_slot', 'status_area', 'status_note', 'status_expires_at']) db.exec(`ALTER TABLE profiles ADD COLUMN ${c} TEXT`);

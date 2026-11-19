@@ -544,3 +544,11 @@ a[href^="#/person"]:hover strong { text-decoration: underline; }
 .status-line.compact { font-size: .78rem; padding: 3px 8px; }
 .my-status { border-left: 4px solid var(--coral); }
 .tip-plan { align-self: flex-start; }
+
+/* ---------- R3: real events ---------- */
+.badge-event { background: var(--blue-soft); color: var(--blue-ink); border: 1px solid #c9d3e6; }
+.more-dates { display: inline-flex; align-items: center; gap: 5px; font-weight: 650; color: var(--blue-ink); }
+.event-card .price-short { font-weight: 650; color: var(--ink); }
+.month-h { display: flex; align-items: center; gap: 8px; font-size: 1.15rem; text-transform: capitalize; }
+a.chip { text-decoration: none; }
+a.chip[aria-pressed='true'] { background: var(--blue); color: #fff; border-color: var(--blue); }

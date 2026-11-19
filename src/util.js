@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
-import { locale, tx } from './i18n.js';
+import { getLanguage, locale, tx } from './i18n.js';
 
 /** Format a UTC time in the activity's own time zone (e.g. Atlantic/Canary), whatever the viewer's device zone is. */
 export function fmtWhen(iso, tz, { withDay = true } = {}) {
@@ -143,3 +143,41 @@ export function inviteHref(person, templates) {
   return `#/create?${q}`;
 }
 
+
+// ---------- real events ----------
+/** Texts for the viewer's language. An unknown price is never shown as free. */
+export function eventText(e) {
+  const es = getLanguage() === 'es';
+  return {
+    description: (es && e.description_es) || e.description,
+    price: (es && e.price_es) || e.price_note || (e.is_sample ? null : tx('Check with organiser')),
+    note: (es ? e.note_es || e.note_en : e.note_en) || null,
+  };
+}
+
+const dayFmt = (iso, tz) => new Intl.DateTimeFormat(locale(), { timeZone: tz, weekday: 'short', day: 'numeric', month: 'short' }).format(new Date(iso));
+
+/** "Thu 19 Nov, 23:00 – 05:00 (next morning)", or "From Fri 4 Dec" when no time is published. */
+export function fmtEventWhen(e, { withEnd = true } = {}) {
+  if (e.time_known === false) return tx('From {date}', { date: dayFmt(e.starts_at, e.timezone) });
+  const start = fmtWhen(e.starts_at, e.timezone);
+  if (!withEnd || !e.duration_min) return start;
+  const endIso = new Date(new Date(e.starts_at).getTime() + e.duration_min * 60e3).toISOString();
+  const end = fmtWhen(endIso, e.timezone, { withDay: false });
+  const dk = (x) => new Intl.DateTimeFormat('en-CA', { timeZone: e.timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(x));
+  return dk(endIso) !== dk(e.starts_at) ? `${start} – ${end} ${tx('(next morning)')}` : `${start} – ${end}`;
+}
+
+/** One card per listing: repeats (same series) collapse into the next date plus a count. */
+export function collapseSeries(events) {
+  const out = []; const seen = new Map();
+  for (const e of events) {
+    if (e.series_key && seen.has(e.series_key)) { seen.get(e.series_key).more += 1; continue; }
+    const item = { e, more: 0 };
+    if (e.series_key) seen.set(e.series_key, item);
+    out.push(item);
+  }
+  return out;
+}
+
+export const fmtDay = dayFmt;

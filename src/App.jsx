@@ -7,6 +7,7 @@ import Onboarding from './screens/Onboarding.jsx';
 import Explore from './screens/Explore.jsx';
 import ActivityDetail from './screens/ActivityDetail.jsx';
 import ActivityForm from './screens/ActivityForm.jsx';
+import Events from './screens/Events.jsx';
 import EventDetail from './screens/EventDetail.jsx';
 import Chat from './screens/Chat.jsx';
 import EventChat from './screens/EventChat.jsx';
@@ -41,7 +42,7 @@ const TABS = [
   ['guide', 'guide', 'nav.guide'],
   ['profile', 'profile', 'nav.profile'],
 ];
-const TAB_OF = { activity: 'explore', event: 'explore', create: 'explore', person: 'buddies' };
+const TAB_OF = { activity: 'explore', event: 'explore', events: 'explore', create: 'explore', person: 'buddies' };
 
 export default function App() {
   const route = useHashRoute();
@@ -115,6 +116,7 @@ export default function App() {
   else if (p0 === 'market') screen = <Market query={route.query} />;
   else if (p0 === 'event' && p2 === 'chat') screen = <EventChat id={p1} />;
   else if (p0 === 'event') screen = <EventDetail id={p1} />;
+  else if (p0 === 'events') screen = <Events />;
   else if (p0 === 'create') screen = <ActivityForm query={route.query} />;
   else if (p0 === 'person') screen = <Person id={p1} />;
   else if (p0 === 'plans') screen = <Plans />;

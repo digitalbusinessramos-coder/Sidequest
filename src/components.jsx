@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { LANGUAGE_OPTIONS, t, tx } from './i18n.js';
-import { fmtCost, fmtWhen } from './util.js';
+import { eventText, fmtCost, fmtEventWhen, fmtWhen } from './util.js';
 import { PHOTOS, photo, photoFor } from '../shared/photos.js';
 import { DAYS, categoryLabel } from '../shared/catalog.js';
 
@@ -233,22 +233,26 @@ export function ActivityCard({ a, reason }) {
   );
 }
 
-export function EventCard({ e }) {
+export function EventCard({ e, more = 0 }) {
+  const txt = eventText(e);
   return (
-    <a href={`#/event/${e.id}`} className="card act-card has-cover">
+    <a href={`#/event/${e.id}`} className="card act-card has-cover event-card">
       <CardCover ph={(e.photo_key && photo(e.photo_key)) || photoFor(e.category)} category={e.category} />
       <div className="stack-sm" style={{ minWidth: 0 }}>
         <div className="row wrap" style={{ gap: 6 }}>
-          <span className="when">{fmtWhen(e.starts_at, e.timezone)}</span>
+          <span className="when">{fmtEventWhen(e, { withEnd: false })}</span>
           <span className="spacer" />
-          {e.is_sample && <SampleBadge />}
+          {e.is_sample ? <SampleBadge /> : <span className="badge badge-event" title={tx('Run by an outside organiser, not by students in this app')}>{tx('Event')}</span>}
           {e.i_am_seeking && <span className="badge badge-invited">{tx("You’re looking")}</span>}
         </div>
         <div className="title">{e.title}</div>
         <div className="facts">
           <span><Icon name="pin" size={15} />{e.venue}</span>
           <span><Icon name="flag" size={15} />{e.organiser_name.split(' (')[0]}</span>
+          {!e.is_sample && <span className="price-short"><Icon name="euro" size={15} />{e.price_short ? tx(e.price_short) : txt.price}</span>}
+          {e.age_note && <span>{e.age_note}</span>}
         </div>
+        {more > 0 && <span className="small more-dates"><Icon name="plans" size={14} />{tx(more === 1 ? '+1 more date' : '+{n} more dates', { n: more })}</span>}
         <div className="row ticket-edge small" style={{ fontWeight: 650, color: e.seeking_count ? 'var(--lime-ink)' : 'var(--ink-3)' }}>
           <Icon name="group" size={16} />
           {e.seeking_count ? t('card.seeking', { n: e.seeking_count }) : tx("Be the first to look for company")}
