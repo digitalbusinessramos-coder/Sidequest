@@ -1,6 +1,7 @@
 // Central configuration. Change APP_NAME here or via environment variable to rename the app.
 export const config = {
-  appName: process.env.APP_NAME || 'Erasquest',
+  // The old working name may still be set as APP_NAME on the host; the product is now Erasquest.
+  appName: (process.env.APP_NAME && !/^(sidequest|erasmus juntos)$/i.test(process.env.APP_NAME.trim())) ? process.env.APP_NAME : 'Erasquest',
   port: Number(process.env.PORT || 3000),
   dbPath: process.env.DB_PATH || './data/sidequest.db',
   // Demo mode: seeds clearly labelled fictional profiles/events and allows "try as demo persona" logins.
