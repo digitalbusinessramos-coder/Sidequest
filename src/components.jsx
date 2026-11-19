@@ -211,17 +211,16 @@ export function ActivityCard({ a, reason }) {
         <div className="title">{a.title}</div>
         <div className="facts">
           <span><Icon name="pin" size={15} />{a.meeting_area}</span>
-          <span><Icon name="euro" size={15} />{fmtCost(a.cost_eur)}</span>
-          {a.languages?.length > 0 && <span><Icon name="globe" size={15} />{a.languages.slice(0, 3).map((l) => tx(l)).join(', ')}</span>}
+          <span><Icon name="euro" size={15} />{a.event && !a.event.is_sample
+            ? (Number(a.cost_eur) > 0 ? tx('{cost} + event ticket', { cost: fmtCost(a.cost_eur) }) : tx('Event ticket from the organiser'))
+            : fmtCost(a.cost_eur)}</span>
         </div>
         <div className="row wrap ticket-edge" style={{ gap: 8 }}>
           <Spots going={a.going} max={a.max_participants} />
           <span className="small" style={{ fontWeight: 650 }}>
             {a.state === 'full' ? t('card.full') : a.max_participants === 2 ? tx("One buddy") : t('card.spots', { n: a.spots_left, max: a.max_participants })}
           </span>
-          {a.solo_format && <span className="badge badge-solo">{t('card.solo')}</span>}
           {a.join_mode === 'open' && <span className="badge badge-open"><Icon name="bolt" size={12} />{tx('Join directly')}</span>}
-          {a.beginner_friendly && <span className="badge badge-official" style={{ background: 'var(--paper-2)', color: 'var(--ink-2)' }}>{tx("Beginners welcome")}</span>}
           {a.unread > 0 && <span className="badge badge-invited"><Icon name="chat" size={13} />{tx(a.unread === 1 ? '1 new message' : '{n} new messages', { n: a.unread })}</span>}
           {a.organiser?.id && a.my_status === 'organiser' && a.pending_count > 0 && (
             <span className="badge badge-cancelled">{tx('{n} to review', { n: a.pending_count })}</span>
@@ -248,14 +247,16 @@ export function EventCard({ e, more = 0 }) {
         <div className="title">{e.title}</div>
         <div className="facts">
           <span><Icon name="pin" size={15} />{e.venue}</span>
-          <span><Icon name="flag" size={15} />{e.organiser_name.split(' (')[0]}</span>
+          {(e.is_sample || e.organiser_name || e.listed_by) && <span><Icon name="flag" size={15} />{e.is_sample ? e.organiser_name.split(' (')[0]
+            : e.organiser_name ? tx('Organised by {name}', { name: e.organiser_name }) : tx('Listed by {name}', { name: e.listed_by })}</span>}
           {!e.is_sample && <span className="price-short"><Icon name="euro" size={15} />{e.price_short ? tx(e.price_short) : txt.price}</span>}
           {e.age_note && <span>{e.age_note}</span>}
         </div>
         {more > 0 && <span className="small more-dates"><Icon name="plans" size={14} />{tx(more === 1 ? '+1 more date' : '+{n} more dates', { n: more })}</span>}
-        <div className="row ticket-edge small" style={{ fontWeight: 650, color: e.seeking_count ? 'var(--lime-ink)' : 'var(--ink-3)' }}>
+        <div className="row ticket-edge small" style={{ fontWeight: 650, color: e.groups_count || e.seeking_count ? 'var(--lime-ink)' : 'var(--ink-3)' }}>
           <Icon name="group" size={16} />
-          {e.seeking_count ? t('card.seeking', { n: e.seeking_count }) : tx("Be the first to look for company")}
+          {e.groups_count ? tx(e.groups_count === 1 ? '1 student group going' : '{n} student groups going', { n: e.groups_count })
+            : e.seeking_count ? t('card.seeking', { n: e.seeking_count }) : tx("Be the first to look for company")}
         </div>
       </div>
     </a>
@@ -393,13 +394,13 @@ export function ReportSheet({ target, onClose }) {
   );
 }
 
-export function LanguageSwitch() {
+export function LanguageSwitch({ compact = false }) {
   const { lang, changeLanguage } = useApp();
   return (
-    <div className="row" role="group" aria-label="Language / Idioma" style={{ gap: 6 }}>
-      <Icon name="globe" size={18} />
+    <div className={`row lang-switch ${compact ? 'compact' : ''}`} role="group" aria-label="Language / Idioma" style={{ gap: compact ? 4 : 6 }}>
+      <Icon name="globe" size={compact ? 16 : 18} />
       {LANGUAGE_OPTIONS.map((o) => (
-        <button key={o.key} type="button" className="chip" lang={o.key} aria-pressed={lang === o.key} onClick={() => changeLanguage(o.key)} style={{ minHeight: 36 }}>{o.label}</button>
+        <button key={o.key} type="button" className="chip" lang={o.key} aria-pressed={lang === o.key} aria-label={o.label} onClick={() => changeLanguage(o.key)} style={{ minHeight: compact ? 32 : 36 }}>{compact ? o.key.toUpperCase() : o.label}</button>
       ))}
     </div>
   );

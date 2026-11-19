@@ -197,7 +197,7 @@ export default function Profile({ sub }) {
 
       <section className="stack-sm" aria-labelledby="about-h">
         <h2 id="about-h">{tx('About {app}')}</h2>
-        <p className="small muted">{tx("A student project prototype from Las Palmas. Recommendations use simple, visible rules, not AI. The students, plans and events marked “Example” are made up for this preview. We are not affiliated with ESN or any university.")}</p>
+        <p className="small muted">{tx('{app} is an independent student project developed for the Digital Business course at ULPGC.', { app: getAppName() })} {tx('Recommendations use simple, visible rules, not AI. The students, plans and events marked “Example” are made up for this preview. We are not affiliated with ESN Las Palmas, Erasmus Life Las Palmas or any other organisation.')}</p>
         <button className="btn btn-secondary btn-sm" style={{ alignSelf: 'flex-start' }} onClick={openTour}><Icon name="info" size={16} />{tx('How it works')}</button>
       </section>
 

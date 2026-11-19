@@ -797,7 +797,7 @@ export function createApi(db) {
       duration_min: e.duration_min, venue: e.venue, organiser_name: e.organiser_name, official_url: e.official_url,
       price_note: e.price_note, is_sample: !!e.is_sample, status: e.status, photo_key: e.photo_key || null,
       // Real-event details (empty for example events): Spanish texts, venue address, ticketing, age, source and when it was checked.
-      ext_id: e.ext_id || null, description_es: e.desc_es || null, price_es: e.price_es || null, price_short: e.price_short || null, note_en: e.note_en || null, note_es: e.note_es || null,
+      ext_id: e.ext_id || null, description_es: e.desc_es || null, price_es: e.price_es || null, price_short: e.price_short || null, listed_by: e.listed_by || null, note_en: e.note_en || null, note_es: e.note_es || null,
       venue_address: e.venue_address || null, ticket_platform: e.ticket_platform || null, ticket_url: e.ticket_url || null, age_note: e.age_note || null,
       source_name: e.source_name || null, source_url: e.source_url || null, checked_at: e.checked_at || null,
       series_key: e.series_key || null, series_label: e.series_label || null, time_known: e.time_known !== 0, listed_until: e.listed_until || null,
@@ -806,6 +806,7 @@ export function createApi(db) {
       approx: e.lat != null ? { lat: e.lat, lng: e.lng, area: e.venue } : approxSpot(city, e.venue),
       chat_count: db.prepare('SELECT COUNT(*) AS n FROM event_messages WHERE event_id = ?').get(e.id).n,
       tickets_count: db.prepare("SELECT COUNT(*) AS n FROM listings WHERE event_id = ? AND kind = 'ticket' AND status != 'sold'").get(e.id).n,
+      groups_count: db.prepare("SELECT COUNT(*) AS n FROM activities WHERE event_id = ? AND status = 'active' AND starts_at > ?").get(e.id, now()).n,
       i_am_seeking: seekers.some((s) => s.user_id === uid) || !!db.prepare('SELECT 1 FROM event_interests WHERE event_id=? AND user_id=?').get(e.id, uid),
       _seekers: seekers,
     };

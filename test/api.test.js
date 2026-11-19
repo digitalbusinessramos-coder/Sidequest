@@ -532,7 +532,9 @@ test('real events: stable ids, safe re-import, Canary time, organiser links, no 
   const alb = byExt('nyxell-30297'); // Thursday 3 December, 23:00 to 05:00
   assert.equal(alb.starts_at, '2026-12-03T23:00:00.000Z'); // Canary time is UTC+0 in winter
   assert.equal(alb.duration_min, 360);
-  assert.equal(alb.organiser_name, 'Erasmus Life (promoter)'); assert.equal(alb.venue, 'Alboroto'); assert.equal(alb.ticket_platform, 'Nyxell');
+  // Erasmus Life only lists these nights (guest list); the source names no organiser, so the field stays empty.
+  assert.equal(alb.organiser_name, ''); assert.equal(alb.listed_by, 'Erasmus Life Las Palmas'); assert.equal(alb.venue, 'Alboroto'); assert.equal(alb.ticket_platform, 'Nyxell');
+  assert.equal(byExt('lpgc-mercado-navidad-2026').organiser_name, 'Ayuntamiento de Las Palmas de Gran Canaria');
   assert.match(alb.ticket_url, /^https:\/\/open\.nyxell\.com\/en\/rrpp\/122923-erasmus-life\/event\/30297-/);
   assert.match(alb.price_note, /not free entry/);
   // Unknown admission stays unknown, never "free".
