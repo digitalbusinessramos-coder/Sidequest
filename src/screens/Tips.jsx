@@ -3,6 +3,17 @@ import { tx } from '../i18n.js';
 import { Avatar, ChoiceChips, Empty, Icon, Loading, ReportSheet, SampleBadge, Sheet, useApp } from '../components.jsx';
 import { useApi } from '../util.js';
 
+// Activity tips can become a plan; practical tips (bus card, paperwork…) keep their own actions.
+const TIP_TO_CATEGORY = { food: 'food', nightlife: 'nightout', beach: 'beach', culture: 'culture', study: 'study' };
+function planHref(r, templates) {
+  const category = TIP_TO_CATEGORY[r.category];
+  if (!category) return null;
+  const tpl = (/sunset|atardecer/i.test(r.title) && templates.find((x) => x.key === 'sunset')) || templates.find((x) => x.category === category) || { key: 'other' };
+  const q = new URLSearchParams({ template: tpl.key, category, title: r.title, from: 'tip' });
+  if (r.area) q.set('area', r.area);
+  return `#/create?${q}`;
+}
+
 const REC_ICON = { food: 'food', nightlife: 'nightout', beach: 'beach', culture: 'museum', study: 'study', practical: 'info' };
 
 /** Student recommendations: anyone can post a tip, like it, and save it for later. */
@@ -62,6 +73,7 @@ export default function Tips() {
                 {r.is_sample && <SampleBadge />}
               </div>
               {r.body && <p className="small" style={{ color: 'var(--ink-2)' }}>{r.body}</p>}
+              {planHref(r, meta.templates) && <a className="btn btn-secondary btn-sm tip-plan" href={planHref(r, meta.templates)}><Icon name="plus" size={15} />{tx('Make this a plan')}</a>}
               {r.url && <a className="tiny" href={r.url} target="_blank" rel="noopener noreferrer nofollow">{tx('Link')} <Icon name="external" size={12} /></a>}
               <div className="row" style={{ gap: 6 }}>
                 <a href={`#/person/${r.author.id}`} className="row tiny muted" style={{ gap: 6, flex: 1, textDecoration: 'none', color: 'inherit', minWidth: 0 }}>

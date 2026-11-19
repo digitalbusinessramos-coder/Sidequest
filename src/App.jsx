@@ -37,10 +37,11 @@ const TABS = [
   ['explore', 'explore', 'nav.explore'],
   ['buddies', 'buddies', 'nav.buddies'],
   ['plans', 'plans', 'nav.plans'],
+  ['market', 'shopping', 'nav.market'],
   ['guide', 'guide', 'nav.guide'],
   ['profile', 'profile', 'nav.profile'],
 ];
-const TAB_OF = { activity: 'explore', event: 'explore', create: 'explore', market: 'explore', person: 'buddies' };
+const TAB_OF = { activity: 'explore', event: 'explore', create: 'explore', person: 'buddies' };
 
 export default function App() {
   const route = useHashRoute();
@@ -146,7 +147,7 @@ export default function App() {
             <li key={key}>
               <a href={`#/${key}`} data-tour={`nav-${key}`} aria-current={activeTab === key ? 'page' : undefined}>
                 <Icon name={icon} size={22} />
-                {t(label)}
+                <span className="tab-long">{t(label)}</span><span className="tab-short" aria-hidden="true">{t(`${label}Short`)}</span>
                 {badge[key] > 0 && <span className="tab-badge" aria-label={tx('{n} need your attention', { n: badge[key] })}>{badge[key]}</span>}
               </a>
             </li>

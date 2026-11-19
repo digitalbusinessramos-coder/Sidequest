@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { t, tx } from '../i18n.js';
-import { Avatar, EmailBadge, ErrorState, Icon, Loading, ReportSheet, SampleBadge, TopBar, useApp } from '../components.jsx';
-import { areaName, fmtMonth, useApi } from '../util.js';
+import { Avatar, EmailBadge, ErrorState, Icon, Loading, ReportSheet, SampleBadge, StatusLine, TopBar, useApp } from '../components.jsx';
+import { INVITE_FOR, areaName, fmtMonth, inviteHref, useApi } from '../util.js';
 import { categoryLabel } from '../../shared/catalog.js';
 
 export const ROLE_LABEL = { exchange: 'Erasmus / exchange student', international: 'International student', intern: 'Intern / trainee', local: 'Local student' };
@@ -30,7 +30,9 @@ export default function Person({ id }) {
             <div className="row wrap" style={{ gap: 6 }}>{p.is_demo && <SampleBadge />}{p.email_verified && <EmailBadge />}<span className="small muted">{roleLabel}</span></div>
           </div>
         </div>
+        {p.status && <div className="card card-pad stack-sm"><span className="tiny muted">{tx('Feels like:')}</span><StatusLine status={p.status} /></div>}
         {p.intro && <p>{p.intro}</p>}
+        <a className="btn btn-primary" style={{ alignSelf: 'flex-start' }} href={inviteHref(p, meta.templates)}><Icon name="plus" size={16} />{p.status ? tx(INVITE_FOR[p.status.category] || 'Invite') : tx('Invite to a plan')}</a>
         <div className="card card-pad facts-list">
           <Icon name="globe" /><div>{p.languages.map((l) => tx(l)).join(', ') || tx("No languages listed")}</div>
           {p.interests.length > 0 && <><Icon name="heart" /><div>{p.interests.map((c) => tx(categoryLabel(c))).join(', ')}</div></>}

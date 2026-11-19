@@ -74,12 +74,20 @@ export function createApi(db) {
     languages: J(p.languages), role: p.role,
   });
 
+  // A status is shown only while it has not expired. Nothing is ever filled in for a user.
+  const statusOf = (p) => {
+    if (!p?.status_category || !p.status_expires_at || p.status_expires_at <= now()) return null;
+    const city = cityById(p.city_id);
+    const areaName = J(city?.areas || '[]').find((a) => a.key === p.status_area)?.name || null;
+    return { category: p.status_category, slot: p.status_slot || null, area: p.status_area || null, area_name: areaName, note: p.status_note || '', expires_at: p.status_expires_at };
+  };
+
   const publicProfile = (p) => p && ({
     ...personSummary(p),
     intro: p.intro, interests: J(p.interests),
     university: p.show_university ? p.university : null,
     exchange_start: p.exchange_start, exchange_end: p.exchange_end,
-    area: p.area,
+    area: p.area, status: statusOf(p),
     email_verified: !!p.email_verified_at, // means: confirmed they can receive email at their sign-up address. Nothing more.
   });
 
@@ -291,6 +299,27 @@ export function createApi(db) {
     res.json({ ok: true });
   });
 
+  r.put('/me/status', auth, (req, res) => {
+    const b = req.body || {};
+    const p = profileOf(req.user.id);
+    const city = cityById(p.city_id);
+    const category = CAT_KEYS.includes(b.category) ? b.category : fail(400, 'invalid', 'Choose what you feel like doing.');
+    const slot = SLOT_KEYS.includes(b.slot) ? b.slot : null;
+    const area = J(city.areas).some((a) => a.key === b.area) ? b.area : null;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(b.until || '')) fail(400, 'invalid', 'Choose until when your status is shown.');
+    const expires = localToUtcIso(`${b.until}T23:59`, city.timezone);
+    if (!expires || expires <= now()) fail(400, 'invalid', 'The end date has already passed.');
+    if (new Date(expires).getTime() - Date.now() > 31 * 864e5) fail(400, 'invalid', 'A status can be shown for up to 30 days.');
+    db.prepare('UPDATE profiles SET status_category=?, status_slot=?, status_area=?, status_note=?, status_expires_at=? WHERE user_id=?')
+      .run(category, slot, area, str(b.note, 80, 'Note'), expires, req.user.id);
+    res.json({ status: statusOf(profileOf(req.user.id)) });
+  });
+
+  r.delete('/me/status', auth, (req, res) => {
+    db.prepare('UPDATE profiles SET status_category=NULL, status_slot=NULL, status_area=NULL, status_note=NULL, status_expires_at=NULL WHERE user_id=?').run(req.user.id);
+    res.json({ ok: true });
+  });
+
   r.put('/me/privacy', auth, (req, res) => {
     const p = profileOf(req.user.id);
     const city = cityById(p.city_id);
@@ -361,9 +390,9 @@ export function createApi(db) {
       .map((p) => {
         const interests = J(p.interests);
         const plans = db.prepare(`SELECT COUNT(*) AS n FROM activities WHERE organiser_id = ? AND status = 'active' AND starts_at > ?`).get(p.user_id, now()).n;
-        return { ...personSummary(p), intro: p.intro, interests, area: areaName(p.area), shared: interests.filter((i) => mine.has(i)), open_plans: plans };
+        return { ...personSummary(p), intro: p.intro, interests, area: areaName(p.area), shared: interests.filter((i) => mine.has(i)), open_plans: plans, status: statusOf(p) };
       })
-      .sort((a, b) => (a.is_demo - b.is_demo) || (b.shared.length - a.shared.length) || (b.open_plans - a.open_plans));
+      .sort((a, b) => (a.is_demo - b.is_demo) || (!!b.status - !!a.status) || (b.shared.length - a.shared.length) || (b.open_plans - a.open_plans));
     res.json({ people });
   });
 

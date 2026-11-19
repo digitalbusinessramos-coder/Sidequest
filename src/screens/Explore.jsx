@@ -1,6 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { t, tx } from '../i18n.js';
-import { ExploreSwitch } from './Market.jsx';
 import { ActivityCard, ChoiceChips, Empty, ErrorState, EventCard, Icon, Loading, PeopleStrip, PhotoHero, Sheet, useApp } from '../components.jsx';
 
 const MapView = lazy(() => import('../MapView.jsx'));
@@ -73,7 +72,6 @@ export default function Explore() {
 
   return (
     <div className="page">
-      <ExploreSwitch active="plans" />
       <PhotoHero photoKey={heroKey} height={120} className="hero-compact">
         <div className="row hero-row">
           <div style={{ minWidth: 0 }}>

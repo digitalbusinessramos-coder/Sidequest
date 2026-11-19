@@ -101,3 +101,45 @@ export function fmtPrice(l) {
   if (l.kind === 'free' || l.price_eur === 0) return tx('Free');
   return l.price_eur == null ? '' : `${Number(l.price_eur).toLocaleString(locale(), { maximumFractionDigits: 2 })} €`;
 }
+
+// ---------- Buddies status and plan prefill ----------
+const WEEKDAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+const PART_TIME = { morning: '10:00', afternoon: '16:00', evening: '19:00' };
+
+/** Local calendar date "YYYY-MM-DD" in tz, `plus` days from now. */
+export function localDate(tz, plus = 0) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(Date.now() + plus * 864e5));
+}
+
+/** Next date (today or later) for a slot like "fri_afternoon", as "YYYY-MM-DD" and "HH:mm" in tz. */
+export function nextSlot(slot, tz) {
+  const [d, part] = (slot || '').split('_');
+  const time = PART_TIME[part] || '17:00';
+  if (!WEEKDAYS.includes(d)) return null;
+  const hourNow = Number(new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', hourCycle: 'h23' }).format(new Date()));
+  for (let i = 0; i < 8; i++) {
+    const date = localDate(tz, i);
+    const wd = WEEKDAYS[new Date(`${date}T12:00:00Z`).getUTCDay()];
+    if (wd === d && (i > 0 || hourNow < Number(time.slice(0, 2)) - 1)) return { date, time };
+  }
+  return null;
+}
+
+// Short, natural invite labels for each activity type.
+export const INVITE_FOR = {
+  coffee: 'Invite for coffee', museum: 'Invite to a museum', culture: 'Invite to a concert', hiking: 'Invite for a hike', beach: 'Invite to the beach',
+  surf: 'Invite to surf', sports: 'Invite for sports', daytrip: 'Invite on a day trip', nightout: 'Invite for a night out', food: 'Invite for dinner',
+  study: 'Invite to study', wellness: 'Invite for yoga', games: 'Invite for games', shopping: 'Invite to a market', photo: 'Invite on a photo walk', other: 'Invite',
+};
+
+/** Link into the normal Create form with the activity, the buddy, and (if they set it) their day and area filled in. */
+export function inviteHref(person, templates) {
+  const st = person.status;
+  const cat = st?.category || person.shared?.[0] || person.interests?.[0] || 'other';
+  const tpl = templates.find((x) => x.category === cat)?.key || 'other';
+  const q = new URLSearchParams({ template: tpl, category: cat, invite: String(person.id) });
+  if (st?.slot) q.set('slot', st.slot);
+  if (st?.area) q.set('area', st.area);
+  return `#/create?${q}`;
+}
+

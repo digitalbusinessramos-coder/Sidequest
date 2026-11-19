@@ -7,15 +7,6 @@ import { fmtPrice, fmtWhen, resizeToJpeg, useApi } from '../util.js';
 const CAT_ICON = { furniture: 'home', kitchen: 'food', bikes: 'sports', surf: 'surf', electronics: 'bolt', books: 'study', clothes: 'shopping', tickets: 'star', other: 'other' };
 
 /** Switch between Explore's plans and the marketplace (both live under the Explore tab). */
-export function ExploreSwitch({ active }) {
-  return (
-    <nav className="seg seg-wide" data-tour="market-switch" aria-label={tx('Explore sections')}>
-      <a href="#/explore" className={active === 'plans' ? 'on' : ''} aria-current={active === 'plans' ? 'page' : undefined}><Icon name="explore" size={16} />{tx('Plans')}</a>
-      <a href="#/market" className={active === 'market' ? 'on' : ''} aria-current={active === 'market' ? 'page' : undefined}><Icon name="shopping" size={16} />{tx('Marketplace')}</a>
-    </nav>
-  );
-}
-
 const SafetyNote = () => (
   <div className="notice blue"><Icon name="shield" />
     <span className="small">{tx('Payments never happen in this app. Meet in a public place, check the item before paying, and never pay a deposit in advance to someone you haven’t met.')}</span>
@@ -58,7 +49,6 @@ export default function Market({ query = {} }) {
 
   return (
     <div className="page">
-      <ExploreSwitch active="market" />
       <div className="stack-sm">
         <span className="eyebrow">{tx('Buy, sell, give away')}</span>
         <h1>{tx('Student marketplace')}</h1>

@@ -135,6 +135,19 @@ export function seed(db, { force = false } = {}) {
     }
   }
 
+  // Example people only: a few "what I feel like doing" statuses, refreshed when they run out. Real users only ever have the status they set.
+  {
+    const until = new Date(Date.now() + 21 * 864e5).toISOString();
+    const st = db.prepare(`UPDATE profiles SET status_category=?, status_slot=?, status_area=?, status_note=?, status_expires_at=?
+      WHERE user_id=? AND (status_expires_at IS NULL OR status_expires_at < ?)`);
+    for (const [k, cat, slot, area, note] of [
+      ['lena', 'coffee', 'fri_afternoon', 'canteras', 'Happy to practise Spanish'],
+      ['matteo', 'surf', 'sat_morning', 'canteras', ''],
+      ['tomasz', 'hiking', 'sun_morning', null, 'Easy pace'],
+      ['aicha', 'culture', 'thu_evening', 'triana', ''],
+    ]) if (ids[k]) st.run(cat, slot, area, note, until, ids[k], new Date().toISOString());
+  }
+
   // Sample marketplace listings from fictional personas (labelled Sample). Prices are illustrative.
   if (!db.prepare("SELECT 1 FROM listings WHERE is_sample = 1 AND kind != 'ticket'").get()) {
     const li = (k, kind, category, title, description, price, area, photoKey) => {
