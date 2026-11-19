@@ -12,7 +12,7 @@ const S = (process.env.SHOTS || require('os').tmpdir()) + '/';
     await x.p.getByLabel(/Approximate area/).selectOption('canteras'); await x.p.getByRole('button', { name: 'Continue' }).click();
     await x.p.getByRole('button', { name: 'English' }).click(); await x.p.getByRole('button', { name: 'Museums' }).click();
     await x.p.getByRole('button', { name: 'Start exploring' }).click();
-    await x.p.getByText('What could you do').waitFor();
+    await x.p.getByText('Who’s up for a plan?').waitFor();
   }
   await A.p.goto(B); await A.p.screenshot({ path: S + '01-welcome.png', fullPage: true });
   await signup(A, 'alex@test.example', 'Alex');

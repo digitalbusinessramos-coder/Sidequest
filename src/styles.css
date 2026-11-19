@@ -1,20 +1,20 @@
 :root {
-  --ivory: #fbf7ee;
+  --ivory: #fdf6ea;
   --paper: #ffffff;
-  --paper-2: #f4eee0;
-  --ink: #1a1d29;
-  --ink-2: #4a4f61;
-  --ink-3: #6b7085;
-  --line: #e6dfcf;
-  --blue: #2340ff;
-  --blue-ink: #1a2fd0;
-  --blue-soft: #e7eaff;
-  --lime: #c8f04a;
-  --lime-soft: #f1fbd2;
-  --lime-ink: #3a5200;
-  --coral: #ff6b57;
-  --coral-soft: #ffe7e2;
-  --coral-ink: #a8321f;
+  --paper-2: #f8eedd;
+  --ink: #0b1a33;
+  --ink-2: #3f4a5e;
+  --ink-3: #626b7d;
+  --line: #ecdfc8;
+  --blue: #041836;
+  --blue-ink: #0d2a5c;
+  --blue-soft: #e5eaf3;
+  --lime: #f2b33d;
+  --lime-soft: #fdf0d3;
+  --lime-ink: #7a4300;
+  --coral: #bf3c15;
+  --coral-soft: #fbe3d9;
+  --coral-ink: #9c2f0f;
   --amber-soft: #fff1cc;
   --amber-ink: #7a5300;
   --radius: 16px;
@@ -46,7 +46,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .app { max-width: 560px; margin: 0 auto; min-height: 100dvh; position: relative; padding-bottom: calc(var(--tabbar-h) + 16px + env(safe-area-inset-bottom)); }
 .page { padding: 20px 16px 24px; display: flex; flex-direction: column; gap: 18px; }
 .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.eyebrow { font-family: var(--font-hand); font-size: 1.35rem; color: var(--blue); line-height: 1; transform: rotate(-2deg); display: inline-block; }
+.eyebrow { font-family: var(--font-hand); font-size: 1.35rem; color: var(--coral); line-height: 1; transform: rotate(-2deg); display: inline-block; }
 .muted { color: var(--ink-3); }
 .small { font-size: 0.875rem; }
 .tiny { font-size: 0.78rem; }
@@ -452,7 +452,6 @@ a[href^="#/person"]:hover strong { text-decoration: underline; }
 @media (min-width: 1000px) {
   .topbar + .page { max-width: 860px; margin: 0 auto; }
 }
-@media (min-width: 1000px) { .tabbar .side-logo span { background: var(--lime); padding: 0 5px; border-radius: 6px; } }
 .gmap-foot > span { flex: 1 1 220px !important; }
 
 /* ---------- guided tour (spotlight) ---------- */
@@ -471,3 +470,64 @@ a[href^="#/person"]:hover strong { text-decoration: underline; }
 .spot-skip { border: 0; background: none; color: var(--ink-3); font-size: 0.82rem; text-decoration: underline; cursor: pointer; padding: 4px; }
 .spot-progress { height: 4px; border-radius: 2px; background: var(--paper-2); overflow: hidden; }
 .spot-progress i { display: block; height: 100%; background: var(--blue); border-radius: 2px; transition: width .25s ease; }
+
+/* ---------- Erasquest brand ---------- */
+.guest-bar .btn-primary { background: var(--coral); border-color: var(--coral); }
+.mobile-brand { display: flex; justify-content: center; padding: 10px 16px 0; }
+.mobile-brand img { height: 34px; width: auto; display: block; }
+@media (min-width: 1000px) {
+  .mobile-brand { display: none; }
+  .tabbar .side-logo { padding: 4px 6px 6px; background: none; }
+  .tabbar .side-logo img { width: 200px; height: auto; display: block; }
+}
+.btn-primary { box-shadow: 0 2px 0 rgba(4, 24, 54, .12); }
+.badge-sample { background: #fff3d6; color: #6b4a00; border-color: #e8c66f; }
+
+/* ---------- R1: compact Explore header, plans first ---------- */
+.photo-hero.hero-compact { border-radius: 18px; }
+.photo-hero.hero-compact .photo-hero-body { padding: 14px 16px 22px; }
+.photo-hero.hero-compact h1 { font-size: 1.55rem; margin-top: 2px; }
+.photo-hero.hero-compact .photo-credit { position: absolute; right: 0; bottom: 0; left: auto; z-index: 1; padding: 2px 8px; font-size: .62rem; opacity: .85; }
+.photo-hero-body .eyebrow { color: #ffd27a; }
+.hero-row { align-items: flex-end; gap: 10px; }
+.explore-tools { display: flex; flex-direction: column; gap: 10px; }
+.tools-row { gap: 10px; align-items: center; }
+.explore-tools .search { flex: 1; display: flex; min-width: 0; }
+.explore-tools .search input { flex: 1; min-width: 0; border-radius: 999px; border: 1.5px solid var(--line); background: var(--paper); padding: 0 18px; min-height: 44px; font: inherit; color: var(--ink); }
+.explore-tools .search input:focus { outline: 3px solid var(--blue); outline-offset: 1px; }
+.explore-tools .chips { flex-wrap: nowrap; }
+@media (min-width: 1000px) {
+  .photo-hero.hero-compact { min-height: 112px !important; }
+  .photo-hero.hero-compact h1 { font-size: 1.9rem; }
+  .explore-tools .chips { flex-wrap: wrap; }
+  .page [data-tour=plans-list] .card-cover { height: 96px; }
+}
+/* plan cards: date, title and price easy to scan */
+.act-card .when { color: var(--coral-ink); text-transform: none; letter-spacing: .01em; }
+.act-card .facts span:nth-child(2) { font-weight: 650; color: var(--ink); }
+
+/* ---------- R1: welcome card ---------- */
+.tour-head { align-items: center; gap: 10px; }
+.tour-brand { width: 220px; height: auto; max-width: 60%; }
+.tour-nav { flex-wrap: wrap; gap: 10px; }
+.tour-nav .btn { flex: 1 1 180px; }
+@media (min-width: 1000px) { .tour-card { min-height: 460px; } .tour-brand { width: 260px; } }
+@media (min-width: 1000px) {
+  .explore-tools .tools-row.wrap { flex-wrap: nowrap; gap: 8px; }
+  .explore-tools .chips { gap: 6px; flex-wrap: nowrap; margin: 0; padding: 2px 0 4px; overflow: visible; }
+  .explore-tools .chip { padding: 5px 11px; min-height: 36px; font-size: .88rem; }
+  .page [data-tour=plans-list] .card-cover { height: 84px; }
+}
+.tour-head { flex-wrap: wrap; }
+@media (max-width: 599px) {
+  .hide-narrow { display: none; }
+  .photo-hero.hero-compact .eyebrow { display: none; }
+  .photo-hero.hero-compact { min-height: 104px !important; }
+  .photo-hero.hero-compact h1 { font-size: 1.45rem; }
+  .photo-hero.hero-compact .hero-help { margin-top: 0; padding: 0; width: 38px; min-height: 38px; justify-content: center; }
+  .photo-hero.hero-compact .photo-credit { position: relative; z-index: 1; text-align: right; padding: 0 10px 5px; }
+  .photo-hero.hero-compact .photo-hero-body { padding-bottom: 4px; }
+  .explore-tools .tools-top { flex-wrap: wrap; }
+  .explore-tools .tools-top .search { flex: 1 1 100%; }
+  .explore-tools .tools-row.wrap { flex-wrap: nowrap; flex-direction: column; align-items: stretch; gap: 4px; }
+}

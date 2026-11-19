@@ -10,7 +10,7 @@ services:
       - key: NODE_ENV
         value: production
       - key: APP_NAME
-        value: SIDEQUEST
+        value: Erasquest
       - key: DB_PATH
         value: /var/data/sidequest.db
       - key: DEMO_MODE

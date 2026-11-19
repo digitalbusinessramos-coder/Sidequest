@@ -1,4 +1,4 @@
-# SIDEQUEST (working name)
+# Erasquest · Las Palmas
 
 Find company for activities in Las Palmas de Gran Canaria. For Erasmus, international and local students who think: *"I want to do this, but I don't have anyone to go with."*
 
@@ -8,7 +8,7 @@ The app covers the step between discovering something and actually going: **"I'm
 
 ## Rename the app
 
-Set the environment variable `APP_NAME` (default `SIDEQUEST`). It is read in `server/config.js` and sent to the frontend; no code changes needed.
+Set the environment variable `APP_NAME` (default `Erasquest`). It is read in `server/config.js` and sent to the frontend; no code changes needed.
 
 ## Run it locally
 

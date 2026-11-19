@@ -73,7 +73,7 @@ export default function App() {
     try {
       const m = await api.get('/meta');
       setAppName(m.appName);
-      document.title = m.appName;
+      document.title = `${m.appName} · Las Palmas`;
       setMeta(m);
       let u = await reloadMe();
       // No login wall: first-time visitors look around as a guest. Someone who chose "Log in" sees the login screen instead.
@@ -131,15 +131,16 @@ export default function App() {
       {me.is_guest && (
         <div className="guest-bar">
           <span><Icon name="eye" size={16} /> <span className="guest-short">{tx('Guest mode')}</span><span className="guest-long">{tx('You’re looking around as a guest. No account needed.')}</span></span>
-          <button className="btn btn-sm btn-primary" onClick={() => openAccount('signup')}>{tx('Save my account')}</button>
+          <button className="btn btn-sm btn-primary" onClick={() => openAccount('signup')}>{tx('Create account')}</button>
           <button className="btn btn-sm btn-ghost" onClick={() => openAccount('login')}>{tx('Log in')}</button>
         </div>
       )}
+      <header className="mobile-brand"><a href="#/explore"><img src="/brand/erasquest-logo-480.png" alt={`${getAppName()} · Las Palmas`} height="34" /></a></header>
       <div className="app">
         <main id="main" key={lang}>{screen}</main>
       </div>
       <nav className="tabbar" aria-label="Main">
-        <a className="side-logo" href="#/explore">{getAppName().length > 6 ? <>{getAppName().slice(0, -5)}<span>{getAppName().slice(-5)}</span></> : getAppName()}</a>
+        <a className="side-logo" href="#/explore"><img src="/brand/erasquest-logo-480.png" srcSet="/brand/erasquest-logo-480.png 1x, /brand/erasquest-logo-960.png 2x" alt={`${getAppName()} · Las Palmas`} width="200" height="63" /></a>
         <ul>
           {TABS.map(([key, icon, label]) => (
             <li key={key}>

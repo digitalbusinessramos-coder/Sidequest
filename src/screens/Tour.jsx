@@ -11,24 +11,23 @@ import { photo } from '../../shared/photos.js';
  * Shown once per browser; "How it works" replays it.
  */
 const INTRO = {
-  photo: 'canteras', eyebrow: 'Welcome to Las Palmas',
-  title: 'New in the city? You don’t have to do things alone.',
-  body: 'Want to surf, hike or go out tonight, but nobody to go with? Find one buddy or a small group for exactly that.',
-  points: [['group', 'Small groups, not huge events'], ['globe', 'Exchange students, interns and locals'], ['euro', 'Costs shown up front, many plans are free']],
+  photo: 'canteras',
+  title: 'Find people to do things with in Las Palmas.',
+  body: 'Join small plans made by students, or start your own: coffee, surf, hikes, nights out.',
 };
 
 // Each step: which screen, which part to highlight, and what to say about it.
 export const STEPS = [
-  { route: 'explore', sel: '[data-tour=nav-explore]', title: 'Explore', body: 'Everything happening in Las Palmas: plans by students and events. This is where you start.' },
-  { route: 'explore', sel: '[data-tour=people]', title: 'Students looking for company', body: 'Tap a face to see who they are, what they like and which languages they speak.' },
-  { route: 'explore', sel: '[data-tour=events] .act-card', title: 'Events: find someone to go with', body: 'You register with the organiser as usual. Here you find people to go with and talk in the event’s group chat.' },
+  { route: 'explore', sel: '[data-tour=nav-explore]', title: 'Explore', body: 'Plans by students come first, then the people looking for company and events in the city. This is where you start.' },
   { route: 'explore', sel: '[data-tour=plans-list] .act-card', title: 'Plans by students', body: 'Small plans with a time, area and cost. “Join directly” means one tap; for the others you send a short request to the organiser.' },
   { route: 'explore', sel: '[data-tour=view-toggle]', title: 'List or map', body: 'Switch to the city map to see where things happen. Pins show the neighbourhood, never anyone’s address.' },
   { route: 'explore', sel: '[data-tour=create]', title: 'Create your own plan', body: 'Pick a template (coffee, surf, night out…), set time and place, and choose: anyone can join, or you accept requests.' },
+  { route: 'explore', sel: '[data-tour=people]', title: 'Students looking for company', body: 'Tap a face to see who they are, what they like and which languages they speak.' },
+  { route: 'explore', sel: '[data-tour=events] .act-card', title: 'Events: find someone to go with', body: 'You register with the organiser as usual. Here you find people to go with and talk in the event’s group chat.' },
   { route: 'explore', sel: '[data-tour=market-switch]', title: 'Student marketplace', body: 'Buy, sell or give away bikes, books and furniture. Event tickets can only be passed on at or below the price paid.' },
   { route: 'buddies', sel: '[data-tour=students] .person-card', title: 'Invite someone', body: 'Every student has an Invite button. It starts a plan with that person already invited.' },
-  { route: 'buddies', sel: '[data-tour=matches] .card', title: 'Same wish, same time', body: 'Save what you’d like to do and when. We show people with the same wish and say why in plain words. No secret score.' },
-  { route: 'plans', sel: '[data-tour=plans-view], [data-tour=plans-head]', title: 'My Plans', body: 'Everything you joined, as a list or as a weekly timetable, with chats and updates.' },
+  { route: 'buddies', sel: ['[data-tour=matches] .card', '[data-tour=matches]'], title: 'Same wish, same time', body: 'Save what you’d like to do and when. We show people with the same wish and say why in plain words. No secret score.' },
+  { route: 'plans', sel: ['[data-tour=plans-view]', '[data-tour=plans-head]'], title: 'My Plans', body: 'Everything you joined, as a list or as a weekly timetable, with chats and updates.' },
   { route: 'guide', sel: '[data-tour=tip]', title: 'Tips from students', body: 'Recommendations from other students. Like the ones you agree with and save the ones you want to try. Official links are further down.' },
   { route: 'profile', sel: '[data-tour=nav-profile]', title: 'Your profile', body: 'Add a photo, choose what others see, switch language, send us feedback. You can block or report anyone from their profile.' },
 ];
@@ -36,40 +35,42 @@ export const STEPS = [
 export default function Tour({ onDone }) {
   const [phase, setPhase] = useState('intro');
   if (phase === 'spot') return <Spotlight onDone={onDone} />;
-  return <Intro onStart={() => setPhase('spot')} onSkip={onDone} />;
+  // Skipping lands straight on the plans list.
+  return <Intro onStart={() => setPhase('spot')} onExplore={() => { location.hash = '#/explore'; window.scrollTo(0, 0); onDone(); }} />;
 }
 
-function Intro({ onStart, onSkip }) {
+function Intro({ onStart, onExplore }) {
   const { me } = useApp();
   const ph = photo(INTRO.photo);
   const ref = useRef(null);
   useEffect(() => { ref.current?.focus(); }, []);
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onExplore(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
   return (
     <div className="tour" role="dialog" aria-modal="true" aria-labelledby="tour-title">
       <div className="tour-card">
         <figure className="tour-photo">
           <img src={ph.src} alt={tx(ph.alt)} />
-          <figcaption className="photo-credit">{tx('Photo')}: {ph.author}, {ph.license}, Wikimedia Commons</figcaption>
-          <div className="tour-logo">{getAppName()}</div>
+          <figcaption className="photo-credit">{tx(ph.alt)} · {tx('Photo')}: {ph.author}, {ph.license}, Wikimedia Commons</figcaption>
         </figure>
         <div className="tour-body" ref={ref} tabIndex={-1}>
-          <div className="row" style={{ justifyContent: 'space-between' }}>
-            <span className="eyebrow">{tx(INTRO.eyebrow)}</span>
+          <div className="row tour-head">
+            <img className="tour-brand" src="/brand/erasquest-logo-480.png" srcSet="/brand/erasquest-logo-480.png 1x, /brand/erasquest-logo-960.png 2x" alt={`${getAppName()} · Las Palmas`} width="240" height="76" />
+            <span className="spacer" />
             <LanguageSwitch />
           </div>
           <h1 id="tour-title" className="tour-title">{tx(INTRO.title)}</h1>
           <p>{tx(INTRO.body)}</p>
-          <ul className="tour-points">
-            {INTRO.points.map(([icon, text]) => <li key={text}><span className="tour-ic"><Icon name={icon} size={18} /></span>{tx(text)}</li>)}
-          </ul>
           <p className="tiny muted tour-note">
             <Icon name="info" size={13} /> {me?.is_guest ? tx('You’re looking around as a guest, no account needed. ') : ''}
-            {tx('This preview is filled with example students, plans and events (marked “Example”) so you can try everything.')}
+            {tx('Students, plans and events marked “Example” are made up for this preview.')}
           </p>
           <div className="tour-nav">
-            <button className="btn btn-ghost btn-sm" onClick={onSkip}>{tx('Skip')}</button>
-            <span className="spacer" />
-            <button className="btn btn-primary btn-lg" onClick={onStart}>{tx('Show me around')}<Icon name="back" size={16} style={{ transform: 'rotate(180deg)' }} /></button>
+            <button className="btn btn-primary btn-lg" onClick={onExplore}>{tx('Explore plans')}<Icon name="back" size={16} style={{ transform: 'rotate(180deg)' }} /></button>
+            <button className="btn btn-secondary btn-lg" onClick={onStart}>{tx('Take a tour')}</button>
           </div>
         </div>
       </div>
@@ -108,7 +109,7 @@ function Spotlight({ onDone }) {
     const started = Date.now();
     const find = () => {
       if (cancelled) return;
-      const el = document.querySelector(step.sel);
+      const el = [].concat(step.sel).map((q) => document.querySelector(q)).find(Boolean);
       if (el) {
         target.current = el;
         const r = el.getBoundingClientRect();

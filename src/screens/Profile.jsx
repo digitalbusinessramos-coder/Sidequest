@@ -131,7 +131,7 @@ export default function Profile({ sub }) {
           <h3 id="guest-h">{tx('You’re a guest right now')}</h3>
           <p className="small">{tx('Everything works without an account. Create one to keep your plans and chats, and so other students can find your profile.')}</p>
           <div className="row wrap">
-            <button className="btn btn-primary btn-sm" onClick={() => openAccount('signup')}>{tx('Save my account')}</button>
+            <button className="btn btn-primary btn-sm" onClick={() => openAccount('signup')}>{tx('Create account')}</button>
             <button className="btn btn-ghost btn-sm" onClick={() => openAccount('login')}>{tx('I already have one')}</button>
           </div>
         </section>
