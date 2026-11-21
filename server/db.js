@@ -48,6 +48,15 @@ function migrate(db) {
   for (const [c, type] of [['stay', 'TEXT'], ['flags', "TEXT NOT NULL DEFAULT '[]'"], ['meet_area', 'TEXT']]) {
     if (!cols('profiles').includes(c)) db.exec(`ALTER TABLE profiles ADD COLUMN ${c} ${type}`);
   }
+  // Pre-launch release 3: team inbox (admins, review status, reply address) and several photos per listing.
+  if (!cols('users').includes('is_admin')) db.exec('ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0');
+  for (const c of ['reviewed_at', 'reviewed_by']) if (!cols('reports').includes(c)) db.exec(`ALTER TABLE reports ADD COLUMN ${c} ${c === 'reviewed_by' ? 'INTEGER' : 'TEXT'}`);
+  for (const [c, type] of [['reply_email', 'TEXT'], ['status', "TEXT NOT NULL DEFAULT 'open'"], ['reviewed_at', 'TEXT'], ['reviewed_by', 'INTEGER']]) {
+    if (!cols('feedback').includes(c)) db.exec(`ALTER TABLE feedback ADD COLUMN ${c} ${type}`);
+  }
+  db.exec(`CREATE TABLE IF NOT EXISTS listing_photos (id INTEGER PRIMARY KEY, listing_id INTEGER NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+    sort INTEGER NOT NULL DEFAULT 0, mime TEXT NOT NULL, data BLOB NOT NULL, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')))`);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_listing_photos ON listing_photos(listing_id, sort)');
 }
 
 /** Run fn inside an IMMEDIATE transaction (takes the write lock first, so capacity checks cannot race). */

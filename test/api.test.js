@@ -714,3 +714,60 @@ test('R2 city guide: no health or insurance cards, every entry names its source,
   assert.ok(items.filter((i) => i.url).every((i) => i.url.startsWith('https://')));
   assert.equal(db.prepare("SELECT value FROM settings WHERE key = 'guide_version'").get().value, '2');
 });
+
+test('R3 team inbox: server-enforced access, report and feedback saved separately, mark reviewed, numbers skip test accounts', async () => {
+  process.env.ADMIN_TOKEN = 'team-code-for-tests-123';
+  const reporter = await user('Rep'); const target = await user('Targ'); const team = await user('Teamy');
+  const id = await makeActivity(target);
+  const r = await reporter.post('/reports', { target_type: 'activity', target_id: id, reason: 'Spam or advertising', details: 'test note' });
+  assert.equal(r.status, 201); assert.equal(r.body.saved, true);
+  const f = await reporter.post('/feedback', { kind: 'idea', body: 'More beach plans', reply_email: 'me@test.example' });
+  assert.equal(f.body.saved, true);
+  assert.equal((await reporter.post('/feedback', { kind: 'idea', body: 'x', reply_email: 'not-an-email' })).status, 400);
+  // Regular accounts and guests cannot read the inbox.
+  for (const u of ['/team/reports', '/team/feedback', '/team/numbers']) assert.equal((await reporter.get(u)).status, 403);
+  assert.equal((await reporter.post(`/team/reports/${r.body.id}`, { status: 'reviewed' })).status, 403);
+  const g = client(); await g.post('/auth/guest');
+  assert.equal((await g.post('/team/unlock', { code: process.env.ADMIN_TOKEN })).status, 401);
+  assert.equal((await team.post('/team/unlock', { code: 'wrong' })).status, 403);
+  assert.equal((await team.post('/team/unlock', { code: process.env.ADMIN_TOKEN })).status, 200);
+  assert.equal((await team.get('/me')).body.user.team, true);
+  const reports = (await team.get('/team/reports')).body.reports;
+  const mine = reports.find((x) => x.id === r.body.id);
+  assert.equal(mine.status, 'open'); assert.equal(mine.reason, 'Spam or advertising'); assert.equal(mine.details, 'test note'); assert.ok(mine.created_at);
+  assert.equal(mine.target.link, `#/activity/${id}`);
+  assert.equal((await team.post(`/team/reports/${r.body.id}`, { status: 'reviewed' })).body.status, 'reviewed');
+  const after = (await team.get('/team/reports')).body.reports.find((x) => x.id === r.body.id);
+  assert.equal(after.reviewed_by, 'Teamy'); assert.ok(after.reviewed_at);
+  const fb = (await team.get('/team/feedback')).body.feedback.find((x) => x.id === f.body.id);
+  assert.equal(fb.reply_email, 'me@test.example'); assert.equal(fb.status, 'open');
+  // Numbers leave out test accounts.
+  const t = client(); await t.post('/auth/signup', { email: `qa-x${Date.now()}@example.com`, password: 'password123' });
+  const nums = (await team.get('/team/numbers')).body;
+  assert.ok(nums.excluded_test_accounts >= 1);
+  assert.equal(nums.accounts, db.prepare("SELECT COUNT(*) AS n FROM users WHERE is_demo = 0 AND is_guest = 0 AND is_test = 0 AND password_hash != 'deleted'").get().n);
+  // Test accounts are invisible to real students.
+  const tid = (await t.get('/me')).body.user.id;
+  await t.put('/me/profile', { first_name: 'Testy', city: 'las-palmas' });
+  assert.ok(!(await reporter.get('/people')).body.people.some((p) => p.id === tid));
+  // Leaving the team removes access again.
+  await team.post('/team/leave');
+  assert.equal((await team.get('/team/reports')).status, 403);
+  delete process.env.ADMIN_TOKEN;
+});
+
+test('R3 updates: unread chat grouped per plan; extra listing photos up to 4', async () => {
+  const org = await user('Chatty'); const guest = await user('Reader');
+  const id = await makeActivity(org, { join_mode: 'open' });
+  await guest.post(`/activities/${id}/requests`, {});
+  for (let i = 0; i < 3; i++) await org.post(`/activities/${id}/messages`, { body: `hi ${i}` });
+  const chats = (await guest.get('/notifications')).body.chats;
+  assert.equal(chats.length, 1); assert.equal(chats[0].unread, 3); assert.equal(chats[0].activity.id, id);
+  const l = (await org.post('/market', { kind: 'free', category: 'other', title: 'Chair' })).body.id;
+  const jpg = `data:image/jpeg;base64,${Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]).toString('base64')}`;
+  for (let i = 0; i < 4; i++) assert.equal((await org.post(`/market/${l}/photos`, { data: jpg })).status, 201);
+  assert.equal((await org.post(`/market/${l}/photos`, { data: jpg })).status, 409);
+  const v = (await guest.get(`/market/${l}`)).body.listing;
+  assert.equal(v.photos.length, 4); assert.equal(v.photos[0].id, 'main');
+  assert.equal((await guest.post(`/market/${l}/photos`, { data: jpg })).status, 403);
+});

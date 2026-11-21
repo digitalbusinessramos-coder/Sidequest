@@ -30,7 +30,7 @@ const languageList = (v) => list(v, null, 12).map((x) => LANGUAGES.find((l) => l
 // Flags for the bio: two-letter region codes (countries and territories, e.g. IC for the Canary Islands). Purely decorative.
 const flagList = (v) => list(v, null, 8).map((x) => x.toUpperCase()).filter((x) => /^[A-Z]{2}$/.test(x));
 const REVISION = (process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT || 'local').slice(0, 7);
-const RELEASE = 'pre-launch-2';
+const RELEASE = 'pre-launch-3';
 const TIME_MODES = ['exact', 'window', 'tbd'];
 // Accounts used for testing are kept out of campaign numbers and never get emails: addresses with "+test" or on test domains.
 const TEST_DOMAINS = (process.env.TEST_EMAIL_DOMAINS || 'example.com,example.org,test.invalid').split(',').map((d) => d.trim().toLowerCase()).filter(Boolean);
@@ -352,7 +352,7 @@ export function createApi(db) {
       user: {
         id: req.user.id, email: req.user.is_guest ? null : req.user.email, is_demo: req.user.is_demo, is_guest: req.user.is_guest, email_verified: !!p.email_verified_at, email_service: emailConfigured(), lang: p.lang,
         ...publicProfile(p), university: p.university, show_university: !!p.show_university,
-        visible: !!p.visible, nearby_enabled: !!p.nearby_enabled, show_sample: !!p.show_sample, onboarded: !!p.onboarded,
+        visible: !!p.visible, nearby_enabled: !!p.nearby_enabled, show_sample: !!p.show_sample, onboarded: !!p.onboarded, team: isAdmin(req),
         city: city && { slug: city.slug, name: city.name, timezone: city.timezone },
       },
       counts: { toReview, invites, notifications: unreadNotifs, chats: unreadChats },
@@ -472,13 +472,14 @@ export function createApi(db) {
   r.get('/people', auth, (req, res) => {
     const me = profileOf(req.user.id);
     const blocked = blockedSet(req.user.id);
+    const tests = hideTests(req.user.id);
     const mine = new Set(J(me.interests));
     const city = cityById(me.city_id);
     const areaName = (k) => J(city.areas).find((a) => a.key === k)?.name || null;
     const rows = db.prepare(`SELECT p.*, u.is_demo, u.is_guest FROM profiles p JOIN users u ON u.id = p.user_id
       WHERE p.city_id = ? AND p.visible = 1 AND p.onboarded = 1 AND u.is_guest = 0 AND p.user_id != ? AND p.first_name != 'Deleted user'`).all(me.city_id, req.user.id);
     const people = rows
-      .filter((p) => !blocked.has(p.user_id) && !p.is_demo)
+      .filter((p) => !blocked.has(p.user_id) && !p.is_demo && !tests.has(p.user_id))
       .map((p) => {
         const interests = J(p.interests);
         const plans = db.prepare(`SELECT COUNT(*) AS n FROM activities WHERE organiser_id = ? AND status = 'active' AND starts_at > ?`).get(p.user_id, now()).n;
@@ -525,12 +526,100 @@ export function createApi(db) {
   r.post('/reports', auth, (req, res) => {
     const type = ['user', 'activity', 'message', 'recommendation', 'event_message', 'listing', 'listing_message'].includes(req.body.target_type) ? req.body.target_type : fail(400, 'invalid', 'Unknown report type.');
     const reason = REPORT_REASONS.includes(req.body.reason) ? req.body.reason : fail(400, 'invalid', 'Please choose a reason.');
-    db.prepare('INSERT INTO reports (reporter_id, target_type, target_id, reason, details) VALUES (?,?,?,?,?)')
+    const { lastInsertRowid } = db.prepare('INSERT INTO reports (reporter_id, target_type, target_id, reason, details) VALUES (?,?,?,?,?)')
       .run(req.user.id, type, Number(req.body.target_id) || 0, reason, str(req.body.details, 1000, 'Details'));
-    res.status(201).json({ ok: true });
+    // Tell the team. The alert has no names or message text, only that a report is waiting and where to read it.
+    const to = (process.env.TEAM_ALERT_EMAIL || '').split(',').map((x) => x.trim()).filter(Boolean);
+    let alerted = false;
+    if (to.length && emailConfigured()) {
+      sendEmail({ to, subject: `New report in ${config.appName}: ${reason}`,
+        text: `A new report is waiting in the team inbox.\n\nType: ${type}\nReason: ${reason}\nTime: ${now()}\n\nOpen the team inbox to read and review it:\n${origin(req)}/#/team\n` })
+        .catch((e) => console.error('Report alert failed', e));
+      alerted = true;
+    }
+    // Only answer "saved" once the row exists, so the app never shows a false confirmation.
+    res.status(201).json({ ok: true, saved: true, id: Number(lastInsertRowid), team_alerted: alerted });
   });
 
-  // Moderation inbox (no UI yet). Protected by an ADMIN_TOKEN environment variable.
+  // ---------- team inbox (reports, feedback, numbers) ----------
+  // Access is checked on the server for every request. A team member is an account with is_admin = 1. An account becomes one by
+  // entering the team access code (ADMIN_TOKEN) once while logged in, or automatically when its confirmed email is in ADMIN_EMAILS.
+  const adminEmails = () => (process.env.ADMIN_EMAILS || '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
+  const isAdmin = (req) => {
+    if (!req.user || req.user.is_guest) return false;
+    const u = db.prepare('SELECT email, is_admin, email_verified_at FROM users WHERE id = ?').get(req.user.id);
+    return !!u.is_admin || (!!u.email_verified_at && adminEmails().includes(u.email.toLowerCase()));
+  };
+  const requireAdmin = (req) => { if (!isAdmin(req)) fail(403, 'forbidden', 'Only the project team can open this page.'); };
+  const unlockLimit = rateLimiter(5, 60 * 60e3);
+  r.get('/team/me', auth, (req, res) => res.json({ admin: isAdmin(req), code_configured: !!process.env.ADMIN_TOKEN, alert_email: !!process.env.TEAM_ALERT_EMAIL, email_service: emailConfigured() }));
+  r.post('/team/unlock', auth, (req, res) => {
+    if (req.user.is_guest) fail(401, 'account_needed', 'Log in with your own account first.');
+    if (!unlockLimit(`${req.user.id}|${req.ip}`)) fail(429, 'rate', 'Too many attempts. Please wait an hour.');
+    const code = String(req.body.code || '');
+    const want = process.env.ADMIN_TOKEN || '';
+    const a = crypto.createHash('sha256').update(code).digest(); const b = crypto.createHash('sha256').update(want).digest();
+    if (!want || want.length < 12 || !crypto.timingSafeEqual(a, b)) fail(403, 'forbidden', 'That access code is not correct.');
+    db.prepare('UPDATE users SET is_admin = 1 WHERE id = ?').run(req.user.id);
+    res.json({ ok: true, admin: true });
+  });
+  r.post('/team/leave', auth, (req, res) => { db.prepare('UPDATE users SET is_admin = 0 WHERE id = ?').run(req.user.id); res.json({ ok: true }); });
+
+  // What a report is about, in a few words, with a link the team can open.
+  function reportTarget(type, id) {
+    const person = (uid) => (uid ? { id: uid, first_name: nameOf(uid) } : null);
+    if (type === 'user') return { label: nameOf(id), link: `#/person/${id}`, author: person(id) };
+    if (type === 'activity') { const a = db.prepare('SELECT title, organiser_id FROM activities WHERE id = ?').get(id); return a && { label: a.title, link: `#/activity/${id}`, author: person(a.organiser_id) }; }
+    if (type === 'message') { const m = db.prepare('SELECT body, user_id, activity_id FROM messages WHERE id = ?').get(id); return m && { label: m.body.slice(0, 200), link: `#/activity/${m.activity_id}/chat`, author: person(m.user_id) }; }
+    if (type === 'event_message') { const m = db.prepare('SELECT body, user_id, event_id FROM event_messages WHERE id = ?').get(id); return m && { label: m.body.slice(0, 200), link: `#/event/${m.event_id}/chat`, author: person(m.user_id) }; }
+    if (type === 'recommendation') { const x = db.prepare('SELECT title, user_id FROM recommendations WHERE id = ?').get(id); return x && { label: x.title, link: '#/guide', author: person(x.user_id) }; }
+    if (type === 'listing') { const x = db.prepare('SELECT title, user_id FROM listings WHERE id = ?').get(id); return x && { label: x.title, link: `#/market/${id}`, author: person(x.user_id) }; }
+    if (type === 'listing_message') { const x = db.prepare('SELECT body, sender_id, listing_id FROM listing_messages WHERE id = ?').get(id); return x && { label: x.body.slice(0, 200), link: `#/market/${x.listing_id}`, author: person(x.sender_id) }; }
+    return null;
+  }
+  r.get('/team/reports', auth, (req, res) => {
+    requireAdmin(req);
+    const rows = db.prepare('SELECT * FROM reports ORDER BY (status = \'open\') DESC, id DESC LIMIT 300').all();
+    res.json({ reports: rows.map((x) => ({ id: x.id, target_type: x.target_type, target_id: x.target_id, reason: x.reason, details: x.details, status: x.status,
+      created_at: x.created_at, reviewed_at: x.reviewed_at, reviewed_by: x.reviewed_by ? nameOf(x.reviewed_by) : null,
+      reporter: x.reporter_id ? { id: x.reporter_id, first_name: nameOf(x.reporter_id) } : null, target: reportTarget(x.target_type, x.target_id) })) });
+  });
+  const setReviewed = (table) => (req, res) => {
+    requireAdmin(req);
+    const reviewed = req.body.status !== 'open';
+    const info = db.prepare(`UPDATE ${table} SET status = ?, reviewed_at = ?, reviewed_by = ? WHERE id = ?`)
+      .run(reviewed ? 'reviewed' : 'open', reviewed ? now() : null, reviewed ? req.user.id : null, Number(req.params.id));
+    if (!info.changes) fail(404, 'not_found', 'Not found.');
+    res.json({ ok: true, status: reviewed ? 'reviewed' : 'open' });
+  };
+  r.post('/team/reports/:id', auth, setReviewed('reports'));
+  r.post('/team/feedback/:id', auth, setReviewed('feedback'));
+  r.get('/team/feedback', auth, (req, res) => {
+    requireAdmin(req);
+    const rows = db.prepare('SELECT * FROM feedback ORDER BY (status = \'open\') DESC, id DESC LIMIT 500').all();
+    res.json({ feedback: rows.map((f) => ({ id: f.id, kind: f.kind, body: f.body, screen: f.screen, reply_email: f.reply_email, status: f.status,
+      created_at: f.created_at, reviewed_at: f.reviewed_at, reviewed_by: f.reviewed_by ? nameOf(f.reviewed_by) : null,
+      from: f.user_id ? { id: f.user_id, first_name: nameOf(f.user_id) } : null })) });
+  });
+  // Campaign numbers: real people only. Example, demo, guest and test accounts (and their plans) are never counted.
+  r.get('/team/numbers', auth, (req, res) => {
+    requireAdmin(req);
+    const real = "u.is_demo = 0 AND u.is_guest = 0 AND u.is_test = 0 AND u.password_hash != 'deleted'";
+    const since = (days) => new Date(Date.now() - days * 864e5).toISOString();
+    const n = (sql, ...a) => db.prepare(sql).get(...a).n;
+    res.json({
+      accounts: n(`SELECT COUNT(*) AS n FROM users u WHERE ${real}`),
+      accounts_7d: n(`SELECT COUNT(*) AS n FROM users u WHERE ${real} AND u.created_at > ?`, since(7)),
+      plans: n(`SELECT COUNT(*) AS n FROM activities a JOIN users u ON u.id = a.organiser_id WHERE a.is_sample = 0 AND ${real}`),
+      plans_upcoming: n(`SELECT COUNT(*) AS n FROM activities a JOIN users u ON u.id = a.organiser_id WHERE a.is_sample = 0 AND a.status = 'active' AND a.starts_at > ? AND ${real}`, now()),
+      joins: n(`SELECT COUNT(*) AS n FROM memberships m JOIN activities a ON a.id = m.activity_id JOIN users u ON u.id = m.user_id WHERE m.status = 'accepted' AND a.is_sample = 0 AND ${real}`),
+      reports_open: n("SELECT COUNT(*) AS n FROM reports WHERE status = 'open'"),
+      feedback_open: n("SELECT COUNT(*) AS n FROM feedback WHERE status = 'open'"),
+      excluded_test_accounts: n('SELECT COUNT(*) AS n FROM users WHERE is_test = 1'),
+    });
+  });
+
+  // Older script access with the x-admin-token header (kept for the team's scripts).
   r.get('/admin/reports', (req, res) => {
     if (!process.env.ADMIN_TOKEN || req.get('x-admin-token') !== process.env.ADMIN_TOKEN) fail(403, 'forbidden', 'Forbidden.');
     res.json({ reports: db.prepare('SELECT * FROM reports ORDER BY id DESC LIMIT 200').all() });
@@ -538,9 +627,13 @@ export function createApi(db) {
 
   // ---------- activities ----------
   // Example content never appears in discovery or search (pre-launch release 1). One read-only example plan lives in the app's Help.
+  // Test accounts (qa-…@example.com) only see each other: real students never see their plans or profiles.
+  const testIds = () => new Set(db.prepare('SELECT id FROM users WHERE is_test = 1').all().map((x) => x.id));
+  const hideTests = (uid) => { const t = testIds(); return t.has(uid) ? new Set() : t; };
   function visibleFilter(rows, uid) {
     const blocked = blockedSet(uid);
-    return rows.filter((a) => !blocked.has(a.organiser_id) && !a.is_sample);
+    const tests = hideTests(uid);
+    return rows.filter((a) => !blocked.has(a.organiser_id) && !a.is_sample && !tests.has(a.organiser_id));
   }
 
   function whenMatch(a, when, tz) {
@@ -1136,6 +1229,10 @@ export function createApi(db) {
         listing: n.listing_id ? { id: n.listing_id, title: n.ltitle } : null,
         actor: n.actor_id ? { id: n.actor_id, first_name: nameOf(n.actor_id) } : null,
       })),
+      // Unread chat messages, one line per plan (not one per message).
+      chats: db.prepare(`SELECT id, title FROM activities WHERE status = 'active' AND (organiser_id = ? OR id IN
+        (SELECT activity_id FROM memberships WHERE user_id = ? AND status = 'accepted'))`).all(req.user.id, req.user.id)
+        .map((a) => ({ activity: { id: a.id, title: a.title }, unread: unreadChat(a.id, req.user.id) })).filter((c) => c.unread > 0),
     });
   });
 
@@ -1270,9 +1367,11 @@ export function createApi(db) {
   r.post('/feedback', auth, (req, res) => {
     if (!feedbackLimit(String(req.user.id))) fail(429, 'rate', 'Thanks! You have sent a lot of feedback this hour. Please try again later.');
     const kind = FEEDBACK_KINDS.some((k) => k.key === req.body.kind) ? req.body.kind : 'other';
-    db.prepare('INSERT INTO feedback (user_id, kind, body, screen) VALUES (?,?,?,?)')
-      .run(req.user.id, kind, str(req.body.body, 2000, 'Feedback', { required: true }), str(req.body.screen, 60, 'Screen') || null);
-    res.status(201).json({ ok: true });
+    const reply = str(req.body.reply_email, 200, 'Email') || null;
+    if (reply && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(reply)) fail(400, 'invalid', 'Please enter a valid email address, or leave it empty.');
+    const { lastInsertRowid } = db.prepare('INSERT INTO feedback (user_id, kind, body, screen, reply_email) VALUES (?,?,?,?,?)')
+      .run(req.user.id, kind, str(req.body.body, 2000, 'Feedback', { required: true }), str(req.body.screen, 60, 'Screen') || null, reply);
+    res.status(201).json({ ok: true, saved: true, id: Number(lastInsertRowid) });
   });
   r.get('/admin/feedback', (req, res) => {
     if (!process.env.ADMIN_TOKEN || req.get('x-admin-token') !== process.env.ADMIN_TOKEN) fail(403, 'forbidden', 'Forbidden.');
@@ -1289,11 +1388,16 @@ export function createApi(db) {
       id: l.id, kind: l.kind, category: l.category, title: l.title, price_eur: l.price_eur, face_value_eur: l.face_value_eur,
       description: full ? l.description : l.description.slice(0, 140), area: l.area, status: l.status, is_sample: !!l.is_sample, created_at: l.created_at,
       // Tickets without their own picture show the event's city photo.
-      photo: l.photo_mime ? `/api/market/${l.id}/photo?v=${encodeURIComponent(l.updated_at)}` : ev?.photo_key && /^[a-z]+$/.test(ev.photo_key) ? `/photos/${ev.photo_key}.jpg` : null,
+      photo: l.photo_mime ? `/api/market/${l.id}/photo?v=${encodeURIComponent(l.updated_at)}` : null,
       event: ev, seller: personSummary(profileOf(l.user_id)), mine: l.user_id === uid,
       saved: !!db.prepare('SELECT 1 FROM listing_saves WHERE listing_id = ? AND user_id = ?').get(l.id, uid),
       approx: approxSpot(cityById(l.city_id), l.area),
     };
+    // Up to 4 pictures: the main one plus extras. Cards use the first.
+    const extras = db.prepare('SELECT id FROM listing_photos WHERE listing_id = ? ORDER BY sort, id').all(l.id);
+    v.photos = [...(v.photo ? [{ id: 'main', url: v.photo }] : []), ...extras.map((x) => ({ id: x.id, url: `/api/market/${l.id}/photos/${x.id}` }))];
+    // Tickets without their own picture show the event's city photo.
+    v.photo = v.photos[0]?.url || (ev?.photo_key && /^[a-z]+$/.test(ev.photo_key) ? `/photos/${ev.photo_key}.jpg` : null);
     return v;
   };
   function readListing(b) {
@@ -1386,6 +1490,41 @@ export function createApi(db) {
     if (!(buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff)) fail(400, 'invalid', 'That file does not look like a picture.');
     db.prepare('UPDATE listings SET photo_mime = ?, photo = ?, updated_at = ? WHERE id = ?').run(m[1], buf, now(), l.id);
     res.json({ ok: true });
+  });
+  const readJpeg = (req) => {
+    const m = /^data:(image\/jpeg);base64,([A-Za-z0-9+/=]+)$/.exec(String(req.body?.data || ''));
+    if (!m) fail(400, 'invalid', 'Please choose a JPEG, PNG or WebP picture.');
+    const buf = Buffer.from(m[2], 'base64');
+    if (buf.length > 600 * 1024) fail(413, 'too_large', 'That picture is too large. Please choose a smaller one.');
+    if (!(buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff)) fail(400, 'invalid', 'That file does not look like a picture.');
+    return { mime: m[1], buf };
+  };
+  r.post('/market/:id/photos', auth, (req, res) => {
+    const l = ownListing(req);
+    const { mime, buf } = readJpeg(req);
+    const id = tx(db, () => {
+      const count = (l.photo_mime ? 1 : 0) + db.prepare('SELECT COUNT(*) AS n FROM listing_photos WHERE listing_id = ?').get(l.id).n;
+      if (count >= 4) fail(409, 'limit', 'A listing can have up to 4 pictures.');
+      if (!l.photo_mime) { db.prepare('UPDATE listings SET photo_mime = ?, photo = ?, updated_at = ? WHERE id = ?').run(mime, buf, now(), l.id); return 'main'; }
+      const sort = db.prepare('SELECT COALESCE(MAX(sort), 0) + 1 AS s FROM listing_photos WHERE listing_id = ?').get(l.id).s;
+      return Number(db.prepare('INSERT INTO listing_photos (listing_id, sort, mime, data) VALUES (?,?,?,?)').run(l.id, sort, mime, buf).lastInsertRowid);
+    });
+    res.status(201).json({ ok: true, id });
+  });
+  r.delete('/market/:id/photos/:pid', auth, (req, res) => {
+    const l = ownListing(req);
+    if (req.params.pid === 'main') db.prepare('UPDATE listings SET photo_mime = NULL, photo = NULL, updated_at = ? WHERE id = ?').run(now(), l.id);
+    else db.prepare('DELETE FROM listing_photos WHERE id = ? AND listing_id = ?').run(Number(req.params.pid), l.id);
+    res.json({ ok: true });
+  });
+  r.get('/market/:id/photos/:pid', auth, (req, res) => {
+    const l = getListing(req.params.id);
+    const p = db.prepare('SELECT mime, data FROM listing_photos WHERE id = ? AND listing_id = ?').get(Number(req.params.pid), l.id);
+    if (blockedSet(req.user.id).has(l.user_id) || !p) fail(404, 'not_found', 'Not found.');
+    res.set('Content-Type', p.mime);
+    res.set('Cache-Control', 'private, max-age=86400');
+    res.set('Content-Security-Policy', "default-src 'none'; sandbox");
+    res.send(Buffer.from(p.data));
   });
   r.get('/market/:id/photo', auth, (req, res) => {
     const l = getListing(req.params.id);

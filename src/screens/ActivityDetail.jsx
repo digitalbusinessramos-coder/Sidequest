@@ -5,6 +5,7 @@ import { photoFor } from '../../shared/photos.js';
 import { fmtPlanCost, fmtPlanDuration, fmtPlanWhen, fmtPlaces, tzLabel, useApi } from '../util.js';
 import { ShareButton } from './Share.jsx';
 import { langName } from './ProfileBits.jsx';
+import { InstallSuggestion } from './Install.jsx';
 
 export default function ActivityDetail({ id, query = {} }) {
   const { api, toast, reloadMe, meta, me, openAccount } = useApp();
@@ -97,6 +98,7 @@ export default function ActivityDetail({ id, query = {} }) {
         </div>
 
         {query.created && isOrg && !closed && <div className="notice lime" role="status"><Icon name="check" />{tx('Your plan is published. Share the link so people can join. Requests and messages appear in My Plans.')}</div>}
+        {((query.created && isOrg) || justJoined) && <InstallSuggestion />}
         {notice && <div className={`notice ${notice[0]}`} role="status"><Icon name={notice[1]} />{notice[2]}</div>}
 
         <div className="card card-pad facts-list">

@@ -368,7 +368,9 @@ export function ReportSheet({ target, onClose }) {
     e.preventDefault();
     setBusy(true); setErr('');
     try {
-      await api.post('/reports', { target_type: target.type, target_id: target.id, reason, details });
+      const r = await api.post('/reports', { target_type: target.type, target_id: target.id, reason, details });
+      // Confirm only once the server says the report is stored.
+      if (!r?.saved) throw new Error(tx('The report could not be saved. Please try again.'));
       toast(t('report.sent'));
       onClose();
     } catch (x) { setErr(x.message); } finally { setBusy(false); }
@@ -388,7 +390,7 @@ export function ReportSheet({ target, onClose }) {
         </label>
         {err && <div className="form-error" role="alert">{tx(err)}</div>}
         <button className="btn btn-primary btn-block" disabled={!reason || busy}>{t('report.send')}</button>
-        <p className="tiny muted">{tx("Reports are stored for review by the app team. In this student prototype there is no moderation team yet.")}</p>
+        <p className="tiny muted">{tx('Reports go to the project team’s private inbox. The person you report is not told who reported them.')}</p>
       </form>
     </Sheet>
   );

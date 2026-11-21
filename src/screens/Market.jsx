@@ -102,9 +102,11 @@ export function ListingDetail({ id }) {
         {!l.mine && <button className="icon-btn" onClick={() => setReport({ type: 'listing', id: l.id, label: 'listing' })} aria-label={tx('Report')}><Icon name="flag" /></button>}
       </TopBar>
       <div className="page">
-        <div className="listing-hero">
-          {l.photo ? <img src={l.photo} alt={l.title} /> : <Icon name={CAT_ICON[l.category] || 'other'} size={56} />}
-        </div>
+        {l.photos?.length > 1 ? <PhotoCarousel photos={l.photos} title={l.title} /> : (
+          <div className="listing-hero">
+            {l.photo ? <img src={l.photo} alt={l.title} /> : <Icon name={CAT_ICON[l.category] || 'other'} size={56} />}
+          </div>
+        )}
         <div className="stack-sm">
           <div className="row wrap" style={{ gap: 6 }}>
             <span className="badge badge-community">{tx(kindLabel || '')}</span>
@@ -168,11 +170,39 @@ export function ListingDetail({ id }) {
   );
 }
 
+/** Swipe sideways through a listing's pictures. Buttons and arrow keys do the same for mouse and keyboard users. */
+function PhotoCarousel({ photos, title }) {
+  const track = useRef(null);
+  const [i, setI] = useState(0);
+  const go = (n) => {
+    const k = Math.max(0, Math.min(photos.length - 1, n));
+    track.current?.children[k]?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' });
+    setI(k);
+  };
+  const onScroll = () => { const el = track.current; if (el) setI(Math.round(el.scrollLeft / el.clientWidth)); };
+  return (
+    <div className="carousel" role="region" aria-roledescription={tx('carousel')} aria-label={tx('Pictures of {title}', { title })}
+      onKeyDown={(e) => { if (e.key === 'ArrowRight') go(i + 1); if (e.key === 'ArrowLeft') go(i - 1); }}>
+      <div className="carousel-track" ref={track} onScroll={onScroll} tabIndex={0}>
+        {photos.map((p, k) => (
+          <div key={p.id} className="carousel-slide" role="group" aria-roledescription={tx('slide')} aria-label={tx('{n} of {total}', { n: k + 1, total: photos.length })}>
+            <img src={p.url} alt={k === 0 ? title : ''} loading={k ? 'lazy' : undefined} />
+          </div>
+        ))}
+      </div>
+      <button type="button" className="carousel-btn prev" onClick={() => go(i - 1)} disabled={i === 0} aria-label={tx('Previous picture')}><Icon name="back" size={18} /></button>
+      <button type="button" className="carousel-btn next" onClick={() => go(i + 1)} disabled={i === photos.length - 1} aria-label={tx('Next picture')}><Icon name="back" size={18} style={{ transform: 'rotate(180deg)' }} /></button>
+      <span className="carousel-count" aria-live="polite">{tx('{n} of {total}', { n: i + 1, total: photos.length })}</span>
+    </div>
+  );
+}
+
 export function ListingForm({ editId, query = {} }) {
   const { api, meta, city, toast } = useApp();
   const evs = useApi(`/events?city=${city.slug}`);
   const [v, setV] = useState(editId ? null : { kind: query.kind || 'sell', category: query.kind === 'ticket' ? 'tickets' : 'other', title: '', description: '', price_eur: '', face_value_eur: '', event_id: query.event || '', area: '' });
-  const [photo, setPhoto] = useState(null);
+  const [added, setAdded] = useState([]); // new pictures, as data URLs
+  const [removed, setRemoved] = useState([]); // ids of saved pictures to delete
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const input = useRef(null);
@@ -185,14 +215,15 @@ export function ListingForm({ editId, query = {} }) {
   const pick = async (e) => {
     const f = e.target.files?.[0]; e.target.value = '';
     if (!f) return;
-    try { setPhoto(await resizeToJpeg(f, 900, false)); } catch (x) { toast(x.message, true); }
+    try { const d = await resizeToJpeg(f, 900, false); setAdded((x) => [...x, d]); } catch (x) { toast(x.message, true); }
   };
   const submit = async (e) => {
     e.preventDefault(); setBusy(true); setErr('');
     try {
       const body = { ...v, category: v.kind === 'ticket' ? 'tickets' : v.category };
       const id = editId ? (await api.put(`/market/${editId}`, body), editId) : (await api.post('/market', body)).id;
-      if (photo) await api.put(`/market/${id}/photo`, { data: photo });
+      for (const pid of removed) await api.del(`/market/${id}/photos/${pid}`);
+      for (const data of added) await api.post(`/market/${id}/photos`, { data });
       toast(editId ? tx('Listing updated.') : tx('Your listing is live.'));
       location.replace(`#/market/${id}`);
     } catch (x) { setErr(x.message); } finally { setBusy(false); }
@@ -257,10 +288,19 @@ export function ListingForm({ editId, query = {} }) {
         </label>
         <AreaInput id="pickup-area" label={tx('Pickup area')} value={v.area} onChange={(area) => set({ area })}
           hint={tx('Optional. A public area, never your home address. You can agree on the exact place in the chat.')} />
-        <div className="field"><span className="label">{tx('Picture (optional)')}</span>
-          <div className="row" style={{ gap: 12 }}>
-            {(photo || v.photo) && <img src={photo || v.photo} alt="" className="listing-thumb" />}
-            <button type="button" className="btn btn-secondary btn-sm" onClick={() => input.current?.click()}><Icon name="camera" size={16} />{photo || v.photo ? tx('Change picture') : tx('Add a picture')}</button>
+        <div className="field"><span className="label">{tx('Pictures (optional, up to 4)')}</span>
+          <div className="row wrap" style={{ gap: 10 }}>
+            {(v.photos || []).filter((p) => !removed.includes(p.id)).map((p) => (
+              <span key={p.id} className="thumb-wrap"><img src={p.url} alt="" className="listing-thumb" />
+                <button type="button" className="thumb-x" aria-label={tx('Remove picture')} onClick={() => setRemoved((x) => [...x, p.id])}><Icon name="x" size={14} /></button></span>
+            ))}
+            {added.map((d, k) => (
+              <span key={k} className="thumb-wrap"><img src={d} alt="" className="listing-thumb" />
+                <button type="button" className="thumb-x" aria-label={tx('Remove picture')} onClick={() => setAdded((x) => x.filter((_, j) => j !== k))}><Icon name="x" size={14} /></button></span>
+            ))}
+            {(v.photos || []).filter((p) => !removed.includes(p.id)).length + added.length < 4 && (
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => input.current?.click()}><Icon name="camera" size={16} />{tx('Add a picture')}</button>
+            )}
             <input ref={input} type="file" accept="image/jpeg,image/png,image/webp" onChange={pick} hidden />
           </div>
           {ticket && <span className="hint">{tx('Don’t photograph the ticket’s barcode or QR code: someone could copy it.')}</span>}
@@ -349,11 +389,16 @@ export function FeedbackSheet({ onClose }) {
   const { api, meta, toast } = useApp();
   const [kind, setKind] = useState('idea');
   const [body, setBody] = useState('');
+  const [reply, setReply] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const submit = async (e) => {
     e.preventDefault(); setBusy(true); setErr('');
-    try { await api.post('/feedback', { kind, body, screen: location.hash.slice(0, 60) }); toast(tx('Thank you! The project team reads every message.')); onClose(); } catch (x) { setErr(x.message); } finally { setBusy(false); }
+    try {
+      const r = await api.post('/feedback', { kind, body, reply_email: reply.trim(), screen: location.hash.slice(0, 60) });
+      if (!r?.saved) throw new Error(tx('Your message could not be saved. Please try again.'));
+      toast(tx('Thank you! Your message was saved for the project team.')); onClose();
+    } catch (x) { setErr(tx(x.message)); } finally { setBusy(false); }
   };
   return (
     <Sheet title={tx('Feedback and ideas')} onClose={onClose}>
@@ -362,6 +407,10 @@ export function FeedbackSheet({ onClose }) {
         <ChoiceChips label={tx('Type')} value={kind} onChange={(k) => setKind(k || 'idea')} options={meta.feedbackKinds.map((k) => ({ key: k.key, label: k.label }))} />
         <label className="field"><span>{tx('Your message')}</span>
           <textarea className="textarea" required maxLength={2000} rows={5} value={body} onChange={(e) => setBody(e.target.value)} placeholder={tx('e.g. It would be great if…')} />
+        </label>
+        <label className="field"><span>{tx('Email for a reply (optional)')}</span>
+          <input className="input" type="email" autoComplete="email" maxLength={200} value={reply} onChange={(e) => setReply(e.target.value)} />
+          <span className="hint">{tx('Only the project team sees it. Leave it empty if you don’t need an answer.')}</span>
         </label>
         {err && <div className="form-error" role="alert">{err}</div>}
         <button className="btn btn-primary btn-block" disabled={busy || !body.trim()}>{tx('Send feedback')}</button>
