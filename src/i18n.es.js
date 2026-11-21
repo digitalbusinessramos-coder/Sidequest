@@ -1453,4 +1453,5 @@ export const es = {
   "Landscape": "Horizontal",
   "Square": "Cuadrada",
   "Portrait": "Vertical",
+  "Tap the Share button (a square with an arrow pointing up). If you don’t see it, tap ••• first, then Share.": "Toca el botón Compartir (un cuadrado con una flecha hacia arriba). Si no lo ves, toca primero ••• y luego Compartir.",
 };

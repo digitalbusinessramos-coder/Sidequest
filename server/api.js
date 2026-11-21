@@ -31,7 +31,7 @@ const languageList = (v) => list(v, null, 12).map((x) => LANGUAGES.find((l) => l
 // Flags for the bio: two-letter region codes (countries and territories, e.g. IC for the Canary Islands). Purely decorative.
 const flagList = (v) => list(v, null, 8).map((x) => x.toUpperCase()).filter((x) => /^[A-Z]{2}$/.test(x));
 const REVISION = (process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT || 'local').slice(0, 7);
-const RELEASE = 'pre-launch-6';
+const RELEASE = 'pre-launch-6b';
 const TIME_MODES = ['exact', 'window', 'tbd'];
 const DAY_MODES = ['day', 'weekend', 'week', 'flex'];
 // Accounts used for testing are kept out of campaign numbers and never get emails: addresses with "+test" or on test domains.

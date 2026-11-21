@@ -55,15 +55,13 @@ export function InstallSteps() {
   }
   if (ctx.ios) {
     // Apple doesn't let a website add itself to the home screen, so we show exactly where to tap, with the same symbols Safari uses.
-    const ipad = /iPad/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     return (
       <>
         <ol className="install-steps ios-steps">
-          <li><span className="ios-glyph" aria-hidden="true"><ShareGlyph /></span><span>{tx('Tap the Share button {where}. In newer Safari, tap ••• first, then Share.', { where: ipad ? tx('at the top right') : tx('in the bar at the bottom') })}</span></li>
+          <li><span className="ios-glyph" aria-hidden="true"><ShareGlyph /></span><span>{tx('Tap the Share button (a square with an arrow pointing up). If you don’t see it, tap ••• first, then Share.')}</span></li>
           <li><span className="ios-glyph" aria-hidden="true"><AddGlyph /></span><span>{tx('Scroll down and tap “Add to Home Screen”. If you don’t see it, tap “More” or “Edit Actions”.')}</span></li>
           <li><span className="ios-glyph" aria-hidden="true"><img src="/brand/icon-180.png" alt="" width="28" height="28" /></span><span>{tx('Tap “Add”. {app} now opens from its icon, like an app, and can send you notifications.', { app })}</span></li>
         </ol>
-        {!ipad && <div className="ios-arrow" aria-hidden="true"><span>{tx('Share is down here')}</span><svg viewBox="0 0 24 24" width="34" height="34"><path d="M12 4v15m-6-6 6 6 6-6" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" /></svg></div>}
       </>
     );
   }
