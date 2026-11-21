@@ -24,7 +24,7 @@ function reasonFor(a, me, myAreaName) {
 }
 
 export default function Explore() {
-  const { me, meta, city, openTour } = useApp();
+  const { me, meta, city } = useApp();
   const [when, setWhen] = useState('any');
   const [quick, setQuick] = useState({ free: false, beginner: false });
   const [more, setMore] = useState({ category: '', size: '', lang: '', budget: '', open: false });
@@ -135,7 +135,7 @@ export default function Explore() {
 
       {view === 'list' && people.data?.people.length > 0 && (
         <section className="stack-sm" aria-labelledby="ppl-h" data-tour="people">
-          <div className="section-title"><h2 id="ppl-h">{tx('Students looking for company')}</h2><a className="small" href="#/buddies">{tx('See all')}</a></div>
+          <div className="section-title"><h2 id="ppl-h">{tx('Students in {city}', { city: 'Las Palmas' })}</h2><a className="small" href="#/buddies">{tx('See all')}</a></div>
           <PeopleStrip people={people.data.people.slice(0, 10)} />
         </section>
       )}

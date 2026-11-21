@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { getAppName, t, tx } from '../i18n.js';
 import { Avatar, EmailBadge, Icon, LanguageSwitch, SampleBadge, Sheet, TopBar, useApp } from '../components.jsx';
-import { areaName, nearestArea, resizeToJpeg, useApi } from '../util.js';
+import { areaName, resizeToJpeg, useApi } from '../util.js';
 import { categoryLabel } from '../../shared/catalog.js';
 import { ProfileFields, profileDefaults } from './Onboarding.jsx';
+import { FlagList, langName, stayText } from './ProfileBits.jsx';
 import { FeedbackSheet } from './Market.jsx';
 
 function PhotoPicker() {
@@ -56,11 +57,10 @@ function EditProfile() {
 }
 
 export default function Profile({ sub }) {
-  const { me, city, api, reloadMe, toast, lang, openTour, openAccount } = useApp();
+  const { me, city, api, reloadMe, toast, lang, openAccount } = useApp();
   const blocks = useApi('/me/blocks');
   const [busy, setBusy] = useState(false);
   const [del, setDel] = useState(null);
-  const [geoMsg, setGeoMsg] = useState('');
   const [mailMsg, setMailMsg] = useState('');
   const [feedback, setFeedback] = useState(false);
   useEffect(() => {
@@ -75,23 +75,6 @@ export default function Profile({ sub }) {
   const privacy = async (patch, ok) => {
     setBusy(true);
     try { await api.put('/me/privacy', patch); await reloadMe(); if (ok) toast(ok); } catch (x) { toast(x.message, true); } finally { setBusy(false); }
-  };
-
-  const toggleNearby = (on) => {
-    if (!on) return privacy({ nearby_enabled: false }, tx("Nearby discovery is off."));
-    if (!navigator.geolocation) { setGeoMsg(tx("Your browser does not support location. Choose your area manually instead.")); return undefined; }
-    setGeoMsg(tx("Asking your browser for your location once…"));
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        // The nearest neighbourhood is worked out here on your device. Only its name is sent to the server.
-        const area = nearestArea(city.areas, pos.coords.latitude, pos.coords.longitude);
-        setGeoMsg(tx('Set to {area}. Your coordinates were not sent or stored.', { area: area.name }));
-        privacy({ nearby_enabled: true, area: area.key }, tx("Nearby discovery is on."));
-      },
-      () => setGeoMsg(tx("Location permission was not given. Nothing changed. You can still choose your area manually.")),
-      { enableHighAccuracy: false, maximumAge: 600000, timeout: 10000 },
-    );
-    return undefined;
   };
 
   const sendVerification = async () => {
@@ -121,9 +104,11 @@ export default function Profile({ sub }) {
       </div>
       {me.intro && <p>{me.intro}</p>}
       <div className="card card-pad facts-list">
-        <Icon name="globe" /><div>{me.languages.map((l) => tx(l)).join(', ') || tx("No languages yet")}</div>
-        <Icon name="heart" /><div>{me.interests.map((c) => tx(categoryLabel(c))).join(', ') || tx("No interests yet")}</div>
-        <Icon name="pin" /><div>{areaName(city.areas, me.area) || tx("Area not set")}</div>
+        <Icon name="globe" /><div>{me.languages.map(langName).join(', ') || <span className="muted">{tx('No languages yet')}</span>}</div>
+        {me.flags?.length > 0 && <><Icon name="flag" /><div><FlagList flags={me.flags} /></div></>}
+        <Icon name="heart" /><div>{me.interests.map((c) => tx(categoryLabel(c))).join(', ') || <span className="muted">{tx('No interests yet')}</span>}</div>
+        <Icon name="pin" /><div>{me.meet_area || areaName(city.areas, me.area) ? tx('Likes to meet around {area}', { area: me.meet_area || areaName(city.areas, me.area) }) : <span className="muted">{tx('Meeting area not set')}</span>}</div>
+        {stayText(me) && <><Icon name="plans" /><div>{stayText(me)}</div></>}
         {me.university && <><Icon name="school" /><div>{me.university} <span className="tiny muted">{me.show_university ? tx('(shown on profile)') : tx('(hidden)')}</span></div></>}
       </div>
       {me.is_guest && (
@@ -163,15 +148,6 @@ export default function Profile({ sub }) {
         <div className="card card-pad" style={{ paddingTop: 0, paddingBottom: 0 }}>
           <label className="switch"><span><strong>{t('profile.visible')}</strong><br /><span className="hint">{t('profile.visibleHint')}</span></span>
             <input type="checkbox" role="switch" checked={me.visible} disabled={busy} onChange={(e) => privacy({ visible: e.target.checked }, e.target.checked ? tx("You’re visible again.") : tx("Visibility paused."))} /></label>
-          <label className="switch"><span><strong>{t('profile.nearby')}</strong><br /><span className="hint">{t('profile.nearbyHint')}</span></span>
-            <input type="checkbox" role="switch" checked={me.nearby_enabled} disabled={busy} onChange={(e) => toggleNearby(e.target.checked)} /></label>
-          {geoMsg && <p className="small" role="status" style={{ padding: '8px 0' }}>{geoMsg}</p>}
-          <label className="field" style={{ padding: '14px 0', borderBottom: '1px solid var(--line)' }}><span>{t('profile.area')}</span>
-            <select className="select" value={me.area || ''} disabled={busy} onChange={(e) => privacy({ area: e.target.value || null }, tx("Area updated."))}>
-              <option value="">{tx("Prefer not to say")}</option>
-              {city.areas.map((a) => <option key={a.key} value={a.key}>{a.name}</option>)}
-            </select>
-          </label>
         </div>
       </section>
 

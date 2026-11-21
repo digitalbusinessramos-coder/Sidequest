@@ -44,6 +44,10 @@ function migrate(db) {
   db.exec(`CREATE TABLE IF NOT EXISTS password_tokens (token_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, expires_at TEXT NOT NULL)`);
   // Test accounts are excluded from campaign numbers.
   if (!cols('users').includes('is_test')) db.exec('ALTER TABLE users ADD COLUMN is_test INTEGER NOT NULL DEFAULT 0');
+  // Pre-launch release 2: optional stay (first semester, full year, I live here…), flags for the bio, and a free-text meeting area.
+  for (const [c, type] of [['stay', 'TEXT'], ['flags', "TEXT NOT NULL DEFAULT '[]'"], ['meet_area', 'TEXT']]) {
+    if (!cols('profiles').includes(c)) db.exec(`ALTER TABLE profiles ADD COLUMN ${c} ${type}`);
+  }
 }
 
 /** Run fn inside an IMMEDIATE transaction (takes the write lock first, so capacity checks cannot race). */

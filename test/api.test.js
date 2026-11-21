@@ -216,18 +216,55 @@ test('events: interest list visible only to people who opted in; invitations nee
   assert.match(g.description, /does not register you/);
 });
 
-test('wishes: compatible suggestion explained in words, no automatic enrolment', async () => {
-  const a = await user('Hana'); const b = await user('Ivo', { languages: ['English', 'Spanish'] });
-  await a.post('/wishes', { category: 'museum', slots: ['thu_afternoon', 'sat_morning'], budget: 'free' });
-  await b.post('/wishes', { category: 'museum', slots: ['thu_afternoon'], budget: 'any' });
-  const s = (await a.get('/wishes/suggestions')).body.suggestions.find((x) => x.user.id === b.id);
-  assert.ok(s);
-  assert.equal(s.reason, 'You both want to visit a museum and are available Thursday afternoon.');
-  assert.ok(!('score' in s));
-  assert.equal((await b.get('/plans')).body.invited.length, 0);
-  // Pausing visibility hides you from suggestions
-  await b.put('/me/privacy', { visible: false });
-  assert.ok(!(await a.get('/wishes/suggestions')).body.suggestions.some((x) => x.user.id === b.id));
+test('R2 buddies: wishes and statuses are switched off, old rows kept; anyone visible can be invited to a specific plan', async () => {
+  const a = await user('Hana'); const b = await user('Ivo'); const hidden = await user('Quiet');
+  db.prepare("INSERT INTO wishes (user_id, city_id, category, note, slots, budget) VALUES (?, 1, 'museum', '', '[]', 'any')").run(b.id);
+  assert.equal((await a.post('/wishes', { category: 'other' })).status, 410, 'no new wishes, so nothing subscribes to alerts');
+  assert.equal((await a.put('/me/status', { category: 'coffee', until: localIn(2).slice(0, 10) })).status, 410);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM wishes WHERE user_id = ?').get(b.id).n, 1, 'stored records kept');
+  const ppl = (await a.get('/people')).body.people;
+  assert.ok(ppl.some((p) => p.id === b.id)); assert.ok(!('status' in ppl[0]));
+  // Invite Ivo to a specific plan: no wish or shared interest needed. He decides.
+  const id = await makeActivity(a, { category: 'coffee' });
+  assert.equal((await a.post(`/activities/${id}/invite`, { userId: b.id })).status, 201);
+  assert.equal((await b.get('/plans')).body.invited[0].id, id);
+  assert.equal((await a.post(`/activities/${id}/invite`, { userId: b.id })).status, 409, 'no duplicate invitation');
+  const notes = (await b.get('/notifications')).body.notifications.filter((x) => x.kind === 'invited');
+  assert.equal(notes.length, 1);
+  // People who paused visibility, guests and blocked people cannot be invited.
+  await hidden.put('/me/privacy', { visible: false });
+  assert.equal((await a.post(`/activities/${id}/invite`, { userId: hidden.id })).status, 403);
+  const g = client(); await g.post('/auth/guest'); const gid = (await g.get('/me')).body.user.id;
+  assert.equal((await a.post(`/activities/${id}/invite`, { userId: gid })).status, 403);
+  const c = await user('Blocky'); await c.post(`/users/${a.id}/block`);
+  assert.equal((await a.post(`/activities/${id}/invite`, { userId: c.id })).status, 404);
+  // Only the organiser can invite to their plan.
+  assert.equal((await b.post(`/activities/${id}/invite`, { userId: c.id })).status, 403);
+});
+
+test('R2 profile: brief sign-up, optional stay, free-text area, any language, flags as text codes', async () => {
+  const c = client();
+  await c.post('/auth/signup', { email: `brief${Date.now()}@test.example`, password: 'password123' });
+  // Only a first name: nothing else is invented.
+  assert.equal((await c.put('/me/profile', { first_name: 'Bri', city: 'las-palmas' })).status, 200);
+  let me = (await c.get('/me')).body.user;
+  assert.equal(me.onboarded, true); assert.deepEqual(me.languages, []); assert.deepEqual(me.flags, []); assert.equal(me.stay, null); assert.equal(me.meet_area, null);
+  const full = { first_name: 'Bri', city: 'las-palmas', stay: 'custom', exchange_start: '2026-09-01', exchange_end: '2027-01-31', meet_area: 'Campus de Tafira',
+    languages: ['english', 'Ukrainian', 'Klingon', 'Klingon'], flags: ['ic', 'UA', 'not-a-flag', 'X1'], interests: ['coffee', 'other'] };
+  assert.equal((await c.put('/me/profile', full)).status, 200);
+  me = (await c.get('/me')).body.user;
+  assert.deepEqual(me.languages, ['English', 'Ukrainian', 'Klingon'], 'known names normalised, custom kept once');
+  assert.deepEqual(me.flags, ['IC', 'UA']);
+  assert.deepEqual(me.interests, ['coffee'], '"Something else" is not an interest');
+  assert.equal(me.meet_area, 'Campus de Tafira'); assert.equal(me.exchange_start, '2026-09-01');
+  // Interns and people who live here: other stay choices clear the dates.
+  await c.put('/me/profile', { ...full, stay: 'local' });
+  me = (await c.get('/me')).body.user;
+  assert.equal(me.stay, 'local'); assert.equal(me.exchange_start, null);
+  assert.equal((await c.put('/me/profile', { ...full, exchange_start: '2027-02-01', exchange_end: '2027-01-01' })).status, 400);
+  // Turning location discovery on is no longer possible.
+  await c.put('/me/privacy', { nearby_enabled: true });
+  assert.equal((await c.get('/me')).body.user.nearby_enabled, false);
 });
 
 test('blocking hides people and their activities from each other', async () => {
@@ -500,34 +537,6 @@ test('students list: visible people, shared interests first, blocked people hidd
   assert.ok(!(await a.get('/people')).body.people.some((p) => p.id === b.id));
 });
 
-test('buddies status: only what the owner sets, editable, clearable, hidden once expired', async () => {
-  const a = await user('Stat'); const b = await user('Viewer');
-  const visible = async () => (await b.get('/people')).body.people.find((p) => p.id === a.id);
-  // Nothing is invented: a new user has no status.
-  assert.equal((await a.get('/me')).body.user.status, null);
-  assert.equal((await visible())?.status ?? null, null);
-  const until = localIn(3).slice(0, 10);
-  assert.equal((await a.put('/me/status', { category: 'nope', until })).status, 400);
-  assert.equal((await a.put('/me/status', { category: 'coffee', until: localIn(-2).slice(0, 10) })).status, 400);
-  assert.equal((await a.put('/me/status', { category: 'coffee', until: localIn(40).slice(0, 10) })).status, 400);
-  const r = await a.put('/me/status', { category: 'coffee', slot: 'fri_afternoon', area: 'canteras', note: 'Spanish practice', until });
-  assert.equal(r.status, 200, JSON.stringify(r.body));
-  let s = (await visible()).status;
-  assert.equal(s.category, 'coffee'); assert.equal(s.slot, 'fri_afternoon'); assert.equal(s.area_name, 'Las Canteras / Guanarteme'); assert.equal(s.note, 'Spanish practice');
-  assert.equal((await b.get(`/users/${a.id}`)).body.profile.status.category, 'coffee');
-  // Edit: no day and no area is fine.
-  await a.put('/me/status', { category: 'surf', until });
-  s = (await visible()).status; assert.equal(s.category, 'surf'); assert.equal(s.slot, null); assert.equal(s.area, null);
-  // Expired statuses are hidden everywhere.
-  db.prepare('UPDATE profiles SET status_expires_at = ? WHERE user_id = ?').run(new Date(Date.now() - 1000).toISOString(), a.id);
-  assert.equal((await visible()).status, null);
-  assert.equal((await a.get('/me')).body.user.status, null);
-  // Clear.
-  await a.put('/me/status', { category: 'coffee', until });
-  assert.equal((await a.del('/me/status')).status, 200);
-  assert.equal((await visible()).status, null);
-});
-
 test('real events: stable ids, safe re-import, Canary time, organiser links, no invented prices', async (t) => {
   const { importEvents, REAL_EVENTS } = await import('../server/events-import.js');
   const a = await user('Eve'); const b = await user('Finn');
@@ -694,4 +703,14 @@ test('R1 password recovery never reveals accounts and works without email setup'
   assert.equal((await c.get('/me')).body.user.id, u.id);
   assert.equal((await client().post('/auth/login', { email: u.email, password: 'newpassword1' })).status, 200);
   assert.equal((await client().post('/auth/password/reset', { token, password: 'again12345' })).status, 400, 'one-time link');
+});
+
+test('R2 city guide: no health or insurance cards, every entry names its source, refreshed by version', async () => {
+  const c = client(); await c.post('/auth/guest');
+  const items = (await c.get('/guide?city=las-palmas')).body.items;
+  assert.ok(items.length >= 5);
+  assert.ok(!items.some((i) => i.section === 'health' || /insurance|112|EHIC/i.test(i.title)));
+  assert.ok(items.every((i) => i.source_name), 'each entry says where it comes from');
+  assert.ok(items.filter((i) => i.url).every((i) => i.url.startsWith('https://')));
+  assert.equal(db.prepare("SELECT value FROM settings WHERE key = 'guide_version'").get().value, '2');
 });

@@ -6,16 +6,18 @@ import { useState } from 'react';
 import { MARKET_PHOTOS, PHOTOS } from '../../shared/photos.js';
 import { useApi } from '../util.js';
 
-// Plain-text names and our own one-line descriptions, checked against each organisation's page on 19 Nov 2026. No logos.
+// Plain-text names and our own one-line descriptions, checked against each organisation's own page on 21 Nov 2026. No logos.
+// "Organised by" names who runs it; each card links to that organisation's own page.
 const COMMUNITIES = [
-  { name: 'ESN Las Palmas · ULPGC Buddy Programme', source: 'ULPGC International Relations', url: 'https://internacional.ulpgc.es/en/movilidad-incoming/estudiantes-incoming/study-at-the-ulpgc-incoming/exchange-students/',
-    text: 'The student association ESN Las Palmas runs the ULPGC Buddy Programme with the university, pairing incoming students with a local mentor. The ULPGC page explains how it works and when sign-up opens.' },
-  { name: 'Erasmus Life Las Palmas', source: 'International Students Life Association', url: 'https://internationalstudentslife.org/erasmus-life-las-palmas/',
+  { name: 'ULPGC Buddy Programme', by: 'ESN Las Palmas, funded by ULPGC', url: 'https://esnlaspalmas.org/buddy-program',
+    text: 'Pairs incoming exchange students at ULPGC with a local student volunteer who helps during the first weeks. ESN Las Palmas also runs events and the ESNcard.' },
+  { name: 'Erasmus Life Las Palmas', by: 'International Students Life Association', url: 'https://internationalstudentslife.org/erasmus-life-las-palmas/',
     text: 'A separate student community with WhatsApp groups, weekly social events, trips around the island and member discounts.' },
 ];
 
-// Student tips now have their own section with likes and saves, so the old "students" placeholder is not shown.
-const SECTIONS = [['transport', 'bus'], ['health', 'health'], ['housing', 'home'], ['university', 'school'], ['links', 'link']];
+// Sections, in order. Health, insurance and emergency cards were removed: Help has one short emergencies note.
+const SECTIONS = [['transport', 'bus'], ['housing', 'home'], ['university', 'school'], ['links', 'link']];
+const checked = (d) => new Date(d).toLocaleDateString(locale(), { day: 'numeric', month: 'short', year: 'numeric' });
 
 export default function Guide() {
   const { city } = useApp();
@@ -27,7 +29,7 @@ export default function Guide() {
         <span className="eyebrow">{tx("Settling in")}</span><h1>{t('guide.title')}: {city.name.split(' de ')[0]}</h1>
       </PhotoHero>
       <p className="small muted">{t('guide.lead')}</p>
-      <div className="notice coral"><Icon name="shield" /><span><strong>112</strong>: {tx('In an emergency, call 112, the EU-wide emergency number (source: Your Europe, EU portal). This guide is not medical advice.')}</span></div>
+      <a className="small row" style={{ gap: 6, alignSelf: 'flex-start' }} href="#/help"><Icon name="shield" size={16} />{tx('Help and emergencies')}</a>
       <section className="stack-sm" aria-labelledby="g-communities">
         <h2 id="g-communities" className="row"><Icon name="group" />{tx('Student communities in Las Palmas')}</h2>
         <p className="tiny muted">{tx('Separate organisations, each with its own activities. {app} is not part of either of them.', { app: getAppName() })}</p>
@@ -37,8 +39,8 @@ export default function Guide() {
               <strong>{c.name}</strong>
               <p className="small" style={{ color: 'var(--ink-2)', marginTop: 4 }}>{tx(c.text)}</p>
               <div className="row wrap tiny muted" style={{ marginTop: 6, gap: 10 }}>
-                <span>{t('guide.source', { name: c.source })}</span>
-                <span>{t('guide.checked', { date: new Date('2026-11-19').toLocaleDateString(locale(), { day: 'numeric', month: 'short', year: 'numeric' }) })}</span>
+                <span>{tx('Organised by {name}', { name: tx(c.by) })}</span>
+                <span>{t('guide.checked', { date: checked('2026-11-21') })}</span>
                 <span className="row" style={{ gap: 3, color: 'var(--blue-ink)' }}>{tx('Open')} <Icon name="external" size={13} /></span>
               </div>
             </a>
@@ -46,15 +48,10 @@ export default function Guide() {
         </div>
       </section>
       <Tips />
-      <div className="row wrap small" style={{ gap: 8 }}>
-        <span className="badge badge-official">{t('guide.official')}</span><span className="muted">{tx("from the organisation itself")}</span>
-        <span className="badge badge-community">{t('guide.community')}</span><span className="muted">{tx("from students")}</span>
-        <span className="badge badge-placeholder">{t('guide.placeholder')}</span><span className="muted">{tx("to be completed")}</span>
-      </div>
       {loading ? <Loading /> : error ? <ErrorState error={error} onRetry={reload} /> : SECTIONS.map(([key, icon]) => {
         const items = data.items.filter((i) => i.section === key);
         if (!items.length) return null;
-        const sorted = [...items].sort((a, b) => (a.kind === 'official' ? -1 : 0) - (b.kind === 'official' ? -1 : 0));
+        const sorted = items;
         return (
           <section key={key} className="stack-sm" aria-labelledby={`g-${key}`}>
             <h2 id={`g-${key}`} className="row"><Icon name={icon} />{t(`guide.${key}`)}</h2>
@@ -63,14 +60,11 @@ export default function Guide() {
                 const Tag = i.url ? 'a' : 'div';
                 return (
                   <Tag key={i.title} className="guide-item" {...(i.url ? { href: i.url, target: '_blank', rel: 'noopener noreferrer' } : {})}>
-                    <div className="row" style={{ alignItems: 'flex-start' }}>
-                      <strong style={{ flex: 1 }}>{tx(i.title)}</strong>
-                      <span className={`badge badge-${i.kind}`}>{t(`guide.${i.kind}`)}</span>
-                    </div>
+                    <strong>{tx(i.title)}</strong>
                     <p className="small" style={{ color: 'var(--ink-2)', marginTop: 4 }}>{tx(i.summary)}</p>
                     <div className="row wrap tiny muted" style={{ marginTop: 6, gap: 10 }}>
                       {i.source_name && <span>{t('guide.source', { name: i.source_name })}</span>}
-                      {i.checked_at && <span>{t('guide.checked', { date: new Date(i.checked_at).toLocaleDateString(locale(), { day: 'numeric', month: 'short', year: 'numeric' }) })}</span>}
+                      {i.checked_at && <span>{t('guide.checked', { date: checked(i.checked_at) })}</span>}
                       {i.url && <span className="row" style={{ gap: 3, color: 'var(--blue-ink)' }}>{tx("Open")} <Icon name="external" size={13} /></span>}
                     </div>
                   </Tag>
@@ -83,7 +77,7 @@ export default function Guide() {
       <details className="tiny muted">
         <summary>{tx('Photo credits')}</summary>
         <ul style={{ paddingLeft: 18 }}>
-          {[...PHOTOS, ...MARKET_PHOTOS].map((p) => <li key={p.key}>{tx(p.alt)}: {p.author}, <a href={p.license_url} target="_blank" rel="noopener noreferrer">{p.license}</a>, <a href={p.source} target="_blank" rel="noopener noreferrer">{tx('source')}</a>{tx(' (resized)')}</li>)}
+          {[...PHOTOS, ...MARKET_PHOTOS].map((p) => <li key={p.key}>{tx(p.alt)}: {p.author}, {p.license_url ? <a href={p.license_url} target="_blank" rel="noopener noreferrer">{p.license}</a> : p.license}{p.source && <>, <a href={p.source} target="_blank" rel="noopener noreferrer">{tx('source')}</a>{tx(' (resized)')}</>}</li>)}
           <li>{tx('Sample profile pictures are drawn avatars (“Notionists” by Zoish, CC0, via DiceBear), not photos of real people.')}</li>
           <li>{tx('Map: © OpenStreetMap contributors.')}</li>
         </ul>
