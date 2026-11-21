@@ -23,6 +23,7 @@ import Help, { ExamplePlan } from './screens/Help.jsx';
 import ResetPassword from './screens/Reset.jsx';
 import Tour from './screens/Tour.jsx';
 import { InstallButton } from './screens/Install.jsx';
+import { DmChat } from './screens/Connect.jsx';
 import { registerServiceWorker, syncPush } from './push.js';
 import { FeedbackSheet } from './screens/Market.jsx';
 
@@ -49,7 +50,7 @@ const TABS = [
   ['guide', 'guide', 'nav.guide'],
   ['profile', 'profile', 'nav.profile'],
 ];
-const TAB_OF = { activity: 'explore', event: 'explore', events: 'explore', create: 'explore', person: 'buddies' };
+const TAB_OF = { activity: 'explore', event: 'explore', events: 'explore', create: 'explore', person: 'buddies', dm: 'buddies' };
 
 export default function App() {
   const route = useHashRoute();
@@ -113,9 +114,9 @@ export default function App() {
 
   // Number on the app icon (installed app, where the phone supports it): things waiting for you.
   useEffect(() => {
-    const n = (counts.notifications || 0) + (counts.chats || 0) + (counts.invites || 0);
+    const n = (counts.notifications || 0) + (counts.chats || 0) + (counts.invites || 0) + (counts.dms || 0);
     try { if (navigator.setAppBadge) (n > 0 ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {}); } catch { /* not supported */ }
-  }, [counts.notifications, counts.chats, counts.invites]);
+  }, [counts.notifications, counts.chats, counts.invites, counts.dms]);
 
   if (bootError) return <div className="page"><ErrorState error={bootError} onRetry={boot} /></div>;
   if (!meta || me === undefined) return <div className="page"><Loading /></div>;
@@ -144,6 +145,7 @@ export default function App() {
   else if (p0 === 'events') screen = <Events />;
   else if (p0 === 'create') screen = <ActivityForm query={route.query} />;
   else if (p0 === 'person') screen = <Person id={p1} />;
+  else if (p0 === 'dm') screen = <DmChat id={p1} />;
   else if (p0 === 'example') screen = <ExamplePlan />;
   else if (p0 === 'help') screen = <Help />;
   else if (p0 === 'team') screen = <Team />;
@@ -154,7 +156,7 @@ export default function App() {
   else screen = <Explore />;
 
   const activeTab = TAB_OF[p0] || p0 || 'explore';
-  const badge = { plans: (counts.notifications || 0) + (counts.chats || 0), buddies: counts.invites };
+  const badge = { plans: (counts.notifications || 0) + (counts.chats || 0), buddies: (counts.invites || 0) + (counts.connect_requests || 0) + (counts.dms || 0) };
 
   return (
     <AppCtx.Provider value={ctx}>

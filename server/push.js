@@ -19,6 +19,9 @@ const TEXT = {
     market_message: ['New message about “{plan}”', '{name} sent you a message in the Marketplace.'],
     test: ['Notifications are on', 'This is how updates about your plans will look.'],
     reminder: ['Starting soon: {plan}', 'Today at {time} · {area}. Have fun!'],
+    connect_request: ['{name} wants to connect', 'Open their profile to accept or decline.'],
+    connect_accepted: ['{name} accepted your request', 'You can now message each other.'],
+    dm: ['New message from {name}', 'Open the chat to read it.'],
   },
   es: {
     request_received: ['{name} quiere unirse', '«{plan}». Ábrelo para aceptar o rechazar.'],
@@ -35,6 +38,9 @@ const TEXT = {
     market_message: ['Nuevo mensaje sobre «{plan}»', '{name} te ha escrito en el Mercadillo.'],
     test: ['Notificaciones activadas', 'Así verás las novedades de tus planes.'],
     reminder: ['Empieza pronto: {plan}', 'Hoy a las {time} · {area}. ¡Que lo disfrutes!'],
+    connect_request: ['{name} quiere conectar contigo', 'Abre su perfil para aceptar o rechazar.'],
+    connect_accepted: ['{name} ha aceptado tu solicitud', 'Ya podéis escribiros.'],
+    dm: ['Nuevo mensaje de {name}', 'Abre el chat para leerlo.'],
   },
 };
 const fill = (s, v) => s.replace(/\{(\w+)\}/g, (_, k) => v[k] ?? '');

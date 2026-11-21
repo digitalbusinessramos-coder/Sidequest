@@ -17,6 +17,8 @@ const NOTE_TEXT = {
   changed: ['The organiser changed the time or meeting point of “{title}”.', 'clock'],
   joined: ['{name} joined “{title}”.', 'bolt'],
   market_message: ['{name} sent you a message about “{title}”.', 'shopping'],
+  connect_request: ['{name} wants to connect with you.', 'buddies'],
+  connect_accepted: ['{name} accepted your request to connect. You can message each other now.', 'buddies'],
 };
 
 /** In-app notifications. Shown in the person's language because the server stores only the kind of event. */
@@ -34,6 +36,7 @@ function Updates() {
     if (!n.read) api.post('/notifications/read', { ids: [n.id] }).then(() => reloadMe()).catch(() => {});
     if (n.activity) location.hash = `#/activity/${n.activity.id}`;
     else if (n.listing) location.hash = `#/market/${n.listing.id}`;
+    else if (n.actor && n.kind.startsWith('connect_')) location.hash = `#/person/${n.actor.id}`;
   };
   return (
     <section className="stack-sm" aria-labelledby="upd-h">
