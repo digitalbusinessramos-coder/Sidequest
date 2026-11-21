@@ -22,6 +22,7 @@ const TEXT = {
     connect_request: ['{name} wants to connect', 'Open their profile to accept or decline.'],
     connect_accepted: ['{name} accepted your request', 'You can now message each other.'],
     dm: ['New message from {name}', 'Open the chat to read it.'],
+    answer: ['{name} answered your question', '“{plan}”'],
   },
   es: {
     request_received: ['{name} quiere unirse', '«{plan}». Ábrelo para aceptar o rechazar.'],
@@ -41,6 +42,7 @@ const TEXT = {
     connect_request: ['{name} quiere conectar contigo', 'Abre su perfil para aceptar o rechazar.'],
     connect_accepted: ['{name} ha aceptado tu solicitud', 'Ya podéis escribiros.'],
     dm: ['Nuevo mensaje de {name}', 'Abre el chat para leerlo.'],
+    answer: ['{name} ha respondido a tu pregunta', '«{plan}»'],
   },
 };
 const fill = (s, v) => s.replace(/\{(\w+)\}/g, (_, k) => v[k] ?? '');

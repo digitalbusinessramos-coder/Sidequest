@@ -1,6 +1,7 @@
 import { getAppName, locale, t, tx } from '../i18n.js';
 import { ErrorState, Icon, Loading, PhotoHero, useApp } from '../components.jsx';
 import Tips from './Tips.jsx';
+import { AskStudents } from './Ask.jsx';
 import { FeedbackSheet } from './Market.jsx';
 import { useState } from 'react';
 import { MARKET_PHOTOS, PHOTOS } from '../../shared/photos.js';
@@ -30,6 +31,7 @@ export default function Guide() {
       </PhotoHero>
       <p className="small muted">{t('guide.lead')}</p>
       <a className="small row" style={{ gap: 6, alignSelf: 'flex-start' }} href="#/help"><Icon name="shield" size={16} />{tx('Help and emergencies')}</a>
+      <AskStudents />
       <section className="stack-sm" aria-labelledby="g-communities">
         <h2 id="g-communities" className="row"><Icon name="group" />{tx('Student communities in Las Palmas')}</h2>
         <p className="tiny muted">{tx('Separate organisations, each with its own activities. {app} is not part of either of them.', { app: getAppName() })}</p>

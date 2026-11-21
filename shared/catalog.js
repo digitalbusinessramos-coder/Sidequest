@@ -84,6 +84,7 @@ export const REC_CATEGORIES = [
   { key: 'culture', label: 'Culture' },
   { key: 'study', label: 'Places to study' },
   { key: 'practical', label: 'Practical tips' },
+  { key: 'services', label: 'Services' }, // hairdresser, doctor, phone shop, repairs…
 ];
 
 export const MARKET_KINDS = [
