@@ -913,3 +913,18 @@ test('connect: request, accept, private chat only when connected; decline stays 
   assert.equal((await a.get(`/connections/${cid}/messages`)).status, 404);
   assert.equal((await a.get('/connections')).body.connected.length, 0);
 });
+
+test('real-size pictures upload for plans and listings, not only tiny ones', async () => {
+  const org = await user('Snap');
+  const id = await makeActivity(org);
+  // About 300 KB, like a cropped 1200 px phone photo.
+  const big = `data:image/jpeg;base64,${Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(300 * 1024, 7)]).toString('base64')}`;
+  assert.equal((await org.put(`/activities/${id}/photo`, { data: big })).status, 200);
+  assert.equal((await org.put('/me/photo', { data: big })).status, 200);
+  const l = (await org.post('/market', { kind: 'free', category: 'other', title: 'Lamp' })).body.id;
+  assert.equal((await org.put(`/market/${l}/photo`, { data: big })).status, 200);
+  assert.equal((await org.post(`/market/${l}/photos`, { data: big })).status, 201);
+  // Other API calls keep the small limit, with a clear message.
+  const r = await org.post('/activities', { title: 'x'.repeat(80 * 1024) });
+  assert.equal(r.status, 413);
+});
