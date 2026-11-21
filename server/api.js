@@ -552,6 +552,17 @@ export function createApi(db) {
   };
   const requireAdmin = (req) => { if (!isAdmin(req)) fail(403, 'forbidden', 'Only the project team can open this page.'); };
   const unlockLimit = rateLimiter(5, 60 * 60e3);
+  // The app calls this once each time it is opened. Test and example accounts are not counted.
+  const canaryDay = (d = new Date()) => utcToLocalInput(d.toISOString(), 'Atlantic/Canary').slice(0, 10);
+  r.post('/visit', auth, (req, res) => {
+    const u = db.prepare('SELECT is_test, is_demo, is_guest FROM users WHERE id = ?').get(req.user.id);
+    if (u && !u.is_test && !u.is_demo) {
+      db.prepare(`INSERT INTO daily_visits (day, user_id, kind) VALUES (?, ?, ?)
+        ON CONFLICT(day, user_id) DO UPDATE SET opens = opens + 1, kind = excluded.kind`).run(canaryDay(), req.user.id, u.is_guest ? 'guest' : 'account');
+    }
+    res.json({ ok: true });
+  });
+
   r.get('/team/me', auth, (req, res) => res.json({ admin: isAdmin(req), code_configured: !!process.env.ADMIN_TOKEN, alert_email: !!process.env.TEAM_ALERT_EMAIL, email_service: emailConfigured() }));
   r.post('/team/unlock', auth, (req, res) => {
     if (req.user.is_guest) fail(401, 'account_needed', 'Log in with your own account first.');
@@ -616,7 +627,37 @@ export function createApi(db) {
       reports_open: n("SELECT COUNT(*) AS n FROM reports WHERE status = 'open'"),
       feedback_open: n("SELECT COUNT(*) AS n FROM feedback WHERE status = 'open'"),
       excluded_test_accounts: n('SELECT COUNT(*) AS n FROM users WHERE is_test = 1'),
+      visitors: (() => {
+        const days = Array.from({ length: 14 }, (_, i) => canaryDay(new Date(Date.now() - i * 864e5)));
+        const uniq = (from) => n('SELECT COUNT(DISTINCT user_id) AS n FROM daily_visits WHERE day >= ?', from);
+        return {
+          today: uniq(days[0]), last_7_days: uniq(days[6]), last_30_days: uniq(canaryDay(new Date(Date.now() - 29 * 864e5))),
+          opens_7_days: n('SELECT COALESCE(SUM(opens), 0) AS n FROM daily_visits WHERE day >= ?', days[6]),
+          daily: days.map((day) => {
+            const r2 = db.prepare("SELECT COUNT(*) AS people, COALESCE(SUM(opens), 0) AS opens, SUM(kind = 'guest') AS guests FROM daily_visits WHERE day = ?").get(day);
+            return { day, people: r2.people, guests: r2.guests || 0, accounts: r2.people - (r2.guests || 0), opens: r2.opens };
+          }),
+          counting_since: db.prepare('SELECT MIN(day) AS d FROM daily_visits').get().d,
+        };
+      })(),
     });
+  });
+
+  // Every real account, for the team: what other students can already see, plus activity counts and last visit day.
+  r.get('/team/profiles', auth, (req, res) => {
+    requireAdmin(req);
+    const rows = db.prepare(`SELECT p.*, u.created_at AS joined_at, u.email_verified_at, u.is_admin FROM profiles p JOIN users u ON u.id = p.user_id
+      WHERE u.is_demo = 0 AND u.is_guest = 0 AND u.is_test = 0 AND u.password_hash != 'deleted' ORDER BY u.id DESC LIMIT 1000`).all();
+    const c = (sql, id) => db.prepare(sql).get(id).n;
+    res.json({ profiles: rows.map((p) => ({
+      ...personSummary(p), intro: p.intro, interests: J(p.interests), stay: p.stay || null, meet_area: p.meet_area || null, flags: J(p.flags || '[]'),
+      joined_at: p.joined_at, visible: !!p.visible, email_confirmed: !!p.email_verified_at, team: !!p.is_admin,
+      last_visit: db.prepare('SELECT MAX(day) AS d FROM daily_visits WHERE user_id = ?').get(p.user_id).d,
+      plans_created: c('SELECT COUNT(*) AS n FROM activities WHERE organiser_id = ?', p.user_id),
+      plans_joined: c("SELECT COUNT(*) AS n FROM memberships WHERE user_id = ? AND status = 'accepted'", p.user_id),
+      listings: c('SELECT COUNT(*) AS n FROM listings WHERE user_id = ?', p.user_id),
+      reports_about: c("SELECT COUNT(*) AS n FROM reports WHERE target_type = 'user' AND target_id = ?", p.user_id),
+    })) });
   });
 
   // Older script access with the x-admin-token header (kept for the team's scripts).
