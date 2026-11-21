@@ -105,8 +105,7 @@ export default function Onboarding() {
     setBusy(true);
     try {
       await api.put('/me/profile', { ...v, city: city.slug });
-      await reloadMe();
-      location.hash = '#/explore';
+      await reloadMe(); // continue where the student was going
     } catch (x) { setErr(x.message); } finally { setBusy(false); }
   };
 

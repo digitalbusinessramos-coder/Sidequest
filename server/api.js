@@ -25,6 +25,27 @@ const list = (v, allowed, max = 12) => {
   return [...new Set(allowed ? arr.filter((x) => allowed.includes(x)) : arr.map((x) => x.trim().slice(0, 40)).filter(Boolean))].slice(0, max);
 };
 const CAT_KEYS = CATEGORIES.map((c) => c.key);
+const REVISION = (process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT || 'local').slice(0, 7);
+const RELEASE = 'pre-launch-1';
+const TIME_MODES = ['exact', 'window', 'tbd'];
+// Accounts used for testing are kept out of campaign numbers and never get emails: addresses with "+test" or on test domains.
+const TEST_DOMAINS = (process.env.TEST_EMAIL_DOMAINS || 'example.com,example.org,test.invalid').split(',').map((d) => d.trim().toLowerCase()).filter(Boolean);
+const isTestEmail = (email) => /\+test[^@]*@/i.test(email) || TEST_DOMAINS.includes(email.split('@')[1]);
+// Parts of a day, in local time. A "window" plan is listed until its window ends.
+const TIME_WINDOWS = { morning: ['09:00', '13:00'], afternoon: ['14:00', '19:00'], evening: ['19:00', '23:59'] };
+// Optional duration choices. Minutes are only used to decide when a plan stops being listed.
+const DURATIONS = { hour: 60, few: 180, open: 240 };
+const COST_MODES = ['free', 'estimate', 'unknown'];
+// Suggested meeting areas that are not in the city's neighbourhood list, with an approximate centre for the map.
+const AREA_ALIASES = [
+  { words: ['canteras', 'guanarteme'], key: 'canteras' },
+  { words: ['santa catalina', 'puerto'], key: 'santacatalina' },
+  { words: ['triana', 'vegueta'], key: 'triana' },
+  { words: ['tafira'], key: 'tafira' },
+  { words: ['obelisco'], lat: 28.118, lng: -15.425 },
+  { words: ['schamann', 'escaleritas'], key: 'schamann' },
+  { words: ['siete palmas', 'tamaraceite'], key: 'sietepalmas' },
+];
 const SLOT_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].flatMap((d) => ['morning', 'afternoon', 'evening'].map((p) => `${d}_${p}`));
 
 export function createApi(db) {
@@ -45,6 +66,7 @@ export function createApi(db) {
   const sha = (x) => crypto.createHash('sha256').update(x).digest('hex');
   const origin = (req) => process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
   async function startVerification(req, uid, email) {
+    if (isTestEmail(email)) { db.prepare('UPDATE users SET is_test = 1 WHERE id = ?').run(uid); return { sent: false, test: true }; }
     const token = crypto.randomBytes(24).toString('base64url');
     db.prepare('DELETE FROM email_tokens WHERE user_id = ?').run(uid);
     db.prepare('INSERT INTO email_tokens (token_hash, user_id, email, expires_at) VALUES (?,?,?,?)')
@@ -92,7 +114,11 @@ export function createApi(db) {
   });
 
   const goingCount = (aid) => 1 + db.prepare("SELECT COUNT(*) AS n FROM memberships WHERE activity_id = ? AND status = 'accepted'").get(aid).n;
-  const isPast = (a) => new Date(a.starts_at).getTime() + a.duration_min * 60e3 < Date.now();
+  // Plans created since the pre-launch release store when they end (end of the time window or day); older plans use start + duration.
+  const endOf = (a) => (a.ends_at ? new Date(a.ends_at).getTime() : new Date(a.starts_at).getTime() + (a.duration_min || 0) * 60e3);
+  const isPast = (a) => endOf(a) < Date.now();
+  const isCapped = (a) => a.capped == null || a.capped === 1;
+  const isFull = (a) => isCapped(a) && goingCount(a.id) >= a.max_participants;
   const membershipOf = (aid, uid) => db.prepare('SELECT * FROM memberships WHERE activity_id = ? AND user_id = ?').get(aid, uid);
   const getActivity = (id) => db.prepare('SELECT * FROM activities WHERE id = ?').get(Number(id)) || fail(404, 'not_found', 'This activity no longer exists.');
   const systemMsg = (aid, body) => db.prepare("INSERT INTO messages (activity_id, kind, body) VALUES (?, 'system', ?)").run(aid, body);
@@ -101,6 +127,8 @@ export function createApi(db) {
   // ---------- notifications ----------
   const notify = (uid, kind, aid, actorId = null, detail = '') => {
     if (!uid || uid === actorId) return;
+    // Retries and repeated taps never stack identical unread updates.
+    if (db.prepare('SELECT 1 FROM notifications WHERE user_id = ? AND kind = ? AND activity_id IS ? AND actor_id IS ? AND read_at IS NULL').get(uid, kind, aid, actorId)) return;
     db.prepare('INSERT INTO notifications (user_id, kind, activity_id, actor_id, detail) VALUES (?,?,?,?,?)').run(uid, kind, aid, actorId, detail);
   };
   const notifyMembers = (aid, statuses, kind, actorId, detail = '') => {
@@ -115,7 +143,10 @@ export function createApi(db) {
   /** Approximate map position: the centre of the named neighbourhood, never an exact meeting point. */
   const approxSpot = (city, text) => {
     const t = String(text || '').toLowerCase();
-    const area = J(city.areas).find((x) => t.includes(x.name.toLowerCase()) || x.name.toLowerCase().split(/[ /]+/).some((w) => w.length > 4 && t.includes(w)));
+    const extra = AREA_ALIASES.find((x) => x.words.some((w) => t.includes(w)));
+    if (extra?.lat) return { lat: extra.lat, lng: extra.lng, area: text };
+    const key = extra?.key;
+    const area = J(city.areas).find((x) => x.key === key || t.includes(x.name.toLowerCase()) || x.name.toLowerCase().split(/[ /]+/).some((w) => w.length > 4 && w !== 'palmas' && t.includes(w)));
     return area ? { lat: area.lat, lng: area.lng, area: area.name } : null;
   };
 
@@ -125,16 +156,23 @@ export function createApi(db) {
     const m = viewerId ? membershipOf(a.id, viewerId) : null;
     const isOrg = viewerId === a.organiser_id;
     const past = isPast(a);
-    const state = a.status === 'cancelled' ? 'cancelled' : past ? 'past' : going >= a.max_participants ? 'full' : 'open';
+    const capped = isCapped(a);
+    const state = a.status === 'cancelled' ? 'cancelled' : past ? 'past' : capped && going >= a.max_participants ? 'full' : 'open';
+    // Cost: what the creator chose. Older plans have no cost_mode: a positive amount stays an estimate, an old 0 is shown as "not specified".
+    const costMode = a.cost_mode || (a.cost_eur > 0 ? 'estimate' : null);
     const ev = a.event_id ? db.prepare('SELECT id, title, is_sample FROM events WHERE id = ?').get(a.event_id) : null;
     const v = {
       id: a.id, title: a.title, description: a.description, category: a.category, template: a.template,
-      starts_at: a.starts_at, duration_min: a.duration_min, timezone: city.timezone, city: city.name,
+      starts_at: a.starts_at, duration_min: a.duration_min || null, timezone: city.timezone, city: city.name,
       starts_local: utcToLocalInput(a.starts_at, city.timezone),
-      meeting_area: a.meeting_area, cost_eur: a.cost_eur, max_participants: a.max_participants,
+      time_mode: a.time_mode || 'exact', time_window: a.time_window || null, day: utcToLocalInput(a.starts_at, city.timezone).slice(0, 10),
+      duration_choice: a.duration_choice || null, ends_at: new Date(endOf(a)).toISOString(),
+      meeting_area: a.meeting_area, cost_mode: costMode, cost_eur: costMode === 'estimate' ? a.cost_eur : null,
+      capped, max_participants: capped ? a.max_participants : null,
+      photo: a.photo_mime ? `/api/activities/${a.id}/photo?v=${a.photo_v || 0}` : null,
       beginner_friendly: !!a.beginner_friendly, pace: a.pace, transport: a.transport,
       languages: J(a.languages), solo_format: !!a.solo_format, is_sample: !!a.is_sample,
-      status: a.status, cancel_reason: a.cancel_reason, state, going, spots_left: Math.max(0, a.max_participants - going),
+      status: a.status, cancel_reason: a.cancel_reason, state, going, spots_left: capped ? Math.max(0, a.max_participants - going) : null,
       organiser: personSummary(profileOf(a.organiser_id)), event: ev,
       my_status: isOrg ? 'organiser' : m?.status || null,
       welcome_plan: a.welcome_plan, recognise_tip: a.recognise_tip,
@@ -157,11 +195,12 @@ export function createApi(db) {
   // ---------- meta ----------
   r.get('/meta', (_req, res) => {
     const cities = db.prepare('SELECT slug, name, country, timezone, areas FROM cities').all().map((c) => ({ ...c, areas: J(c.areas) }));
-    const personas = config.demoMode
-      ? db.prepare("SELECT p.user_id AS id, p.first_name, p.intro, p.avatar_hue FROM profiles p JOIN users u ON u.id = p.user_id WHERE u.is_demo = 1 ORDER BY p.user_id").all()
-      : [];
-    res.json({ appName: config.appName, demoMode: config.demoMode, cities, personas, categories: CATEGORIES, recCategories: REC_CATEGORIES, marketKinds: MARKET_KINDS, marketCategories: MARKET_CATEGORIES, feedbackKinds: FEEDBACK_KINDS, templates: TEMPLATES, languages: LANGUAGES, budgets: BUDGETS.map(({ key, label }) => ({ key, label })), reportReasons: REPORT_REASONS });
+    const personas = []; // signing in as an example person is switched off for launch
+    res.json({ appName: config.appName, demoMode: config.demoMode, revision: REVISION, cities, personas, categories: CATEGORIES, recCategories: REC_CATEGORIES, marketKinds: MARKET_KINDS, marketCategories: MARKET_CATEGORIES, feedbackKinds: FEEDBACK_KINDS, templates: TEMPLATES, languages: LANGUAGES, budgets: BUDGETS.map(({ key, label }) => ({ key, label })), reportReasons: REPORT_REASONS });
   });
+
+  // Which code is running (the git commit Railway deployed), for deployment reports.
+  r.get('/version', (_req, res) => res.json({ revision: REVISION, release: RELEASE }));
 
   // ---------- auth ----------
   r.post('/auth/signup', async (req, res) => {
@@ -193,7 +232,7 @@ export function createApi(db) {
   });
 
   r.post('/auth/demo', (req, res) => {
-    if (!config.demoMode) fail(403, 'demo_off', 'Demo mode is switched off.');
+    if (!config.demoMode || !process.env.ALLOW_EXAMPLE_LOGIN) fail(410, 'demo_off', 'Example accounts are no longer available.');
     const u = db.prepare('SELECT id FROM users WHERE id = ? AND is_demo = 1').get(Number(req.body.personaId));
     if (!u) fail(404, 'not_found', 'Sample persona not found.');
     createSession(db, res, u.id);
@@ -254,6 +293,38 @@ export function createApi(db) {
     db.prepare('UPDATE users SET email_verified_at = ? WHERE id = ?').run(now(), row.user_id);
     db.prepare('DELETE FROM email_tokens WHERE user_id = ?').run(row.user_id);
     res.redirect('/#/profile?verified=1');
+  });
+
+  // Password recovery. The answer never reveals whether an account exists. The link holds no plan information.
+  const resetLimit = rateLimiter(5, 60 * 60e3);
+  r.post('/auth/password/forgot', async (req, res) => {
+    if (!resetLimit(req.ip)) fail(429, 'rate', 'Too many attempts. Please wait a few minutes.');
+    const email = str(req.body.email, 200, 'Email', { required: true }).toLowerCase();
+    if (!emailConfigured()) return res.json({ ok: true, sent: false });
+    const u = db.prepare("SELECT id FROM users WHERE email = ? AND is_demo = 0 AND is_guest = 0 AND password_hash NOT IN ('deleted')").get(email);
+    if (u) {
+      const token = crypto.randomBytes(24).toString('base64url');
+      db.prepare('DELETE FROM password_tokens WHERE user_id = ?').run(u.id);
+      db.prepare('INSERT INTO password_tokens (token_hash, user_id, expires_at) VALUES (?,?,?)').run(sha(token), u.id, new Date(Date.now() + 3600e3).toISOString());
+      await sendEmail({
+        to: email, subject: `Choose a new password for ${config.appName}`,
+        text: `Hi!\n\nSomeone asked to reset the password of your ${config.appName} account. To choose a new one, open this link within 1 hour:\n${origin(req)}/#/reset?token=${token}\n\nIf this wasn't you, ignore this email. Your password stays the same.`,
+      }).catch((e) => console.error(e));
+    }
+    res.json({ ok: true, sent: true });
+  });
+  r.post('/auth/password/reset', (req, res) => {
+    const row = db.prepare('SELECT * FROM password_tokens WHERE token_hash = ?').get(sha(String(req.body.token || '')));
+    if (!row || row.expires_at < now()) fail(400, 'invalid', 'This link is invalid or has expired. Ask for a new one from Log in.');
+    const password = String(req.body.password || '');
+    if (password.length < 8) fail(400, 'invalid', 'Password must be at least 8 characters.');
+    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(password), row.user_id);
+    // The link was opened from the inbox, which shows the person receives email at this address.
+    db.prepare('UPDATE users SET email_verified_at = COALESCE(email_verified_at, ?) WHERE id = ?').run(now(), row.user_id);
+    db.prepare('DELETE FROM password_tokens WHERE user_id = ?').run(row.user_id);
+    db.prepare('DELETE FROM sessions WHERE user_id = ?').run(row.user_id);
+    createSession(db, res, row.user_id);
+    res.json({ ok: true });
   });
 
   r.post('/auth/logout', (req, res) => { destroySession(db, req, res); res.json({ ok: true }); });
@@ -343,7 +414,7 @@ export function createApi(db) {
         notifyMembers(a.id, ['accepted', 'pending', 'invited'], 'cancelled', null, 'The organiser deleted their account.');
       }
       db.prepare("UPDATE activities SET status='cancelled', cancel_reason='The organiser deleted their account.' WHERE organiser_id = ? AND status='active'").run(uid);
-      db.prepare("UPDATE activities SET title='Cancelled activity', description='', meeting_point='', welcome_plan='', recognise_tip='' WHERE organiser_id = ?").run(uid);
+      db.prepare("UPDATE activities SET title='Cancelled activity', description='', meeting_point='', welcome_plan='', recognise_tip='', photo=NULL, photo_mime=NULL WHERE organiser_id = ?").run(uid);
       for (const m of db.prepare("SELECT activity_id FROM memberships WHERE user_id = ? AND status = 'accepted'").all(uid)) systemMsg(m.activity_id, 'A participant left (account deleted).');
       db.prepare('DELETE FROM memberships WHERE user_id = ?').run(uid);
       db.prepare('DELETE FROM messages WHERE user_id = ?').run(uid);
@@ -386,7 +457,7 @@ export function createApi(db) {
     const rows = db.prepare(`SELECT p.*, u.is_demo, u.is_guest FROM profiles p JOIN users u ON u.id = p.user_id
       WHERE p.city_id = ? AND p.visible = 1 AND p.onboarded = 1 AND u.is_guest = 0 AND p.user_id != ? AND p.first_name != 'Deleted user'`).all(me.city_id, req.user.id);
     const people = rows
-      .filter((p) => !blocked.has(p.user_id) && (me.show_sample || !p.is_demo))
+      .filter((p) => !blocked.has(p.user_id) && !p.is_demo)
       .map((p) => {
         const interests = J(p.interests);
         const plans = db.prepare(`SELECT COUNT(*) AS n FROM activities WHERE organiser_id = ? AND status = 'active' AND starts_at > ?`).get(p.user_id, now()).n;
@@ -444,10 +515,10 @@ export function createApi(db) {
   });
 
   // ---------- activities ----------
+  // Example content never appears in discovery or search (pre-launch release 1). One read-only example plan lives in the app's Help.
   function visibleFilter(rows, uid) {
     const blocked = blockedSet(uid);
-    const showSample = !!profileOf(uid)?.show_sample;
-    return rows.filter((a) => !blocked.has(a.organiser_id) && (showSample || !a.is_sample));
+    return rows.filter((a) => !blocked.has(a.organiser_id) && !a.is_sample);
   }
 
   function whenMatch(a, when, tz) {
@@ -467,21 +538,23 @@ export function createApi(db) {
 
   function applyFilters(views, q) {
     const budget = BUDGETS.find((b) => b.key === q.budget);
+    // Only plans the creator marked free count as free. Unknown or unspecified costs never match a budget filter.
+    const withinBudget = (v) => v.cost_mode === 'free' || (v.cost_mode === 'estimate' && v.cost_eur <= budget.max);
+    const size = (v) => (v.max_participants == null ? 'group' : v.max_participants <= 2 ? 'buddy' : v.max_participants <= 5 ? 'small' : 'group');
     return views.filter((v) =>
       (!q.category || v.category === q.category) &&
-      (!budget || v.cost_eur <= budget.max) &&
-      (!q.size || (q.size === 'buddy' ? v.max_participants <= 2 : q.size === 'small' ? v.max_participants >= 3 && v.max_participants <= 5 : v.max_participants >= 6)) &&
+      (!budget || withinBudget(v)) &&
+      (!q.size || size(v) === q.size) &&
       (!q.lang || v.languages.length === 0 || v.languages.includes(q.lang)) &&
       (q.beginner !== '1' || v.beginner_friendly) &&
-      (q.solo !== '1' || v.solo_format) &&
       (q.open !== '1' || v.state === 'open') &&
       (!q.q || `${v.title} ${v.description} ${v.meeting_area}`.toLowerCase().includes(String(q.q).toLowerCase())));
   }
 
   r.get('/activities', auth, (req, res) => {
     const city = cityBySlug(req.query.city) || fail(404, 'not_found', 'Unknown city.');
-    const rows = db.prepare(`SELECT * FROM activities WHERE city_id = ? AND status = 'active'
-      AND datetime(starts_at, '+' || duration_min || ' minutes') > datetime('now') ORDER BY starts_at LIMIT 300`).all(city.id);
+    const rows = db.prepare(`SELECT * FROM activities WHERE city_id = ? AND status = 'active' AND is_sample = 0
+      AND COALESCE(datetime(ends_at), datetime(starts_at, '+' || duration_min || ' minutes')) > datetime('now') ORDER BY starts_at LIMIT 300`).all(city.id);
     const views = visibleFilter(rows, req.user.id).filter((a) => whenMatch(a, req.query.when, city.timezone)).map((a) => activityView(a, req.user.id));
     res.json({ activities: applyFilters(views, req.query) });
   });
@@ -506,45 +579,85 @@ export function createApi(db) {
     res.json({ activity: v });
   });
 
+  /**
+   * What the creator said, and nothing more. Time is an exact time, a part of a day ("Saturday afternoon") or a day with the time
+   * still to be agreed. Duration, cost and group size are optional and stay blank when skipped.
+   * Older clients that still send starts_local / duration_min / cost_eur / max_participants keep working.
+   */
   function readActivityInput(b, city, existing) {
     const tz = city.timezone;
-    const startsIso = localToUtcIso(b.starts_local, tz) || fail(400, 'invalid', 'Please choose a date and time.');
-    if (!existing && new Date(startsIso) < new Date()) fail(400, 'invalid', 'The start time is in the past.');
-    const duration = Math.round(Number(b.duration_min));
-    if (!(duration >= 15 && duration <= 24 * 60)) fail(400, 'invalid', 'Duration must be between 15 minutes and 24 hours.');
-    const max = Math.round(Number(b.max_participants));
-    if (!(max >= 2 && max <= 30)) fail(400, 'invalid', 'Group size must be between 2 and 30 people, including you.');
-    const cost = Number(b.cost_eur || 0);
-    if (!(cost >= 0 && cost <= 500)) fail(400, 'invalid', 'Cost must be between €0 and €500.');
+    const mode = TIME_MODES.includes(b.time_mode) ? b.time_mode : 'exact';
+    const day = /^\d{4}-\d{2}-\d{2}$/.test(b.day || '') ? b.day : (b.starts_local || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) fail(400, 'invalid', 'Please choose a day.');
+    let startLocal; let endLocal = null; let win = null;
+    if (mode === 'exact') {
+      const time = /^\d{2}:\d{2}$/.test(b.time || '') ? b.time : (b.starts_local || '').slice(11, 16);
+      if (!/^\d{2}:\d{2}$/.test(time)) fail(400, 'invalid', 'Please choose a time, or pick a part of the day.');
+      startLocal = `${day}T${time}`;
+    } else if (mode === 'window') {
+      win = TIME_WINDOWS[b.time_window] ? b.time_window : fail(400, 'invalid', 'Please choose morning, afternoon or evening.');
+      [startLocal, endLocal] = TIME_WINDOWS[win].map((hm) => `${day}T${hm}`);
+    } else {
+      startLocal = `${day}T12:00`; // sorting only: shown as "time to be agreed"
+      endLocal = `${day}T23:59`;
+    }
+    const startsIso = localToUtcIso(startLocal, tz) || fail(400, 'invalid', 'Please choose a day.');
+    const durationChoice = DURATIONS[b.duration_choice] ? b.duration_choice : null;
+    const legacyDuration = b.duration_choice === undefined && Number(b.duration_min) >= 15 && Number(b.duration_min) <= 24 * 60 ? Math.round(Number(b.duration_min)) : 0;
+    let endsIso;
+    if (endLocal) endsIso = localToUtcIso(endLocal, tz);
+    else {
+      // Only used to decide when a plan stops being listed; never shown as a duration.
+      const mins = durationChoice ? DURATIONS[durationChoice] : legacyDuration || 180;
+      endsIso = new Date(new Date(startsIso).getTime() + mins * 60e3).toISOString();
+      if (durationChoice === 'open') endsIso = [endsIso, localToUtcIso(`${day}T23:59`, tz)].sort()[1];
+    }
+    if (!existing && new Date(mode === 'exact' ? startsIso : endsIso) < new Date()) fail(400, 'invalid', mode === 'exact' ? 'The start time is in the past.' : 'That day has already passed.');
+
+    // Group size: blank means no limit. A limit includes the creator.
+    const rawMax = b.max_participants;
+    const capped = !(rawMax === '' || rawMax == null || rawMax === 0);
+    const max = capped ? Math.round(Number(rawMax)) : 30;
+    if (capped && !(max >= 2 && max <= 30)) fail(400, 'invalid', 'Group size must be between 2 and 30 people, including you.');
+
+    // Cost: free, an estimate per person, "there's a cost, amount unknown", or left blank.
+    let costMode = COST_MODES.includes(b.cost_mode) ? b.cost_mode : null;
+    if (b.cost_mode === undefined && Number(b.cost_eur) > 0) costMode = 'estimate';
+    let cost = 0;
+    if (costMode === 'estimate') {
+      cost = Number(b.cost_eur);
+      if (!(cost > 0 && cost <= 500)) fail(400, 'invalid', 'Add an estimated cost between €0.50 and €500, or choose another cost option.');
+    }
     return {
       template: TEMPLATES.some((t) => t.key === b.template) ? b.template : 'other',
       category: CAT_KEYS.includes(b.category) ? b.category : 'other',
       title: str(b.title, 80, 'Title', { required: true }),
       description: str(b.description, 600, 'Description'),
-      starts_at: startsIso, duration_min: duration,
+      starts_at: startsIso, ends_at: endsIso, time_mode: mode, time_window: win,
+      duration_min: durationChoice ? 0 : legacyDuration, duration_choice: durationChoice,
       meeting_area: str(b.meeting_area, 80, 'Meeting area', { required: true }),
       meeting_point: str(b.meeting_point, 200, 'Meeting point'),
-      cost_eur: Math.round(cost * 100) / 100, max_participants: max,
+      cost_eur: Math.round(cost * 100) / 100, cost_mode: costMode, max_participants: max, capped: capped ? 1 : 0,
       beginner_friendly: b.beginner_friendly ? 1 : 0,
-      pace: str(b.pace, 40, 'Pace') || null, transport: str(b.transport, 160, 'Transport') || null,
-      languages: JSON.stringify(list(b.languages, LANGUAGES)),
-      solo_format: b.solo_format ? 1 : 0,
-      welcome_plan: str(b.welcome_plan, 300, 'Welcome plan'),
-      recognise_tip: str(b.recognise_tip, 160, 'How to recognise the group'),
       join_mode: b.join_mode === 'open' ? 'open' : 'request',
     };
   }
 
+  const requireAccount = (req) => {
+    if (req.user.is_guest) fail(401, 'account_needed', 'Create a free account or log in to continue. It takes a few seconds and brings you straight back here.');
+  };
+
   r.post('/activities', auth, (req, res) => {
+    requireAccount(req);
     const p = profileOf(req.user.id);
     const city = cityById(p.city_id);
     const d = readActivityInput(req.body, city, null);
     const id = tx(db, () => {
-      const { lastInsertRowid } = db.prepare(`INSERT INTO activities (city_id, organiser_id, template, category, title, description, starts_at, duration_min,
-        meeting_area, meeting_point, cost_eur, max_participants, beginner_friendly, pace, transport, languages, solo_format, welcome_plan, recognise_tip, is_sample, join_mode)
+      const { lastInsertRowid } = db.prepare(`INSERT INTO activities (city_id, organiser_id, template, category, title, description, starts_at, ends_at, time_mode, time_window,
+        duration_min, duration_choice, meeting_area, meeting_point, cost_eur, cost_mode, max_participants, capped, beginner_friendly, is_sample, join_mode)
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
-        city.id, req.user.id, d.template, d.category, d.title, d.description, d.starts_at, d.duration_min, d.meeting_area, d.meeting_point,
-        d.cost_eur, d.max_participants, d.beginner_friendly, d.pace, d.transport, d.languages, d.solo_format, d.welcome_plan, d.recognise_tip,
+        city.id, req.user.id, d.template, d.category, d.title, d.description, d.starts_at, d.ends_at, d.time_mode, d.time_window,
+        d.duration_min, d.duration_choice, d.meeting_area, d.meeting_point, d.cost_eur, d.cost_mode, d.max_participants, d.capped, d.beginner_friendly,
         req.user.is_demo ? 1 : 0, d.join_mode);
       // A student plan can point at an event (e.g. a visit to the Christmas market on a chosen day). It reserves nothing there.
       const ev = req.body.event_id && db.prepare("SELECT id FROM events WHERE id = ? AND city_id = ? AND status = 'active'").get(Number(req.body.event_id), city.id);
@@ -567,13 +680,13 @@ export function createApi(db) {
       if (a.status === 'cancelled') fail(409, 'cancelled', 'Cancelled activities cannot be edited.');
       if (isPast(a)) fail(409, 'past', 'Past activities cannot be edited.');
       const d = readActivityInput(req.body, cityById(a.city_id), a);
-      if (d.max_participants < goingCount(a.id)) fail(409, 'capacity', `${goingCount(a.id)} people are already going. Remove someone before lowering the group size.`);
-      db.prepare(`UPDATE activities SET template=?, category=?, title=?, description=?, starts_at=?, duration_min=?, meeting_area=?, meeting_point=?, cost_eur=?,
-        max_participants=?, beginner_friendly=?, pace=?, transport=?, languages=?, solo_format=?, welcome_plan=?, recognise_tip=?, join_mode=?, updated_at=? WHERE id=?`).run(
-        d.template, d.category, d.title, d.description, d.starts_at, d.duration_min, d.meeting_area, d.meeting_point, d.cost_eur, d.max_participants,
-        d.beginner_friendly, d.pace, d.transport, d.languages, d.solo_format, d.welcome_plan, d.recognise_tip, d.join_mode, now(), a.id);
+      if (d.capped && d.max_participants < goingCount(a.id)) fail(409, 'capacity', `${goingCount(a.id)} people are already going. Remove someone before lowering the group size.`);
+      db.prepare(`UPDATE activities SET template=?, category=?, title=?, description=?, starts_at=?, ends_at=?, time_mode=?, time_window=?, duration_min=?, duration_choice=?,
+        meeting_area=?, meeting_point=?, cost_eur=?, cost_mode=?, max_participants=?, capped=?, beginner_friendly=?, join_mode=?, updated_at=? WHERE id=?`).run(
+        d.template, d.category, d.title, d.description, d.starts_at, d.ends_at, d.time_mode, d.time_window, d.duration_min, d.duration_choice,
+        d.meeting_area, d.meeting_point, d.cost_eur, d.cost_mode, d.max_participants, d.capped, d.beginner_friendly, d.join_mode, now(), a.id);
       const changes = [];
-      if (d.starts_at !== a.starts_at) changes.push('time');
+      if (d.starts_at !== a.starts_at || d.time_mode !== (a.time_mode || 'exact')) changes.push('time');
       if (d.meeting_point !== a.meeting_point || d.meeting_area !== a.meeting_area) changes.push('meeting point');
       if (changes.length) {
         systemMsg(a.id, `The organiser changed the ${changes.join(' and ')}. Check the meet-up card.`);
@@ -595,17 +708,46 @@ export function createApi(db) {
     res.json({ ok: true });
   });
 
+  // Optional plan picture (resized in the browser). Only logged-in people see it.
+  r.put('/activities/:id/photo', auth, (req, res) => {
+    const a = ownActivity(req);
+    const m = /^data:(image\/jpeg);base64,([A-Za-z0-9+/=]+)$/.exec(String(req.body?.data || ''));
+    if (!m) fail(400, 'invalid', 'Please choose a JPEG, PNG or WebP picture.');
+    const buf = Buffer.from(m[2], 'base64');
+    if (buf.length > 600 * 1024) fail(413, 'too_large', 'That picture is too large. Please choose a smaller one.');
+    if (!(buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff)) fail(400, 'invalid', 'That file does not look like a picture.');
+    db.prepare('UPDATE activities SET photo_mime = ?, photo = ?, photo_v = photo_v + 1 WHERE id = ?').run(m[1], buf, a.id);
+    res.json({ ok: true });
+  });
+  r.delete('/activities/:id/photo', auth, (req, res) => {
+    const a = ownActivity(req);
+    db.prepare('UPDATE activities SET photo_mime = NULL, photo = NULL, photo_v = photo_v + 1 WHERE id = ?').run(a.id);
+    res.json({ ok: true });
+  });
+  r.get('/activities/:id/photo', auth, (req, res) => {
+    const a = getActivity(req.params.id);
+    if (blockedSet(req.user.id).has(a.organiser_id) || !a.photo_mime) fail(404, 'not_found', 'Not found.');
+    res.set('Content-Type', a.photo_mime);
+    res.set('Cache-Control', 'private, max-age=86400');
+    res.set('Content-Security-Policy', "default-src 'none'; sandbox");
+    res.send(Buffer.from(a.photo));
+  });
+
   // Request to join (or re-request after leaving).
   r.post('/activities/:id/requests', auth, (req, res) => {
     const uid = req.user.id;
+    requireAccount(req);
     const result = tx(db, () => {
       const a = getActivity(req.params.id);
       if (a.organiser_id === uid) fail(409, 'own', 'You are the organiser of this activity.');
+      if (a.is_sample && !req.user.is_demo) fail(409, 'example', 'This is an example plan, so nobody can join it.');
       if (a.status === 'cancelled') fail(409, 'cancelled', 'This activity was cancelled.');
       if (isPast(a)) fail(409, 'past', 'This activity has already happened.');
       if (blockedSet(uid).has(a.organiser_id)) fail(404, 'not_found', 'This activity is not available.');
-      if (goingCount(a.id) >= a.max_participants) fail(409, 'full', 'This activity is full.');
       const m = membershipOf(a.id, uid);
+      // A repeated tap on a request that already went through is answered with the current state, not a second request.
+      if (m && ['pending', 'accepted'].includes(m.status)) return { status: m.status, repeated: true };
+      if (isFull(a)) fail(409, 'full', 'This activity is full.');
       const msg = str(req.body.message, 280, 'Message');
       const open = a.join_mode === 'open';
       const status = open ? 'accepted' : 'pending';
@@ -653,7 +795,7 @@ export function createApi(db) {
         if (m.status !== 'pending') fail(409, 'state', 'This request is no longer waiting.');
         if (a.status === 'cancelled') fail(409, 'cancelled', 'This activity was cancelled.');
         if (isPast(a)) fail(409, 'past', 'This activity has already happened.');
-        if (goingCount(a.id) >= a.max_participants) fail(409, 'full', 'The activity is full. Increase the group size or decline the request.');
+        if (isFull(a)) fail(409, 'full', 'The activity is full. Increase the group size or decline the request.');
         db.prepare("UPDATE memberships SET status='accepted', updated_at=? WHERE id=?").run(now(), m.id);
         systemMsg(a.id, `${nameOf(target)} joined. Say hello!`);
         notify(target, 'request_accepted', a.id, req.user.id);
@@ -687,7 +829,7 @@ export function createApi(db) {
     if (a.status === 'cancelled' || isPast(a)) fail(409, 'state', 'This activity is not open.');
     if (blockedSet(organiserId).has(targetId)) fail(404, 'not_found', 'This person is not available.');
     if (!inviteEligible(a, targetId)) fail(403, 'not_eligible', 'You can only invite people who said they are interested in this kind of plan.');
-    if (goingCount(a.id) >= a.max_participants) fail(409, 'full', 'This activity is full.');
+    if (isFull(a)) fail(409, 'full', 'This activity is full.');
     const m = membershipOf(a.id, targetId);
     if (m) {
       if (m.status === 'pending') fail(409, 'pending', 'They already asked to join. Accept their request instead.');
@@ -712,7 +854,8 @@ export function createApi(db) {
       if (!m || m.status !== 'invited') fail(409, 'state', 'There is no open invitation.');
       if (req.params.action === 'accept') {
         if (a.status === 'cancelled' || isPast(a)) fail(409, 'state', 'This activity is no longer open.');
-        if (goingCount(a.id) >= a.max_participants) fail(409, 'full', 'Sorry, the activity filled up.');
+        requireAccount(req);
+        if (isFull(a)) fail(409, 'full', 'Sorry, the activity filled up.');
         db.prepare("UPDATE memberships SET status='accepted', updated_at=? WHERE id=?").run(now(), m.id);
         systemMsg(a.id, `${nameOf(req.user.id)} accepted the invitation and joined.`);
         notify(a.organiser_id, 'invite_accepted', a.id, req.user.id);
@@ -788,7 +931,7 @@ export function createApi(db) {
   function eventView(e, uid) {
     const city = cityById(e.city_id);
     const blocked = blockedSet(uid);
-    const showSample = !!profileOf(uid)?.show_sample;
+    const showSample = false; // examples are never mixed into discovery
     const seekers = db.prepare(`SELECT i.*, u.is_demo FROM event_interests i JOIN profiles p ON p.user_id = i.user_id JOIN users u ON u.id = i.user_id
       WHERE i.event_id = ? AND p.visible = 1`).all(e.id).filter((i) => !blocked.has(i.user_id) && (showSample || !i.is_demo));
     return {
@@ -806,7 +949,7 @@ export function createApi(db) {
       approx: e.lat != null ? { lat: e.lat, lng: e.lng, area: e.venue } : approxSpot(city, e.venue),
       chat_count: db.prepare('SELECT COUNT(*) AS n FROM event_messages WHERE event_id = ?').get(e.id).n,
       tickets_count: db.prepare("SELECT COUNT(*) AS n FROM listings WHERE event_id = ? AND kind = 'ticket' AND status != 'sold'").get(e.id).n,
-      groups_count: db.prepare("SELECT COUNT(*) AS n FROM activities WHERE event_id = ? AND status = 'active' AND starts_at > ?").get(e.id, now()).n,
+      groups_count: db.prepare("SELECT COUNT(*) AS n FROM activities WHERE event_id = ? AND status = 'active' AND is_sample = 0 AND starts_at > ?").get(e.id, now()).n,
       i_am_seeking: seekers.some((s) => s.user_id === uid) || !!db.prepare('SELECT 1 FROM event_interests WHERE event_id=? AND user_id=?').get(e.id, uid),
       _seekers: seekers,
     };
@@ -814,7 +957,7 @@ export function createApi(db) {
 
   r.get('/events', auth, (req, res) => {
     const city = cityBySlug(req.query.city) || fail(404, 'not_found', 'Unknown city.');
-    const showSample = !!profileOf(req.user.id)?.show_sample;
+    const showSample = false; // examples are never mixed into discovery
     const rows = db.prepare(`SELECT * FROM events WHERE city_id = ? AND status = 'active'
       AND COALESCE(datetime(listed_until), datetime(starts_at, '+' || duration_min || ' minutes')) > datetime('now') ORDER BY starts_at`).all(city.id)
       .filter((e) => showSample || !e.is_sample).filter((e) => whenMatch(e, req.query.when, city.timezone))
@@ -845,7 +988,7 @@ export function createApi(db) {
     // Other dates or sessions of the same listing, each its own event with its own link.
     v.sessions = e.series_key ? db.prepare(`SELECT id, starts_at FROM events WHERE series_key = ? AND status = 'active'
       AND datetime(starts_at, '+' || duration_min || ' minutes') > datetime('now') ORDER BY starts_at`).all(e.series_key) : [];
-    v.groups = db.prepare("SELECT * FROM activities WHERE event_id = ? AND status = 'active'").all(e.id)
+    v.groups = db.prepare("SELECT * FROM activities WHERE event_id = ? AND status = 'active' AND is_sample = 0").all(e.id)
       .filter((a) => !blocked.has(a.organiser_id)).map((a) => activityView(a, uid));
     res.json({ event: v });
   });
@@ -880,11 +1023,11 @@ export function createApi(db) {
         const p = profileOf(uid);
         const { lastInsertRowid } = db.prepare(`INSERT INTO activities (city_id, organiser_id, event_id, template, category, title, description, starts_at, duration_min,
           meeting_area, cost_eur, max_participants, beginner_friendly, languages, welcome_plan, recognise_tip, is_sample)
-          VALUES (?,?,?,?,?,?,?,?,?,?,0,?,1,?,?,?,?)`).run(
+          VALUES (?,?,?,?,?,?,?,?,?,?,0,?,0,?,?,?,?)`).run(
           e.city_id, uid, e.id, 'other', e.category, `Going together: ${e.title}`.slice(0, 80),
           'A small group going to this event together. Joining this group does not register you for the event or buy a ticket. Use the official link for that.',
           meet, e.duration_min + 20, mine.meeting_option || `Near ${e.venue}`, max, mine.languages,
-          `${p.first_name} will wait at the meeting point 20 minutes before the start.`, '', req.user.is_demo ? 1 : 0);
+          '', '', req.user.is_demo ? 1 : 0);
         systemMsg(lastInsertRowid, `${p.first_name} started a group to go to "${e.title}" together.`);
         a = db.prepare('SELECT * FROM activities WHERE id = ?').get(lastInsertRowid);
       }
@@ -932,7 +1075,7 @@ export function createApi(db) {
       const others = db.prepare(`SELECT w.*, u.is_demo FROM wishes w JOIN profiles p ON p.user_id = w.user_id JOIN users u ON u.id = w.user_id
         WHERE w.city_id = ? AND w.category = ? AND w.user_id != ? AND p.visible = 1`).all(w.city_id, w.category, uid);
       for (const o of others) {
-        if (blocked.has(o.user_id) || (!me.show_sample && o.is_demo)) continue;
+        if (blocked.has(o.user_id) || o.is_demo) continue;
         const a = J(w.slots); const b = J(o.slots);
         const overlap = a.length && b.length ? a.filter((s) => b.includes(s)) : [];
         const flexible = !a.length || !b.length;
@@ -1029,7 +1172,7 @@ export function createApi(db) {
     const uid = req.user.id;
     const city = cityBySlug(req.query.city) || fail(404, 'not_found', 'Unknown city.');
     const blocked = blockedSet(uid);
-    const showSample = !!profileOf(uid)?.show_sample;
+    const showSample = false; // examples are never mixed into discovery
     let rows = db.prepare('SELECT * FROM recommendations WHERE city_id = ? ORDER BY id DESC LIMIT 300').all(city.id)
       .filter((x) => !blocked.has(x.user_id) && (showSample || !x.is_sample || x.user_id === uid));
     if (req.query.category) rows = rows.filter((x) => x.category === req.query.category);
@@ -1154,7 +1297,7 @@ export function createApi(db) {
     const uid = req.user.id;
     const city = cityBySlug(req.query.city) || fail(404, 'not_found', 'Unknown city.');
     const blocked = blockedSet(uid);
-    const showSample = !!profileOf(uid)?.show_sample;
+    const showSample = false; // examples are never mixed into discovery
     const mine = req.query.mine === '1';
     let rows = db.prepare(`SELECT * FROM listings WHERE city_id = ? ${mine ? 'AND user_id = ?' : "AND status != 'sold'"} ORDER BY id DESC LIMIT 300`)
       .all(...(mine ? [city.id, uid] : [city.id]))

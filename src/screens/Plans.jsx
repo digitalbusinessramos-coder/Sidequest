@@ -2,7 +2,7 @@ import { t, tx } from '../i18n.js';
 import { useMemo, useState } from 'react';
 import { ActivityCard, Empty, ErrorState, Icon, Loading, Stamp, useApp } from '../components.jsx';
 import { locale } from '../i18n.js';
-import { fmtWhen, useApi } from '../util.js';
+import { fmtPlanWhen, fmtWhen, useApi } from '../util.js';
 
 const NOTE_TEXT = {
   request_received: ['{name} asked to join “{title}”.', 'group'],
@@ -85,7 +85,11 @@ function Calendar({ data, tz }) {
   const [day, setDay] = useState(today);
   const items = useMemo(() => {
     const out = [];
-    for (const k of ['organising', 'confirmed', 'waiting', 'invited']) for (const a of data[k]) out.push({ kind: k, id: a.id, title: a.title, category: a.category, starts_at: a.starts_at, duration: a.duration_min, href: `#/activity/${a.id}`, where: a.meeting_area });
+    // Flexible plans sit in their time window (or at midday, labelled “time to be agreed”); never an invented exact time.
+    for (const k of ['organising', 'confirmed', 'waiting', 'invited']) for (const a of data[k]) {
+      const dur = Math.max(45, Math.min(12 * 60, Math.round((new Date(a.ends_at).getTime() - new Date(a.starts_at).getTime()) / 60e3)));
+      out.push({ kind: k, id: a.id, title: a.title, category: a.category, starts_at: a.starts_at, duration: a.time_mode === 'tbd' ? 60 : dur, flexible: a.time_mode !== 'exact', label: a.time_mode === 'exact' ? null : fmtPlanWhen(a), href: `#/activity/${a.id}`, where: a.meeting_area });
+    }
     for (const e of data.events || []) out.push({ kind: 'event', id: `e${e.id}`, title: e.title, category: e.category, starts_at: e.starts_at, duration: e.duration_min, href: `#/event/${e.id}`, where: e.venue });
     return out.map((x) => ({ ...x, ...localParts(x.starts_at, tz) })).sort((a, b) => a.starts_at.localeCompare(b.starts_at));
   }, [data, tz]);
@@ -142,7 +146,7 @@ function Calendar({ data, tz }) {
                   <Stamp category={x.category} size="sm" />
                   <span style={{ minWidth: 0 }}>
                     <strong className="tt-title">{x.title}</strong>
-                    <span className="tiny" style={{ display: 'block' }}>{hhmm(x.mins)}–{hhmm(x.mins + x.duration)} · {tx(KIND_LABEL[x.kind])}</span>
+                    <span className="tiny" style={{ display: 'block' }}>{x.flexible ? x.label : `${hhmm(x.mins)}–${hhmm(x.mins + x.duration)}`} · {tx(KIND_LABEL[x.kind])}</span>
                   </span>
                 </span>
               </a>

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { tx } from '../i18n.js';
-import { Avatar, ChoiceChips, Empty, ErrorState, Icon, Loading, ReportSheet, SampleBadge, Sheet, TopBar, useApp } from '../components.jsx';
+import { AreaInput, Avatar, ChoiceChips, Empty, ErrorState, Icon, Loading, ReportSheet, SampleBadge, Sheet, TopBar, useApp } from '../components.jsx';
 import { api as rawApi } from '../api.js';
 import { fmtPrice, fmtWhen, resizeToJpeg, useApi } from '../util.js';
 
@@ -255,13 +255,8 @@ export function ListingForm({ editId, query = {} }) {
         <label className="field"><span>{tx('Description (optional)')}</span>
           <textarea className="textarea" maxLength={1000} value={v.description} onChange={(e) => set({ description: e.target.value })} placeholder={tx('Condition, size, when you can hand it over…')} />
         </label>
-        <label className="field"><span>{tx('Pick-up area (optional)')}</span>
-          <select className="select" value={v.area} onChange={(e) => set({ area: e.target.value })}>
-            <option value="">{tx('Agree in the chat')}</option>
-            {city.areas.map((a) => <option key={a.key} value={a.name}>{a.name}</option>)}
-          </select>
-          <span className="hint">{tx('Never post your home address. Agree on a public place in the chat.')}</span>
-        </label>
+        <AreaInput id="pickup-area" label={tx('Pickup area')} value={v.area} onChange={(area) => set({ area })}
+          hint={tx('Optional. A public area, never your home address. You can agree on the exact place in the chat.')} />
         <div className="field"><span className="label">{tx('Picture (optional)')}</span>
           <div className="row" style={{ gap: 12 }}>
             {(photo || v.photo) && <img src={photo || v.photo} alt="" className="listing-thumb" />}

@@ -1,8 +1,8 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { LANGUAGE_OPTIONS, t, tx } from './i18n.js';
-import { eventText, fmtCost, fmtEventWhen, fmtWhen } from './util.js';
+import { eventText, fmtEventWhen, fmtPlaces, fmtPlanCost, fmtPlanWhen } from './util.js';
 import { PHOTOS, photo, photoFor } from '../shared/photos.js';
-import { DAYS, categoryLabel } from '../shared/catalog.js';
+import { AREA_SUGGESTIONS, DAYS, categoryLabel } from '../shared/catalog.js';
 
 export const AppCtx = createContext(null);
 export const useApp = () => useContext(AppCtx);
@@ -193,16 +193,20 @@ export function Spots({ going, max }) {
   );
 }
 
-/** Activity card: what, when, cost, places, group preferences, solo format, and the viewer's status. */
+/** Plan card: what, when, where, and only the details the creator gave. */
 export function ActivityCard({ a, reason }) {
   const cls = a.state === 'cancelled' ? 'is-cancelled' : a.state === 'past' ? 'is-past' : '';
   const status = a.state === 'cancelled' || a.state === 'past' ? a.state : a.my_status;
+  const when = fmtPlanWhen(a);
+  const cost = fmtPlanCost(a);
+  const places = fmtPlaces(a);
+  const ticket = a.event && !a.event.is_sample;
   return (
-    <a href={`#/activity/${a.id}`} className={`card act-card has-cover ${cls}`} aria-label={`${a.title}, ${fmtWhen(a.starts_at, a.timezone)}`}>
-      <CardCover ph={photoFor(a.category)} category={a.category} />
+    <a href={`#/activity/${a.id}`} className={`card act-card has-cover ${cls}`} aria-label={`${a.title}, ${when}`}>
+      {a.photo ? <div className="card-cover" aria-hidden="true"><img src={a.photo} alt="" loading="lazy" /><Stamp category={a.category} /></div> : <CardCover ph={photoFor(a.category)} category={a.category} />}
       <div className="stack-sm" style={{ minWidth: 0 }}>
         <div className="row wrap" style={{ gap: 6 }}>
-          <span className="when">{fmtWhen(a.starts_at, a.timezone)}</span>
+          <span className="when">{when}</span>
           <span className="spacer" />
           {a.is_sample && <SampleBadge />}
           {status && <StatusBadge status={status} />}
@@ -211,18 +215,14 @@ export function ActivityCard({ a, reason }) {
         <div className="title">{a.title}</div>
         <div className="facts">
           <span><Icon name="pin" size={15} />{a.meeting_area}</span>
-          <span><Icon name="euro" size={15} />{a.event && !a.event.is_sample
-            ? (Number(a.cost_eur) > 0 ? tx('{cost} + event ticket', { cost: fmtCost(a.cost_eur) }) : tx('Event ticket from the organiser'))
-            : fmtCost(a.cost_eur)}</span>
+          {(cost || ticket) && <span><Icon name="euro" size={15} />{ticket ? (cost ? tx('{cost} + event ticket', { cost }) : tx('Event ticket from the organiser')) : cost}</span>}
         </div>
         <div className="row wrap ticket-edge" style={{ gap: 8 }}>
-          <Spots going={a.going} max={a.max_participants} />
-          <span className="small" style={{ fontWeight: 650 }}>
-            {a.state === 'full' ? t('card.full') : a.max_participants === 2 ? tx("One buddy") : t('card.spots', { n: a.spots_left, max: a.max_participants })}
-          </span>
+          {places && <><Spots going={a.going} max={a.max_participants} /><span className="small" style={{ fontWeight: 650 }}>{places}</span></>}
+          {!places && <span className="small muted">{tx('{n} going', { n: a.going })}</span>}
           {a.join_mode === 'open' && <span className="badge badge-open"><Icon name="bolt" size={12} />{tx('Join directly')}</span>}
           {a.unread > 0 && <span className="badge badge-invited"><Icon name="chat" size={13} />{tx(a.unread === 1 ? '1 new message' : '{n} new messages', { n: a.unread })}</span>}
-          {a.organiser?.id && a.my_status === 'organiser' && a.pending_count > 0 && (
+          {a.my_status === 'organiser' && a.pending_count > 0 && (
             <span className="badge badge-cancelled">{tx('{n} to review', { n: a.pending_count })}</span>
           )}
         </div>
@@ -431,6 +431,23 @@ export function StatusLine({ status, compact = false }) {
     <div className={`status-line ${compact ? 'compact' : ''}`}>
       <Icon name="bolt" size={14} />
       <span><span className="sr-only">{tx('Feels like:')} </span>{bits.join(' · ')}{status.note && !compact ? <span className="muted"> · “{status.note}”</span> : null}</span>
+    </div>
+  );
+}
+
+/** A writable area field with a few suggestions under it. Nothing is preselected; any other area can be typed. */
+export function AreaInput({ id = 'area', label, hint, value, onChange, required = false, placeholder }) {
+  return (
+    <div className="field">
+      <label htmlFor={id} className="label">{label}</label>
+      <input id={id} className="input" maxLength={80} required={required} value={value} autoComplete="off"
+        onChange={(e) => onChange(e.target.value)} placeholder={placeholder || tx('e.g. Las Canteras, Siete Palmas, Schamann')} aria-describedby={hint ? `${id}-hint` : undefined} />
+      <div className="suggest-row" role="group" aria-label={tx('Suggestions')}>
+        {AREA_SUGGESTIONS.map((a) => (
+          <button key={a} type="button" className="chip chip-sm" aria-pressed={value === a} onClick={() => onChange(a)}>{a}</button>
+        ))}
+      </div>
+      {hint && <span id={`${id}-hint`} className="hint">{hint}</span>}
     </div>
   );
 }

@@ -27,6 +27,47 @@ export function fmtCost(eur) {
   return tx('est. €{n} pp', { n: Number(eur).toFixed(eur % 1 ? 2 : 0) });
 }
 
+// ---------- plans: only what the creator said ----------
+export const WINDOW_LABEL = { morning: 'morning', afternoon: 'afternoon', evening: 'evening' };
+export const DURATION_LABEL = { hour: 'About an hour', few: 'A few hours', open: 'Open-ended' };
+
+function dayLabel(iso, tz) {
+  const dayKey = (x) => new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(x);
+  const k = dayKey(new Date(iso));
+  if (k === dayKey(new Date())) return tx('Today');
+  if (k === dayKey(new Date(Date.now() + 864e5))) return tx('Tomorrow');
+  return new Intl.DateTimeFormat(locale(), { timeZone: tz, weekday: 'short', day: 'numeric', month: 'short' }).format(new Date(iso));
+}
+
+/** "Sat 28 Nov, 18:00", "Sat 28 Nov, afternoon" or "Sat 28 Nov, time to be agreed". */
+export function fmtPlanWhen(a) {
+  if (a.time_mode === 'window') return tx('{day}, {part}', { day: dayLabel(a.starts_at, a.timezone), part: tx(WINDOW_LABEL[a.time_window] || '') });
+  if (a.time_mode === 'tbd') return tx('{day}, time to be agreed', { day: dayLabel(a.starts_at, a.timezone) });
+  return fmtWhen(a.starts_at, a.timezone);
+}
+
+/** Cost line, or null when the creator did not say. A historical 0 is not guessed to mean free. */
+export function fmtPlanCost(a) {
+  if (a.cost_mode === 'free') return tx('Free');
+  if (a.cost_mode === 'estimate' && a.cost_eur > 0) return fmtCost(a.cost_eur);
+  if (a.cost_mode === 'unknown') return tx('There’s a cost, amount unknown');
+  return null;
+}
+
+/** Duration line, or null when skipped. Older plans still show their exact duration. */
+export function fmtPlanDuration(a) {
+  if (a.duration_choice) return tx(DURATION_LABEL[a.duration_choice]);
+  if (a.time_mode === 'exact' && a.duration_min) return fmtDuration(a.duration_min);
+  return null;
+}
+
+/** Places line, only when there is a real limit. */
+export function fmtPlaces(a) {
+  if (!a.capped || a.max_participants == null) return null;
+  if (a.state === 'full') return tx('Full');
+  return tx(a.spots_left === 1 ? '1 place left' : '{n} places left', { n: a.spots_left });
+}
+
 export function tzLabel(tz) {
   return tz === 'Atlantic/Canary' ? tx('Canary Islands time') : tz;
 }

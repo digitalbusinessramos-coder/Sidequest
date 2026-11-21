@@ -9,6 +9,7 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sq-test-'));
 process.env.DB_PATH = path.join(dir, 'test.db');
 process.env.AUTH_RATE_LIMIT = '10000';
 process.env.NODE_ENV = 'test';
+process.env.SEED_EXAMPLES = '1';
 const { openDb } = await import('../server/db.js');
 const { createApp } = await import('../server/index.js');
 const { seed } = await import('../server/seed.js');
@@ -95,8 +96,11 @@ test('duplicate requests are rejected', async () => {
   const org = await user('Omar'); const b = await user('Ben');
   const id = await makeActivity(org);
   assert.equal((await b.post(`/activities/${id}/requests`)).status, 201);
+  // A double tap is answered with the current state; it never creates a second request or a second notification.
   const dup = await b.post(`/activities/${id}/requests`);
-  assert.equal(dup.status, 409); assert.equal(dup.body.error, 'duplicate');
+  assert.equal(dup.body.repeated, true); assert.equal(dup.body.status, 'pending');
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM memberships WHERE activity_id = ? AND user_id = ?').get(id, b.id).n, 1);
+  assert.equal((await org.get('/notifications')).body.notifications.filter((n) => n.kind === 'request_received' && n.activity.id === id).length, 1);
 });
 
 test('joining the final place, then the activity is full', async () => {
@@ -464,9 +468,12 @@ test('guest access: one click, private by default, can be saved as an account', 
   // Guests do not appear in other people's student lists.
   const u = await user('Vera', { interests: ['beach'] });
   assert.ok(!(await u.get('/people')).body.people.some((p) => p.id === me.id));
-  // Guests can still use the app normally.
+  // Guests can look at plans, but joining or publishing first needs an account (so the plan can be found again later).
   const a = await makeActivity(u);
-  assert.equal((await g.post(`/activities/${a}/requests`, { message: 'Hi' })).status, 201);
+  assert.equal((await g.get(`/activities/${a}`)).status, 200);
+  const blocked = await g.post(`/activities/${a}/requests`, { message: 'Hi' });
+  assert.equal(blocked.status, 401); assert.equal(blocked.body.error, 'account_needed');
+  assert.equal((await g.post('/activities', { title: 'x', day: localIn(2).slice(0, 10), time_mode: 'tbd', meeting_area: 'Triana' })).body.error, 'account_needed');
   // Save as an account, keeping what the guest did.
   assert.equal((await g.post('/auth/claim', { email: 'bad', password: 'password123' })).status, 400);
   assert.equal((await g.post('/auth/claim', { email: u.email, password: 'password123' })).status, 409);
@@ -474,6 +481,7 @@ test('guest access: one click, private by default, can be saved as an account', 
   const after = (await g.get('/me')).body.user;
   assert.equal(after.is_guest, false); assert.equal(after.first_name, 'Gus'); assert.equal(after.id, me.id);
   assert.ok((await u.get('/people')).body.people.some((p) => p.id === me.id));
+  assert.equal((await g.post(`/activities/${a}/requests`, { message: 'Hi' })).status, 201, 'after saving the account the request goes through');
   assert.equal((await g.post('/auth/claim', { email: 'x@test.example', password: 'password123' })).status, 400);
   const login = client();
   assert.equal((await login.post('/auth/login', { email: 'gus@test.example', password: 'password123' })).status, 200);
@@ -487,12 +495,9 @@ test('students list: visible people, shared interests first, blocked people hidd
   const list = (await a.get('/people')).body.people;
   const xb = list.find((p) => p.id === b.id);
   assert.deepEqual(xb.shared, ['surf']);
-  assert.ok(list.some((p) => p.is_demo)); // example students are included while "show example content" is on
-  assert.ok(list.findIndex((p) => p.is_demo) > list.findIndex((p) => p.id === b.id)); // real people first
+  assert.ok(!list.some((p) => p.is_demo), 'example students never appear');
   await a.post(`/users/${b.id}/block`);
   assert.ok(!(await a.get('/people')).body.people.some((p) => p.id === b.id));
-  await a.put('/me/privacy', { show_sample: false });
-  assert.ok(!(await a.get('/people')).body.people.some((p) => p.is_demo));
 });
 
 test('buddies status: only what the owner sets, editable, clearable, hidden once expired', async () => {
@@ -566,4 +571,127 @@ test('real events: stable ids, safe re-import, Canary time, organiser links, no 
     // Attendance counts start from real app activity: one person looking, nobody invented.
     assert.equal((await b.get(`/events/${alb.id}`)).body.event.seeking_count, 1);
   } else t.diagnostic('listed dates are in the past; skipped the live part');
+});
+
+// ---------- pre-launch release 1 ----------
+const dayIn = (days) => localIn(days).slice(0, 10);
+function nextWeekday(target) { // 6 = Saturday
+  for (let i = 1; i <= 7; i++) if (new Date(`${dayIn(i)}T12:00:00Z`).getUTCDay() === target) return dayIn(i);
+  return null;
+}
+
+test('R1 custom plan: skipped time, duration, cost and size stay blank, never invented', async () => {
+  const org = await user('Paula');
+  const r = await org.post('/activities', { title: 'Watching the surf at La Cícer', day: dayIn(3), time_mode: 'tbd', meeting_area: 'Siete Palmas' });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const a = (await org.get(`/activities/${r.body.id}`)).body.activity;
+  assert.equal(a.time_mode, 'tbd'); assert.equal(a.day, dayIn(3));
+  assert.equal(a.duration_choice, null); assert.equal(a.duration_min, null);
+  assert.equal(a.cost_mode, null); assert.equal(a.cost_eur, null);
+  assert.equal(a.capped, false); assert.equal(a.max_participants, null); assert.equal(a.spots_left, null);
+  assert.equal(a.state, 'open'); assert.equal(a.category, 'other'); assert.equal(a.meeting_area, 'Siete Palmas');
+  // Missing day or time choice is an error, not a silent default.
+  assert.equal((await org.post('/activities', { title: 'x', meeting_area: 'Triana', time_mode: 'exact', day: dayIn(2) })).status, 400);
+  assert.equal((await org.post('/activities', { title: 'x', meeting_area: 'Triana', time_mode: 'window', day: dayIn(2) })).status, 400);
+  assert.equal((await org.post('/activities', { title: 'x', meeting_area: 'Triana', time_mode: 'tbd' })).status, 400);
+  assert.equal((await org.post('/activities', { title: 'x', time_mode: 'tbd', day: dayIn(2) })).status, 400, 'meeting area is required');
+  assert.equal((await org.post('/activities', { title: 'x', meeting_area: 'Triana', time_mode: 'tbd', day: dayIn(-1) })).status, 400, 'past day');
+});
+
+test('R1 flexible plans appear in the right day and weekend filters', async () => {
+  const org = await user('Quim');
+  const sat = nextWeekday(6);
+  const w = await org.post('/activities', { title: 'Saturday afternoon beach', day: sat, time_mode: 'window', time_window: 'afternoon', meeting_area: 'Las Canteras' });
+  const t = await org.post('/activities', { title: 'Tomorrow, time tbd', day: dayIn(1), time_mode: 'tbd', meeting_area: 'Triana' });
+  const ids = async (when) => (await org.get(`/activities?city=las-palmas&when=${when}`)).body.activities.map((x) => x.id);
+  assert.ok((await ids('weekend')).includes(w.body.id));
+  assert.ok(!(await ids('weekend')).includes(t.body.id) || ['sat', 'sun'].includes(new Date(`${dayIn(1)}T12:00:00Z`).toUTCString().slice(0, 3).toLowerCase()));
+  assert.ok((await ids('tomorrow')).includes(t.body.id));
+  const wa = (await org.get(`/activities/${w.body.id}`)).body.activity;
+  assert.equal(wa.time_window, 'afternoon'); assert.equal(wa.starts_local.slice(11), '14:00');
+  assert.equal(wa.ends_at, new Date(`${wa.ends_at}`).toISOString());
+});
+
+test('R1 cost: only plans marked free match the Free filter; old zero prices are not guessed', async () => {
+  const org = await user('Rosa');
+  const mk = async (extra) => (await org.post('/activities', { title: 'Cost test', day: dayIn(2), time_mode: 'tbd', meeting_area: 'Vegueta', ...extra })).body.id;
+  const free = await mk({ cost_mode: 'free' });
+  const est = await mk({ cost_mode: 'estimate', cost_eur: 8 });
+  const unknown = await mk({ cost_mode: 'unknown' });
+  const blank = await mk({});
+  assert.equal((await org.post('/activities', { title: 'x', day: dayIn(2), time_mode: 'tbd', meeting_area: 'Vegueta', cost_mode: 'estimate' })).status, 400);
+  // A plan from before this release with cost_eur 0 and no cost_mode.
+  const legacy = await mk({});
+  db.prepare('UPDATE activities SET cost_mode = NULL, cost_eur = 0 WHERE id = ?').run(legacy);
+  const freeIds = (await org.get('/activities?city=las-palmas&budget=free')).body.activities.map((x) => x.id);
+  assert.ok(freeIds.includes(free)); for (const x of [est, unknown, blank, legacy]) assert.ok(!freeIds.includes(x));
+  const low = (await org.get('/activities?city=las-palmas&budget=low')).body.activities.map((x) => x.id);
+  assert.ok(low.includes(free) && low.includes(est) && !low.includes(unknown) && !low.includes(blank));
+  const view = async (id) => (await org.get(`/activities/${id}`)).body.activity;
+  assert.equal((await view(unknown)).cost_mode, 'unknown'); assert.equal((await view(est)).cost_eur, 8);
+  assert.equal((await view(legacy)).cost_mode, null, 'an old 0 is not shown as free');
+  const old5 = await mk({}); db.prepare('UPDATE activities SET cost_mode = NULL, cost_eur = 5 WHERE id = ?').run(old5);
+  assert.equal((await view(old5)).cost_mode, 'estimate'); assert.equal((await view(old5)).cost_eur, 5);
+});
+
+test('R1 capacity: optional; uncapped plans are never full; two requests for the final place', async () => {
+  const org = await user('Sami');
+  const open = (await org.post('/activities', { title: 'Open, no limit', day: dayIn(2), time_mode: 'tbd', meeting_area: 'Triana', join_mode: 'open' })).body.id;
+  for (let i = 0; i < 4; i++) { const u = await user(`Open${i}`); assert.equal((await u.post(`/activities/${open}/requests`)).body.status, 'accepted'); }
+  const ov = (await org.get(`/activities/${open}`)).body.activity;
+  assert.equal(ov.going, 5); assert.equal(ov.state, 'open'); assert.equal(ov.spots_left, null);
+  // Capped at 2 (organiser + 1), open join: two people tap at the same moment for the last place.
+  const last = (await org.post('/activities', { title: 'One place', day: dayIn(2), time_mode: 'exact', time: '18:00', meeting_area: 'Triana', join_mode: 'open', max_participants: 2 })).body.id;
+  const [u1, u2] = [await user('Tia'), await user('Udo')];
+  const res = await Promise.all([u1.post(`/activities/${last}/requests`), u2.post(`/activities/${last}/requests`)]);
+  assert.deepEqual(res.map((x) => x.status).sort(), [201, 409]);
+  const lv = (await org.get(`/activities/${last}`)).body.activity;
+  assert.equal(lv.going, 2); assert.equal(lv.state, 'full'); assert.equal(lv.spots_left, 0);
+  // Request mode: two pending requests, only one can be accepted for the final place.
+  const req = (await org.post('/activities', { title: 'Ask, one place', day: dayIn(2), time_mode: 'tbd', meeting_area: 'Triana', max_participants: 2 })).body.id;
+  await u1.post(`/activities/${req}/requests`); await u2.post(`/activities/${req}/requests`);
+  const acc = await Promise.all([org.post(`/activities/${req}/members/${u1.id}/accept`), org.post(`/activities/${req}/members/${u2.id}/accept`)]);
+  assert.deepEqual(acc.map((x) => x.status).sort(), [200, 409]);
+  // Existing capacity and approval settings are kept on older plans.
+  const legacy = await makeActivity(org, { max_participants: 3 });
+  db.prepare('UPDATE activities SET capped = NULL WHERE id = ?').run(legacy);
+  const old = (await org.get(`/activities/${legacy}`)).body.activity;
+  assert.equal(old.capped, true); assert.equal(old.max_participants, 3); assert.equal(old.join_mode, 'request');
+});
+
+test('R1 examples stay out of discovery and cannot be joined; real content and links still work', async () => {
+  const u = await user('Vic');
+  const sampleAct = db.prepare('SELECT id FROM activities WHERE is_sample = 1 LIMIT 1').get();
+  assert.ok(sampleAct, 'test database has example plans');
+  const list = (await u.get('/activities?city=las-palmas')).body.activities;
+  assert.ok(list.every((a) => !a.is_sample));
+  assert.ok((await u.get('/events?city=las-palmas')).body.events.every((e) => !e.is_sample));
+  assert.ok((await u.get('/recommendations?city=las-palmas')).body.recommendations.every((x) => !x.is_sample));
+  assert.ok((await u.get('/market?city=las-palmas')).body.listings.every((x) => !x.is_sample));
+  assert.ok((await u.get('/people')).body.people.every((p) => !p.is_demo));
+  assert.equal((await u.post(`/activities/${sampleAct.id}/requests`)).body.error, 'example');
+  assert.equal((await u.get('/meta')).body.personas.length, 0);
+  assert.equal((await client().post('/auth/demo', { personaId: 1 })).status, 410);
+  // Real plans keep working through the old link format and the new share link.
+  const id = await makeActivity(u);
+  assert.equal((await u.get(`/activities/${id}`)).status, 200);
+  const share = await fetch(base.replace('/api', `/p/${id}`));
+  const html = await share.text();
+  assert.ok(html.includes('Museum visit') && html.includes(`/#/activity/${id}`));
+  assert.ok(!html.includes('Cathedral steps'), 'the share preview never shows the exact meeting point');
+});
+
+test('R1 password recovery never reveals accounts and works without email setup', async () => {
+  const u = await user('Wim');
+  const r = await client().post('/auth/password/forgot', { email: u.email });
+  assert.equal(r.status, 200); assert.equal(r.body.sent, false, 'no email provider in tests: the app says so');
+  assert.equal((await client().post('/auth/password/reset', { token: 'nope', password: 'whatever123' })).status, 400);
+  const crypto = await import('node:crypto');
+  const token = 'tok-' + Date.now();
+  db.prepare('INSERT INTO password_tokens (token_hash, user_id, expires_at) VALUES (?,?,?)').run(crypto.createHash('sha256').update(token).digest('hex'), u.id, new Date(Date.now() + 6e5).toISOString());
+  const c = client();
+  assert.equal((await c.post('/auth/password/reset', { token, password: 'newpassword1' })).status, 200);
+  assert.equal((await c.get('/me')).body.user.id, u.id);
+  assert.equal((await client().post('/auth/login', { email: u.email, password: 'newpassword1' })).status, 200);
+  assert.equal((await client().post('/auth/password/reset', { token, password: 'again12345' })).status, 400, 'one-time link');
 });

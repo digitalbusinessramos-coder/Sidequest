@@ -4,7 +4,7 @@ import { ActivityCard, ChoiceChips, Empty, ErrorState, EventCard, Icon, Loading,
 
 const MapView = lazy(() => import('../MapView.jsx'));
 const HERO = ['canteras', 'vegueta', 'cathedral', 'auditorio', 'roque', 'dunes'];
-import { areaName, collapseSeries, useApi } from '../util.js';
+import { areaName, collapseSeries, fmtPlaces, fmtPlanWhen, useApi } from '../util.js';
 
 const WHEN = ['any', 'weekend', 'today', 'tomorrow', 'week'];
 
@@ -26,7 +26,7 @@ function reasonFor(a, me, myAreaName) {
 export default function Explore() {
   const { me, meta, city, openTour } = useApp();
   const [when, setWhen] = useState('any');
-  const [quick, setQuick] = useState({ free: false, beginner: false, solo: false });
+  const [quick, setQuick] = useState({ free: false, beginner: false });
   const [more, setMore] = useState({ category: '', size: '', lang: '', budget: '', open: false });
   const [q, setQ] = useState('');
   const [dq, setDq] = useState(''); // search text, sent to the server after a short pause
@@ -40,7 +40,6 @@ export default function Explore() {
   if (quick.free) params.set('budget', 'free');
   else if (more.budget) params.set('budget', more.budget);
   if (quick.beginner) params.set('beginner', '1');
-  if (quick.solo) params.set('solo', '1');
   if (more.category) params.set('category', more.category);
   if (more.size) params.set('size', more.size);
   if (more.lang) params.set('lang', more.lang);
@@ -53,16 +52,16 @@ export default function Explore() {
 
   const moreCount = ['category', 'size', 'lang', 'budget'].filter((k) => more[k]).length + (more.open ? 1 : 0);
   const anyFilter = when !== 'any' || Object.values(quick).some(Boolean) || moreCount || q;
-  const clear = () => { setWhen('any'); setQuick({ free: false, beginner: false, solo: false }); setMore({ category: '', size: '', lang: '', budget: '', open: false }); setQ(''); };
+  const clear = () => { setWhen('any'); setQuick({ free: false, beginner: false }); setMore({ category: '', size: '', lang: '', budget: '', open: false }); setQ(''); };
   const myArea = areaName(city.areas, me.area);
-  const showEvents = !quick.solo && !quick.beginner && !quick.free && !more.size && !more.lang && !more.open && !dq;
+  const showEvents = !quick.beginner && !quick.free && !more.size && !more.lang && !more.open && !dq;
 
   const list = acts.data?.activities || [];
   const sorted = useMemo(() => list, [list]);
   const tips = useApi(view === 'map' && showTips ? `/recommendations?city=${city.slug}` : null);
   const mapItems = useMemo(() => {
     const out = [];
-    for (const a of sorted) if (a.approx) out.push({ key: `a${a.id}`, kind: 'activity', lat: a.approx.lat, lng: a.approx.lng, title: a.title, sub: `${a.approx.area} · ${tx(a.state === 'full' ? 'Full' : '{n} places left', { n: a.spots_left })}`, href: `#/activity/${a.id}`, category: a.category });
+    for (const a of sorted) if (a.approx) out.push({ key: `a${a.id}`, kind: 'activity', lat: a.approx.lat, lng: a.approx.lng, title: a.title, sub: [a.meeting_area, fmtPlanWhen(a), fmtPlaces(a)].filter(Boolean).join(' · '), href: `#/activity/${a.id}`, category: a.category });
     if (showEvents) for (const e of evs.data?.events || []) if (e.approx) out.push({ key: `e${e.id}`, kind: 'event', lat: e.approx.lat, lng: e.approx.lng, title: e.title, sub: e.venue, href: `#/event/${e.id}`, category: e.category });
     if (showTips) for (const r of tips.data?.recommendations || []) if (r.approx) out.push({ key: `t${r.id}`, kind: 'tip', lat: r.approx.lat, lng: r.approx.lng, title: r.title, sub: tx('Tip from {name} · {n} likes', { name: r.author.first_name, n: r.likes }), href: '#/guide', category: 'other' });
     return out;
@@ -79,7 +78,7 @@ export default function Explore() {
             <h1>{t('explore.title')}</h1>
           </div>
           <span className="spacer" />
-          <button className="btn btn-sm hero-help" onClick={openTour} aria-label={tx('How it works')}><Icon name="info" size={15} /><span className="hide-narrow">{tx('How it works')}</span></button>
+          <a className="btn btn-sm hero-help" href="#/help" aria-label={tx('Help')}><Icon name="info" size={15} /><span className="hide-narrow">{tx('How it works')}</span></a>
         </div>
       </PhotoHero>
 
@@ -101,7 +100,7 @@ export default function Explore() {
             ))}
           </div>
           <div className="chips" role="group" aria-label={tx("Quick filters")}>
-            {[['solo', 'filter.solo'], ['free', 'filter.free'], ['beginner', 'filter.beginner']].map(([k, label]) => (
+            {[['free', 'filter.free'], ['beginner', 'filter.beginner']].map(([k, label]) => (
               <button key={k} className="chip" aria-pressed={quick[k]} onClick={() => setQuick({ ...quick, [k]: !quick[k] })}>{t(label)}</button>
             ))}
             <button className="chip" aria-pressed={showFilters || moreCount > 0} onClick={() => setShowFilters(true)}>
@@ -125,7 +124,7 @@ export default function Explore() {
         </div>
         {acts.loading && !acts.data ? <Loading /> : acts.error ? <ErrorState error={acts.error} onRetry={acts.reload} />
           : sorted.length === 0 ? (
-            <Empty icon="search" title={t('explore.noResults')} hint={t('explore.noResultsHint')}>
+            <Empty icon="search" title={anyFilter ? t('explore.noResults') : tx('No upcoming plans yet')} hint={anyFilter ? t('explore.noResultsHint') : tx('Be the first: post what you feel like doing and people can join you.')}>
               <div className="row wrap" style={{ justifyContent: 'center' }}>
                 {anyFilter && <button className="btn btn-primary btn-sm" onClick={clear}>{tx('See all upcoming plans')}</button>}
                 <a className={`btn btn-sm ${anyFilter ? 'btn-secondary' : 'btn-primary'}`} href="#/create">{tx("Create a plan")}</a>
@@ -160,7 +159,7 @@ export default function Explore() {
       {showFilters && (
         <Sheet title={t('explore.moreFilters')} onClose={() => setShowFilters(false)}>
           <div className="field"><span className="label">{tx("Activity")}</span>
-            <ChoiceChips label={tx("Activity")} value={more.category} onChange={(category) => setMore({ ...more, category })} options={meta.categories.map((c) => ({ key: c.key, label: c.label }))} />
+            <ChoiceChips label={tx("Activity")} value={more.category} onChange={(category) => setMore({ ...more, category })} options={meta.categories.filter((c) => c.key !== 'other').map((c) => ({ key: c.key, label: c.label }))} />
           </div>
           <div className="field"><span className="label">{tx("Budget per person")}</span>
             <ChoiceChips label={tx("Budget")} value={more.budget} onChange={(budget) => setMore({ ...more, budget })} options={meta.budgets} />

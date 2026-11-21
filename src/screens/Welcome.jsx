@@ -16,15 +16,14 @@ export default function Welcome() {
     setBusy(true); setErr('');
     try {
       await api.post(mode === 'signup' ? '/auth/signup' : '/auth/login', { email, password });
-      await reloadMe();
-      location.hash = '#/explore';
+      await reloadMe(); // stays on the link the student opened (a shared plan, for example)
     } catch (x) { setErr(x.message); } finally { setBusy(false); }
   };
 
   const guest = async () => {
     setBusy(true); setErr('');
     try { localStorage.removeItem('sq_wants_login'); } catch { /* ignore */ }
-    try { await api.post('/auth/guest', {}); await reloadMe(); location.hash = '#/explore'; } catch (x) { setErr(x.message); } finally { setBusy(false); }
+    try { await api.post('/auth/guest', {}); await reloadMe(); } catch (x) { setErr(x.message); } finally { setBusy(false); }
   };
   const demo = async (id) => {
     setBusy(true); setErr('');

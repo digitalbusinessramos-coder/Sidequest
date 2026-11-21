@@ -172,8 +172,6 @@ export default function Profile({ sub }) {
               {city.areas.map((a) => <option key={a.key} value={a.key}>{a.name}</option>)}
             </select>
           </label>
-          <label className="switch" style={{ borderBottom: 0 }}><span><strong>{t('profile.sample')}</strong><br /><span className="hint">{t('profile.sampleHint')}</span></span>
-            <input type="checkbox" role="switch" checked={me.show_sample} disabled={busy} onChange={(e) => privacy({ show_sample: e.target.checked })} /></label>
         </div>
       </section>
 
@@ -197,8 +195,8 @@ export default function Profile({ sub }) {
 
       <section className="stack-sm" aria-labelledby="about-h">
         <h2 id="about-h">{tx('About {app}')}</h2>
-        <p className="small muted">{tx('{app} is an independent student project developed for the Digital Business course at ULPGC.', { app: getAppName() })} {tx('Recommendations use simple, visible rules, not AI. The students, plans and events marked “Example” are made up for this preview. We are not affiliated with ESN Las Palmas, Erasmus Life Las Palmas or any other organisation.')}</p>
-        <button className="btn btn-secondary btn-sm" style={{ alignSelf: 'flex-start' }} onClick={openTour}><Icon name="info" size={16} />{tx('How it works')}</button>
+        <p className="small muted">{tx('{app} is an independent student project developed for the Digital Business course at ULPGC.', { app: getAppName() })} {tx('Plans and profiles are posted by students. Example content is kept out of the app; one clearly labelled example plan is in Help. We are not affiliated with ESN Las Palmas, Erasmus Life Las Palmas or any other organisation.')}</p>
+        <a className="btn btn-secondary btn-sm" style={{ alignSelf: 'flex-start' }} href="#/help"><Icon name="info" size={16} />{tx('Help')}</a>
       </section>
 
       <div className="stack-sm">

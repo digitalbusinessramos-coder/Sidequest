@@ -96,3 +96,13 @@ export const FEEDBACK_KINDS = [
   { key: 'problem', label: 'Something doesn’t work' },
   { key: 'other', label: 'Something else' },
 ];
+
+// Create form (pre-launch release 1): four small, editable suggestions. Tapping one only fills the title.
+export const PLAN_SUGGESTIONS = [
+  { key: 'coffee', title: 'Coffee', category: 'coffee' },
+  { key: 'volleyball', title: 'Beach volleyball', category: 'sports' },
+  { key: 'tapas', title: 'Tapas', category: 'food' },
+  { key: 'nightout', title: 'Night out', category: 'nightout' },
+];
+// Suggested public meeting areas. Students can type any other area.
+export const AREA_SUGGESTIONS = ['Las Canteras', 'Santa Catalina', 'Triana', 'Vegueta', 'Campus de Tafira', 'Campus del Obelisco'];
