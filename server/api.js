@@ -2,6 +2,7 @@ import express from 'express';
 import crypto from 'node:crypto';
 import { sendEmail, emailConfigured } from './email.js';
 import { tx } from './db.js';
+import { createPush } from './push.js';
 import { config } from './config.js';
 import { hashPassword, verifyPassword, createSession, destroySession, sessionUser, rateLimiter } from './auth.js';
 import { localToUtcIso, utcToLocalInput, slotOf } from './time.js';
@@ -30,7 +31,7 @@ const languageList = (v) => list(v, null, 12).map((x) => LANGUAGES.find((l) => l
 // Flags for the bio: two-letter region codes (countries and territories, e.g. IC for the Canary Islands). Purely decorative.
 const flagList = (v) => list(v, null, 8).map((x) => x.toUpperCase()).filter((x) => /^[A-Z]{2}$/.test(x));
 const REVISION = (process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT || 'local').slice(0, 7);
-const RELEASE = 'pre-launch-3';
+const RELEASE = 'pre-launch-4-push';
 const TIME_MODES = ['exact', 'window', 'tbd'];
 // Accounts used for testing are kept out of campaign numbers and never get emails: addresses with "+test" or on test domains.
 const TEST_DOMAINS = (process.env.TEST_EMAIL_DOMAINS || 'example.com,example.org,test.invalid').split(',').map((d) => d.trim().toLowerCase()).filter(Boolean);
@@ -54,6 +55,7 @@ const SLOT_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].flatMap((d) 
 
 export function createApi(db) {
   const r = express.Router();
+  const push = createPush(db);
   // Express 4 does not forward errors from async handlers, so wrap every handler.
   for (const m of ['get', 'post', 'put', 'delete']) {
     const orig = r[m].bind(r);
@@ -136,6 +138,10 @@ export function createApi(db) {
     // Retries and repeated taps never stack identical unread updates.
     if (db.prepare('SELECT 1 FROM notifications WHERE user_id = ? AND kind = ? AND activity_id IS ? AND actor_id IS ? AND read_at IS NULL').get(uid, kind, aid, actorId)) return;
     db.prepare('INSERT INTO notifications (user_id, kind, activity_id, actor_id, detail) VALUES (?,?,?,?,?)').run(uid, kind, aid, actorId, detail);
+    // Also as a pop-up on the person's devices, if they turned notifications on. Never from someone they blocked.
+    if (actorId && blockedSet(uid).has(actorId)) return;
+    const title = aid ? db.prepare('SELECT title FROM activities WHERE id = ?').get(aid)?.title || '' : '';
+    push.send(uid, kind, { name: actorId ? nameOf(actorId) : '', plan: title, url: aid && kind !== 'cancelled' ? `/#/activity/${aid}` : '/#/plans' });
   };
   const notifyMembers = (aid, statuses, kind, actorId, detail = '') => {
     const ph = statuses.map(() => '?').join(',');
@@ -352,7 +358,7 @@ export function createApi(db) {
       user: {
         id: req.user.id, email: req.user.is_guest ? null : req.user.email, is_demo: req.user.is_demo, is_guest: req.user.is_guest, email_verified: !!p.email_verified_at, email_service: emailConfigured(), lang: p.lang,
         ...publicProfile(p), university: p.university, show_university: !!p.show_university,
-        visible: !!p.visible, nearby_enabled: !!p.nearby_enabled, show_sample: !!p.show_sample, onboarded: !!p.onboarded, team: isAdmin(req),
+        visible: !!p.visible, nearby_enabled: !!p.nearby_enabled, show_sample: !!p.show_sample, onboarded: !!p.onboarded, team: isAdmin(req), push_devices: push.count(req.user.id),
         city: city && { slug: city.slug, name: city.name, timezone: city.timezone },
       },
       counts: { toReview, invites, notifications: unreadNotifs, chats: unreadChats },
@@ -452,6 +458,7 @@ export function createApi(db) {
       db.prepare('UPDATE feedback SET user_id = NULL WHERE user_id = ?').run(uid);
       db.prepare('DELETE FROM blocks WHERE blocker_id = ? OR blocked_id = ?').run(uid, uid);
       db.prepare('DELETE FROM sessions WHERE user_id = ?').run(uid);
+      db.prepare('DELETE FROM push_subscriptions WHERE user_id = ?').run(uid);
       // Keep an anonymous row only so cancelled activities still reference an organiser; all personal data is removed.
       db.prepare("UPDATE profiles SET first_name='Deleted user', intro='', photo_v=0, area=NULL, university=NULL, show_university=0, exchange_start=NULL, exchange_end=NULL, languages='[]', interests='[]', visible=0 WHERE user_id = ?").run(uid);
       db.prepare("UPDATE users SET email = ?, password_hash = 'deleted' WHERE id = ?").run(`deleted-${uid}@deleted.invalid`, uid);
@@ -627,6 +634,7 @@ export function createApi(db) {
       reports_open: n("SELECT COUNT(*) AS n FROM reports WHERE status = 'open'"),
       feedback_open: n("SELECT COUNT(*) AS n FROM feedback WHERE status = 'open'"),
       excluded_test_accounts: n('SELECT COUNT(*) AS n FROM users WHERE is_test = 1'),
+      notifications_on: n(`SELECT COUNT(DISTINCT s.user_id) AS n FROM push_subscriptions s JOIN users u ON u.id = s.user_id WHERE ${real}`),
       visitors: (() => {
         const days = Array.from({ length: 14 }, (_, i) => canaryDay(new Date(Date.now() - i * 864e5)));
         const uniq = (from) => n('SELECT COUNT(DISTINCT user_id) AS n FROM daily_visits WHERE day >= ?', from);
@@ -1052,8 +1060,40 @@ export function createApi(db) {
     if (a.status !== 'active') fail(409, 'cancelled', 'This activity was cancelled, so the chat is read-only.');
     const body = str(req.body.body, 1000, 'Message', { required: true });
     const { lastInsertRowid } = db.prepare('INSERT INTO messages (activity_id, user_id, body) VALUES (?, ?, ?)').run(a.id, req.user.id, body);
+    const others = db.prepare("SELECT user_id FROM memberships WHERE activity_id = ? AND status = 'accepted' UNION SELECT organiser_id FROM activities WHERE id = ?").all(a.id, a.id);
+    for (const o of others) {
+      if (o.user_id === req.user.id || blockedSet(o.user_id).has(req.user.id)) continue;
+      push.sendChat(o.user_id, `a${a.id}`, { name: nameOf(req.user.id), plan: a.title, url: `/#/activity/${a.id}/chat`, tag: `chat-${a.id}` });
+    }
     res.status(201).json({ id: Number(lastInsertRowid) });
   });
+
+  // ---------- pop-up notifications (Web Push) ----------
+  const pushLimit = rateLimiter(10, 60 * 60e3);
+  r.get('/push/key', (_req, res) => res.json({ key: push.publicKey }));
+  r.post('/push/subscribe', auth, (req, res) => {
+    const b = req.body || {};
+    const endpoint = String(b.endpoint || '');
+    const p256dh = String(b.keys?.p256dh || '');
+    const authKey = String(b.keys?.auth || '');
+    if (!/^https:\/\/[^\s]{10,}$/.test(endpoint) || endpoint.length > 1000 || !/^[\w-]{20,200}$/.test(p256dh) || !/^[\w-]{8,100}$/.test(authKey)) fail(400, 'invalid', 'This browser sent an invalid subscription.');
+    if (db.prepare('SELECT COUNT(*) AS n FROM push_subscriptions WHERE user_id = ?').get(req.user.id).n >= 10) {
+      db.prepare('DELETE FROM push_subscriptions WHERE id = (SELECT id FROM push_subscriptions WHERE user_id = ? ORDER BY id LIMIT 1)').run(req.user.id);
+    }
+    push.subscribe(req.user.id, { endpoint, p256dh, auth: authKey });
+    res.json({ ok: true, devices: push.count(req.user.id) });
+  });
+  r.post('/push/unsubscribe', auth, (req, res) => {
+    push.unsubscribe(req.user.id, String(req.body?.endpoint || ''));
+    res.json({ ok: true, devices: push.count(req.user.id) });
+  });
+  r.post('/push/test', auth, (req, res) => {
+    if (!pushLimit(String(req.user.id))) fail(429, 'rate', 'Too many test notifications. Please wait a bit.');
+    const devices = push.count(req.user.id);
+    if (devices) push.send(req.user.id, 'test', { url: '/#/profile', tag: 'test' });
+    res.json({ ok: true, devices });
+  });
+  if (process.env.NODE_ENV === 'test') r.get('/push/_sent', (_req, res) => res.json({ sent: push.sent }));
 
   // ---------- my plans ----------
   r.get('/plans', auth, (req, res) => {
@@ -1623,6 +1663,7 @@ export function createApi(db) {
     if (!db.prepare("SELECT 1 FROM notifications WHERE user_id = ? AND listing_id = ? AND kind = 'market_message' AND read_at IS NULL").get(to, l.id)) {
       db.prepare("INSERT INTO notifications (user_id, kind, listing_id, actor_id) VALUES (?, 'market_message', ?, ?)").run(to, l.id, uid);
     }
+    push.sendChat(to, `l${l.id}:${buyer}`, { kind: 'market_message', name: nameOf(uid), plan: l.title, url: '/#/plans', tag: `market-${l.id}` });
     res.status(201).json({ id: Number(lastInsertRowid) });
   });
 

@@ -44,7 +44,7 @@ export function ExamplePlan() {
 
 /** Help: how it works in one screen, the example plan, emergencies, and feedback. */
 export default function Help() {
-  const { openFeedback } = useApp();
+  const { openFeedback, openTour } = useApp();
   return (
     <>
       <TopBar title={tx('Help')} />
@@ -57,7 +57,8 @@ export default function Help() {
             <li><Icon name="chat" /><span><strong>{tx('Arrange the meeting')}</strong><br /><span className="small muted">{tx('Once you are in, agree on the details in the private plan chat and meet in a public place.')}</span></span></li>
           </ol>
           <div className="row wrap">
-            <a className="btn btn-primary btn-sm" href="#/explore">{tx('See plans')}</a>
+            <button className="btn btn-primary btn-sm" onClick={openTour}>{tx('Take the tour')}</button>
+            <a className="btn btn-secondary btn-sm" href="#/explore">{tx('See plans')}</a>
             <a className="btn btn-secondary btn-sm" href="#/example">{tx('See an example plan')}</a>
           </div>
         </section>

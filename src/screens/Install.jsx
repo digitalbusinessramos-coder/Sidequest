@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { getAppName, tx } from '../i18n.js';
 import { Icon, Sheet } from '../components.jsx';
+import { NotifySettings } from './Notify.jsx';
 
 // Chrome and Edge fire this when the app can be installed with one tap. We keep it for the moment the student asks.
 let deferred = null;
@@ -89,9 +90,42 @@ export function InstallSuggestion() {
       <div className="stack">
         <p className="small">{tx('Open your plans with one tap, like an app. Nothing to download from a store, and you can remove it any time.')}</p>
         <InstallSteps />
+        <div className="card card-pad stack-sm">
+          <strong className="row"><Icon name="bell" size={18} />{tx('Know when someone replies')}</strong>
+          <NotifySettings compact />
+        </div>
         <button className="btn btn-primary btn-block" onClick={close}>{tx('View my plan')}</button>
         <button className="btn btn-ghost btn-block" onClick={close}>{tx('Not now')}</button>
       </div>
     </Sheet>
+  );
+}
+
+/**
+ * Always-visible "Install app" button (header on phones, sidebar on computers), only where installing is possible.
+ * Chrome, Edge and Samsung Internet install with one tap. Safari on iPhone does not let websites do that,
+ * so there the button opens the three steps instead.
+ */
+export function InstallButton({ className = '' }) {
+  const prompt = useDeferred();
+  const [open, setOpen] = useState(false);
+  if (!canSuggestInstall()) return null;
+  const tap = async () => {
+    if (prompt) { prompt.prompt(); try { await prompt.userChoice; } catch { /* ignore */ } deferred = null; listeners.forEach((f) => f()); return; }
+    setOpen(true);
+  };
+  return (
+    <>
+      <button type="button" className={`btn btn-sm install-btn ${className}`} onClick={tap}><Icon name="install" size={16} />{tx('Install app')}</button>
+      {open && (
+        <Sheet title={tx('Add {app} to your home screen', { app: getAppName() })} onClose={() => setOpen(false)}>
+          <div className="stack">
+            <p className="small">{tx('Open your plans with one tap, like an app. Nothing to download from a store, and you can remove it any time.')}</p>
+            <InstallSteps />
+            <button className="btn btn-primary btn-block" onClick={() => setOpen(false)}>{tx('Done')}</button>
+          </div>
+        </Sheet>
+      )}
+    </>
   );
 }

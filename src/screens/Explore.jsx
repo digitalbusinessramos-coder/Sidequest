@@ -24,7 +24,9 @@ function reasonFor(a, me, myAreaName) {
 }
 
 export default function Explore() {
-  const { me, meta, city } = useApp();
+  const { me, meta, city, openTour } = useApp();
+  const [newHere, setNewHere] = useState(() => { try { return localStorage.getItem('sq_tour_done') !== '1'; } catch { return false; } });
+  const hideNewHere = () => { setNewHere(false); try { localStorage.setItem('sq_tour_done', '1'); } catch { /* ignore */ } };
   const [when, setWhen] = useState('any');
   const [quick, setQuick] = useState({ free: false, beginner: false });
   const [more, setMore] = useState({ category: '', size: '', lang: '', budget: '', open: false });
@@ -81,6 +83,15 @@ export default function Explore() {
           <a className="btn btn-sm hero-help" href="#/help" aria-label={tx('Help')}><Icon name="info" size={15} /><span className="hide-narrow">{tx('How it works')}</span></a>
         </div>
       </PhotoHero>
+
+      {newHere && (
+        <div className="card card-pad row new-here" role="region" aria-label={tx('New here?')}>
+          <Icon name="info" />
+          <div className="new-here-text"><strong>{tx('New here?')}</strong> <span className="small muted">{tx('See how it works in 4 quick steps.')}</span></div>
+          <button className="btn btn-primary btn-sm" onClick={() => { hideNewHere(); openTour(); }}>{tx('Take the tour')}</button>
+          <button className="icon-btn" onClick={hideNewHere} aria-label={tx('Close')}><Icon name="x" size={16} /></button>
+        </div>
+      )}
 
       <div className="explore-tools">
         <div className="row tools-row tools-top">
