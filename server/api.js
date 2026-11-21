@@ -31,7 +31,7 @@ const languageList = (v) => list(v, null, 12).map((x) => LANGUAGES.find((l) => l
 // Flags for the bio: two-letter region codes (countries and territories, e.g. IC for the Canary Islands). Purely decorative.
 const flagList = (v) => list(v, null, 8).map((x) => x.toUpperCase()).filter((x) => /^[A-Z]{2}$/.test(x));
 const REVISION = (process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT || 'local').slice(0, 7);
-const RELEASE = 'pre-launch-8-link-tags';
+const RELEASE = 'pre-launch-9-profile-privacy';
 const TIME_MODES = ['exact', 'window', 'tbd'];
 const DAY_MODES = ['day', 'weekend', 'week', 'flex'];
 // Accounts used for testing are kept out of campaign numbers and never get emails: addresses with "+test" or on test domains.
@@ -113,11 +113,12 @@ export function createApi(db) {
 
   const publicProfile = (p) => p && ({
     ...personSummary(p),
-    intro: p.intro, interests: J(p.interests),
+    // The short card: name, photo, languages, interests and dates of stay. Intro, meeting area and university only if switched on.
+    intro: p.show_intro ? p.intro : '', interests: J(p.interests),
     university: p.show_university ? p.university : null,
     exchange_start: p.exchange_start, exchange_end: p.exchange_end, stay: p.stay || null, flags: J(p.flags || '[]'),
     // Where they like to meet: free text since release 2; older profiles only have a neighbourhood key.
-    area: p.area, meet_area: p.meet_area || null,
+    area: p.show_area ? p.area : null, meet_area: p.show_area ? p.meet_area || null : null,
     status: null, // statuses were removed in release 2; stored rows are kept but never shown
     email_verified: !!p.email_verified_at, // means: confirmed they can receive email at their sign-up address. Nothing more.
   });
@@ -361,6 +362,7 @@ export function createApi(db) {
       user: {
         id: req.user.id, email: req.user.is_guest ? null : req.user.email, is_demo: req.user.is_demo, is_guest: req.user.is_guest, email_verified: !!p.email_verified_at, email_service: emailConfigured(), lang: p.lang,
         ...publicProfile(p), university: p.university, show_university: !!p.show_university,
+        intro: p.intro, show_intro: !!p.show_intro, area: p.area, meet_area: p.meet_area || null, show_area: !!p.show_area,
         visible: !!p.visible, nearby_enabled: !!p.nearby_enabled, show_sample: !!p.show_sample, onboarded: !!p.onboarded, team: isAdmin(req), push_devices: push.count(req.user.id),
         city: city && { slug: city.slug, name: city.name, timezone: city.timezone },
       },
@@ -384,6 +386,8 @@ export function createApi(db) {
     const start = keepDates ? date(has('exchange_start') ? b.exchange_start : cur.exchange_start) : null;
     const end = keepDates ? date(has('exchange_end') ? b.exchange_end : cur.exchange_end) : null;
     if (start && end && end < start) fail(400, 'invalid', 'The end date is before the start date.');
+    if (has('show_intro')) db.prepare('UPDATE profiles SET show_intro = ? WHERE user_id = ?').run(b.show_intro ? 1 : 0, req.user.id);
+    if (has('show_area')) db.prepare('UPDATE profiles SET show_area = ? WHERE user_id = ?').run(b.show_area ? 1 : 0, req.user.id);
     db.prepare(`UPDATE profiles SET first_name=?, intro=?, city_id=?, area=?, meet_area=?, university=?, show_university=?, exchange_start=?, exchange_end=?,
       stay=?, flags=?, role=?, languages=?, interests=?, onboarded=1 WHERE user_id=?`).run(
       str(b.first_name, 40, 'First name', { required: true }), has('intro') ? str(b.intro, 280, 'Introduction') : cur.intro, city.id, area,
@@ -482,6 +486,8 @@ export function createApi(db) {
   // ---------- students in the city ----------
   // Everyone who chose to be visible, with shared interests first. Plain rules, explained in the response.
   r.get('/people', auth, (req, res) => {
+    // Profiles are for students with an account: guests and search engines never see the list.
+    if (req.user.is_guest) return res.json({ people: [], account_needed: true });
     const me = profileOf(req.user.id);
     const blocked = blockedSet(req.user.id);
     const tests = hideTests(req.user.id);
@@ -495,7 +501,7 @@ export function createApi(db) {
       .map((p) => {
         const interests = J(p.interests);
         const plans = db.prepare(`SELECT COUNT(*) AS n FROM activities WHERE organiser_id = ? AND status = 'active' AND starts_at > ?`).get(p.user_id, now()).n;
-        return { ...personSummary(p), intro: p.intro, interests, area: p.meet_area || areaName(p.area), stay: p.stay || null, flags: J(p.flags || '[]'),
+        return { ...personSummary(p), intro: p.show_intro ? p.intro : '', interests, area: p.show_area ? p.meet_area || areaName(p.area) : null, stay: p.stay || null, flags: J(p.flags || '[]'),
           shared: interests.filter((i) => mine.has(i)), open_plans: plans };
       })
       .sort((a, b) => (b.shared.length - a.shared.length) || (b.open_plans - a.open_plans));
@@ -508,8 +514,21 @@ export function createApi(db) {
     if (blockedSet(req.user.id).has(id)) fail(404, 'not_found', 'Profile not available.');
     const p = profileOf(id);
     if (!p || p.first_name === 'Deleted user') fail(404, 'not_found', 'Profile not available.');
-    res.json({ profile: publicProfile(p), blocked_by_me: false, connection: connectionView(connBetween(req.user.id, id), req.user.id) });
+    const c = connBetween(req.user.id, id);
+    if (id !== req.user.id) {
+      if (req.user.is_guest) fail(401, 'account_needed', 'Create a free account to see other students’ profiles.');
+      // "Only people in my plans can see me": then only people sharing a plan (or already connected) can open the profile.
+      if (!p.visible && !p.is_demo && !sharesPlan(req.user.id, id) && !(c && (c.status === 'accepted' || c.target_id === req.user.id))) fail(404, 'not_found', 'Profile not available.');
+    }
+    res.json({ profile: publicProfile(p), blocked_by_me: false, connection: connectionView(c, req.user.id) });
   });
+
+  /** Both people are in the same plan: organiser, accepted, asked to join or invited. */
+  function sharesPlan(a, b) {
+    return !!db.prepare(`WITH inv AS (SELECT id AS aid, organiser_id AS uid FROM activities
+        UNION SELECT activity_id, user_id FROM memberships WHERE status IN ('accepted', 'pending', 'invited'))
+      SELECT 1 FROM inv x JOIN inv y ON x.aid = y.aid WHERE x.uid = ? AND y.uid = ? LIMIT 1`).get(a, b);
+  }
 
   r.get('/me/blocks', auth, (req, res) => {
     const rows = db.prepare('SELECT blocked_id FROM blocks WHERE blocker_id = ?').all(req.user.id);

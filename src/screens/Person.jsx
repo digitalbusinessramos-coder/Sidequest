@@ -10,12 +10,17 @@ import { categoryLabel } from '../../shared/catalog.js';
 export const ROLE_LABEL = { exchange: 'Erasmus / exchange student', international: 'International student', intern: 'Intern / trainee', local: 'Local student' };
 
 export default function Person({ id }) {
-  const { me, api, toast, city, meta } = useApp();
-  const { data, error, loading, reload } = useApi(`/users/${id}`);
+  const { me, api, toast, city, meta, openAccount } = useApp();
+  const { data, error, loading, reload } = useApi(me.is_guest ? null : `/users/${id}`);
   const [report, setReport] = useState(null);
   const [inviting, setInviting] = useState(false);
   const [blocking, setBlocking] = useState(false);
   if (Number(id) === me.id) { location.replace('#/profile'); return null; }
+  if (me.is_guest) return <><TopBar title="" /><div className="page"><div className="card card-pad stack-sm">
+          <strong>{tx('Profiles are for students with an account')}</strong>
+          <p className="small muted">{tx('Create a free account to see other students, connect and invite them to plans. Your own profile is only shown to people with an account too.')}</p>
+          <button className="btn btn-primary btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => openAccount('signup', { reason: tx('Create a free account to see other students.') })}>{tx('Create a free account')}</button>
+        </div></div></>;
   if (loading) return <><TopBar title="" /><div className="page"><Loading rows={1} /></div></>;
   if (error) return <><TopBar title="" /><div className="page"><ErrorState error={error} onRetry={reload} /></div></>;
   const p = data.profile;

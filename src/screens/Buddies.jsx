@@ -97,7 +97,12 @@ export default function Buddies() {
         {people.data?.people.length > 6 && (
           <input className="input" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={tx('Search by name, language or interest')} aria-label={tx('Search students')} />
         )}
-        {people.loading && !people.data ? <Loading rows={2} /> : people.error ? <ErrorState error={people.error} onRetry={people.reload} />
+        {people.data?.account_needed ? <div className="card card-pad stack-sm">
+            <strong>{tx('Profiles are for students with an account')}</strong>
+            <p className="small muted">{tx('Create a free account to see other students, connect and invite them to plans. Your own profile is only shown to people with an account too.')}</p>
+            <button className="btn btn-primary btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => openAccount('signup', { reason: tx('Create a free account to see other students.') })}>{tx('Create a free account')}</button>
+          </div>
+          : people.loading && !people.data ? <Loading rows={2} /> : people.error ? <ErrorState error={people.error} onRetry={people.reload} />
           : people.data.people.length === 0 ? (
             <div className="card card-pad stack-sm">
               <strong>{tx('No other students here yet.')}</strong>
