@@ -1,13 +1,14 @@
 import { tx } from '../i18n.js';
 import { useEffect, useRef, useState } from 'react';
-import { AreaInput, EmojiTile, ErrorState, Icon, Loading, TopBar, useApp } from '../components.jsx';
-import { DURATION_LABEL, localDate, resizeToJpeg, tzLabel, useApi } from '../util.js';
+import { AreaInput, EmojiBadge, ErrorState, Icon, Loading, TopBar, useApp } from '../components.jsx';
+import { DURATION_LABEL, localDate, tzLabel, useApi } from '../util.js';
+import { CropSheet } from './Crop.jsx';
 import { api as rawApi } from '../api.js';
 import { PLAN_EMOJIS, PLAN_SUGGESTIONS, planEmoji } from '../../shared/catalog.js';
 
 // Nothing is filled in for the student: no default day, time, area, duration, cost or group size.
 const empty = () => ({
-  title: '', category: 'other', template: 'other', description: '', day: '', time_mode: '', time: '', time_window: '',
+  title: '', category: 'other', template: 'other', description: '', day: '', day_mode: 'day', time_mode: '', time: '', time_window: '',
   meeting_area: '', meeting_point: '', duration_choice: '', cost_mode: '', cost_eur: '', capped: false, max_participants: '',
   join_mode: 'request', beginner_friendly: false, emoji: '',
 });
@@ -26,7 +27,7 @@ function applyQuery(v, query) {
 function fromActivity(a) {
   const [day, time] = (a.starts_local || '').split('T');
   return {
-    ...empty(), title: a.title, category: a.category, template: a.template, description: a.description || '', day,
+    ...empty(), title: a.title, category: a.category, template: a.template, description: a.description || '', day: (a.day_mode || 'day') === 'day' ? day : '', day_mode: a.day_mode || 'day',
     time_mode: a.time_mode || 'exact', time: a.time_mode === 'exact' ? time : '', time_window: a.time_window || '',
     meeting_area: a.meeting_area, meeting_point: a.meeting_point || '', duration_choice: a.duration_choice || '',
     cost_mode: a.cost_mode || '', cost_eur: a.cost_eur ?? '', capped: !!a.capped, max_participants: a.max_participants ?? '',
@@ -42,6 +43,7 @@ export default function ActivityForm({ editId, query = {} }) {
   const [busy, setBusy] = useState(false);
   const [more, setMore] = useState(false);
   const [photo, setPhoto] = useState(null);
+  const [cropFile, setCropFile] = useState(null);
   const fileInput = useRef(null);
   const formRef = useRef(null);
   const invitee = useApi(query.invite ? `/users/${Number(query.invite)}` : null).data?.profile;
@@ -64,12 +66,12 @@ export default function ActivityForm({ editId, query = {} }) {
     const f = e.target.files?.[0];
     e.target.value = '';
     if (!f) return;
-    try { setPhoto(await resizeToJpeg(f, 1200, false)); } catch (x) { toast(x.message, true); }
+    setCropFile(f);
   };
 
   const validate = () => {
     if (!v.title.trim()) return tx('Write what you feel like doing.');
-    if (!v.day) return tx('Choose a day.');
+    if (v.day_mode === 'day' && !v.day) return tx('Choose a day, or one of the options if you’re not sure yet.');
     if (!v.time_mode) return tx('Choose an exact time, a part of the day, or “time to be agreed”.');
     if (v.time_mode === 'exact' && !v.time) return tx('Choose a time.');
     if (v.time_mode === 'window' && !v.time_window) return tx('Choose morning, afternoon or evening.');
@@ -80,7 +82,7 @@ export default function ActivityForm({ editId, query = {} }) {
   };
 
   const payload = () => ({
-    title: v.title, category: v.category, template: v.template, description: v.description, day: v.day, time_mode: v.time_mode,
+    title: v.title, category: v.category, template: v.template, description: v.description, day: v.day_mode === 'day' ? v.day : undefined, day_mode: v.day_mode, time_mode: v.time_mode,
     time: v.time_mode === 'exact' ? v.time : undefined, time_window: v.time_mode === 'window' ? v.time_window : undefined,
     meeting_area: v.meeting_area, meeting_point: v.meeting_point, duration_choice: v.duration_choice || null,
     cost_mode: v.cost_mode || null, cost_eur: v.cost_mode === 'estimate' ? Number(v.cost_eur) : 0,
@@ -151,15 +153,23 @@ export default function ActivityForm({ editId, query = {} }) {
         <fieldset className="field plain">
           <legend className="label">{tx('Day')}</legend>
           <div className="row wrap" style={{ gap: 8 }}>
-            {days.map(([d, label]) => <button key={d} type="button" className="chip" aria-pressed={v.day === d} onClick={() => set({ day: d })}>{label}</button>)}
-            <input className="input input-date" type="date" aria-label={tx('Pick a date')} min={localDate(tz, 0)} value={v.day} onChange={(e) => set({ day: e.target.value })} />
+            {days.map(([d, label]) => <button key={d} type="button" className="chip" aria-pressed={v.day_mode === 'day' && v.day === d} onClick={() => set({ day: d, day_mode: 'day' })}>{label}</button>)}
+            <input className="input input-date" type="date" aria-label={tx('Pick a date')} min={localDate(tz, 0)} value={v.day_mode === 'day' ? v.day : ''} onChange={(e) => set({ day: e.target.value, day_mode: 'day' })} />
           </div>
+          <span className="hint" style={{ marginTop: 8 }}>{tx('Not sure yet?')}</span>
+          <div className="row wrap" style={{ gap: 8 }}>
+            {[['weekend', tx('This weekend')], ['week', tx('This week')], ['flex', tx('Flexible (next 2 weeks)')]].map(([k, label]) => (
+              <button key={k} type="button" className="chip" aria-pressed={v.day_mode === k}
+                onClick={() => set({ day_mode: k, day: '', ...(v.time_mode === 'exact' || !v.time_mode ? { time_mode: 'tbd' } : {}) })}>{label}</button>
+            ))}
+          </div>
+          {v.day_mode !== 'day' && <span className="hint">{tx('You can agree on the day in the plan chat. The plan stays listed until then.')}</span>}
         </fieldset>
 
         <fieldset className="field plain">
           <legend className="label">{tx('Time')}</legend>
           <div className="row wrap" style={{ gap: 8 }} role="radiogroup" aria-label={tx('Time')}>
-            {[['exact', tx('Exact time')], ['window', tx('Part of the day')], ['tbd', tx('To be agreed')]].map(([k, label]) => (
+            {[['exact', tx('Exact time')], ['window', tx('Part of the day')], ['tbd', tx('To be agreed')]].filter(([k]) => k !== 'exact' || v.day_mode === 'day').map(([k, label]) => (
               <button key={k} type="button" role="radio" aria-checked={v.time_mode === k} className={`chip ${v.time_mode === k ? 'on' : ''}`} onClick={() => set({ time_mode: k })}>{label}</button>
             ))}
           </div>
@@ -183,18 +193,19 @@ export default function ActivityForm({ editId, query = {} }) {
         <div className="field">
           <span className="label">{tx('Photo (optional)')}</span>
           <div className="row wrap" style={{ gap: 10 }}>
-            {(photo || v.photo) && <img src={photo || v.photo} alt="" className="listing-thumb" />}
+            {(photo || v.photo) && <img src={photo || v.photo} alt="" className="listing-thumb wide" />}
             <button type="button" className="btn btn-secondary btn-sm" onClick={() => fileInput.current?.click()}><Icon name="camera" size={16} />{photo || v.photo ? tx('Change picture') : tx('Add a picture')}</button>
             {photo && <button type="button" className="btn btn-ghost btn-sm" onClick={() => setPhoto(null)}>{tx('Remove')}</button>}
           </div>
           <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" onChange={pickPhoto} hidden />
+          {cropFile && <CropSheet file={cropFile} shapes={['wide']} max={1200} onDone={(d) => { setPhoto(d); setCropFile(null); }} onCancel={() => setCropFile(null)} />}
         </div>
 
         {!(photo || v.photo) && (
           <div className="field">
             <span className="label" id="emoji-l">{tx('No photo? Pick an emoji for your plan')}</span>
             <div className="row" style={{ gap: 12, alignItems: 'center' }}>
-              <EmojiTile a={v} size="sm" />
+              <EmojiBadge a={v} size="lg" />
               <span className="hint">{v.emoji ? tx('Tap it again to go back to the automatic one.') : tx('Chosen from the type of plan. Tap another to change it.')}</span>
             </div>
             <div className="emoji-grid" role="radiogroup" aria-labelledby="emoji-l">

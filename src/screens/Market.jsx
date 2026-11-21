@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { tx } from '../i18n.js';
 import { AreaInput, Avatar, ChoiceChips, Empty, ErrorState, Icon, Loading, ReportSheet, SampleBadge, Sheet, TopBar, useApp } from '../components.jsx';
 import { api as rawApi } from '../api.js';
-import { fmtPrice, fmtWhen, resizeToJpeg, useApi } from '../util.js';
+import { fmtPrice, fmtWhen, useApi } from '../util.js';
+import { CropSheet } from './Crop.jsx';
 
 const CAT_ICON = { furniture: 'home', kitchen: 'food', bikes: 'sports', surf: 'surf', electronics: 'bolt', books: 'study', clothes: 'shopping', tickets: 'star', other: 'other' };
 
@@ -202,6 +203,7 @@ export function ListingForm({ editId, query = {} }) {
   const evs = useApi(`/events?city=${city.slug}`);
   const [v, setV] = useState(editId ? null : { kind: query.kind || 'sell', category: query.kind === 'ticket' ? 'tickets' : 'other', title: '', description: '', price_eur: '', face_value_eur: '', event_id: query.event || '', area: '' });
   const [added, setAdded] = useState([]); // new pictures, as data URLs
+  const [cropFile, setCropFile] = useState(null);
   const [removed, setRemoved] = useState([]); // ids of saved pictures to delete
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
@@ -215,7 +217,7 @@ export function ListingForm({ editId, query = {} }) {
   const pick = async (e) => {
     const f = e.target.files?.[0]; e.target.value = '';
     if (!f) return;
-    try { const d = await resizeToJpeg(f, 900, false); setAdded((x) => [...x, d]); } catch (x) { toast(x.message, true); }
+    setCropFile(f);
   };
   const submit = async (e) => {
     e.preventDefault(); setBusy(true); setErr('');
@@ -302,6 +304,7 @@ export function ListingForm({ editId, query = {} }) {
               <button type="button" className="btn btn-secondary btn-sm" onClick={() => input.current?.click()}><Icon name="camera" size={16} />{tx('Add a picture')}</button>
             )}
             <input ref={input} type="file" accept="image/jpeg,image/png,image/webp" onChange={pick} hidden />
+            {cropFile && <CropSheet file={cropFile} shapes={['landscape', 'square', 'portrait']} max={900} onDone={(d) => { setAdded((x) => [...x, d]); setCropFile(null); }} onCancel={() => setCropFile(null)} />}
           </div>
           {ticket && <span className="hint">{tx('Don’t photograph the ticket’s barcode or QR code: someone could copy it.')}</span>}
         </div>

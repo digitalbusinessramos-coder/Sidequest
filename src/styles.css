@@ -637,3 +637,26 @@ fieldset.plain > legend { margin-bottom: 6px; padding: 0; }
 .emoji-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: 6px; }
 .emoji-opt { height: 44px; border-radius: 12px; border: 1px solid var(--line); background: var(--paper); font-size: 22px; cursor: pointer; }
 .emoji-opt.on { border-color: var(--ink); box-shadow: 0 0 0 2px var(--ink) inset; background: var(--paper-2); }
+.emoji-badge { --tile: #4a4f61; width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; font-size: 24px; line-height: 1; flex: none;
+  background: color-mix(in srgb, var(--tile) 14%, #fff); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tile) 22%, transparent); }
+.emoji-badge.lg { width: 64px; height: 64px; font-size: 32px; }
+.act-card.no-cover { grid-template-columns: 48px 1fr; align-items: start; }
+.nudge-icon { border-radius: 10px; flex: none; }
+.new-here .stack-sm { flex: 0 0 auto; }
+.ios-steps { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+.ios-steps li { display: flex; gap: 12px; align-items: center; font-size: .95rem; }
+.ios-glyph { width: 40px; height: 40px; border-radius: 10px; background: var(--paper-2); color: #0a84ff; display: grid; place-items: center; flex: none; }
+.ios-glyph img { border-radius: 7px; }
+.ios-arrow { position: fixed; left: 50%; bottom: 8px; transform: translateX(-50%); z-index: 60; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  color: #fff; background: #0a84ff; padding: 8px 14px 4px; border-radius: 14px; font-weight: 650; font-size: .85rem; box-shadow: 0 8px 24px rgba(0,0,0,.25);
+  animation: ios-bounce 1.2s ease-in-out infinite; pointer-events: none; }
+@keyframes ios-bounce { 0%, 100% { transform: translate(-50%, 0); } 50% { transform: translate(-50%, 8px); } }
+@media (prefers-reduced-motion: reduce) { .ios-arrow { animation: none; } }
+.carousel-slide img { object-fit: contain; background: var(--paper-2); }
+.listing-thumb.wide { width: 112px; height: 63px; }
+.crop-frame { position: relative; width: 100%; overflow: hidden; border-radius: 16px; background: #111; touch-action: none; cursor: grab; user-select: none; }
+.crop-frame:active { cursor: grabbing; }
+.crop-frame img { position: absolute; max-width: none; pointer-events: none; }
+.crop-frame.round { max-width: 320px; margin: 0 auto; }
+.crop-frame.round::after { content: ''; position: absolute; inset: 0; border-radius: 50%; box-shadow: 0 0 0 9999px rgba(0,0,0,.5); pointer-events: none; }
+.sheet:has(.ios-arrow) { padding-bottom: 92px; }

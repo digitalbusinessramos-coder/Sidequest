@@ -111,6 +111,12 @@ export default function App() {
     return () => clearInterval(id);
   }, [me?.id, reloadMe]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Number on the app icon (installed app, where the phone supports it): things waiting for you.
+  useEffect(() => {
+    const n = (counts.notifications || 0) + (counts.chats || 0) + (counts.invites || 0);
+    try { if (navigator.setAppBadge) (n > 0 ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {}); } catch { /* not supported */ }
+  }, [counts.notifications, counts.chats, counts.invites]);
+
   if (bootError) return <div className="page"><ErrorState error={bootError} onRetry={boot} /></div>;
   if (!meta || me === undefined) return <div className="page"><Loading /></div>;
 

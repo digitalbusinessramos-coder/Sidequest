@@ -41,6 +41,11 @@ function dayLabel(iso, tz) {
 
 /** "Sat 28 Nov, 18:00", "Sat 28 Nov, afternoon" or "Sat 28 Nov, time to be agreed". */
 export function fmtPlanWhen(a) {
+  if (a.day_mode && a.day_mode !== 'day') {
+    const span = { weekend: tx('This weekend'), week: tx('This week'), flex: tx('Day to be agreed') }[a.day_mode] || tx('Day to be agreed');
+    if (a.time_mode === 'window') return tx('{day}, {part}', { day: span, part: tx(WINDOW_LABEL[a.time_window] || '') });
+    return a.day_mode === 'flex' ? tx('Day and time to be agreed') : tx('{day}, time to be agreed', { day: span });
+  }
   if (a.time_mode === 'window') return tx('{day}, {part}', { day: dayLabel(a.starts_at, a.timezone), part: tx(WINDOW_LABEL[a.time_window] || '') });
   if (a.time_mode === 'tbd') return tx('{day}, time to be agreed', { day: dayLabel(a.starts_at, a.timezone) });
   return fmtWhen(a.starts_at, a.timezone);

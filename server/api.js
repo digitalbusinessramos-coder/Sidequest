@@ -31,8 +31,9 @@ const languageList = (v) => list(v, null, 12).map((x) => LANGUAGES.find((l) => l
 // Flags for the bio: two-letter region codes (countries and territories, e.g. IC for the Canary Islands). Purely decorative.
 const flagList = (v) => list(v, null, 8).map((x) => x.toUpperCase()).filter((x) => /^[A-Z]{2}$/.test(x));
 const REVISION = (process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT || 'local').slice(0, 7);
-const RELEASE = 'pre-launch-5-emoji';
+const RELEASE = 'pre-launch-6';
 const TIME_MODES = ['exact', 'window', 'tbd'];
+const DAY_MODES = ['day', 'weekend', 'week', 'flex'];
 // Accounts used for testing are kept out of campaign numbers and never get emails: addresses with "+test" or on test domains.
 const TEST_DOMAINS = (process.env.TEST_EMAIL_DOMAINS || 'example.com,example.org,test.invalid').split(',').map((d) => d.trim().toLowerCase()).filter(Boolean);
 const isTestEmail = (email) => /\+test[^@]*@/i.test(email) || TEST_DOMAINS.includes(email.split('@')[1]);
@@ -178,6 +179,7 @@ export function createApi(db) {
       starts_at: a.starts_at, duration_min: a.duration_min || null, timezone: city.timezone, city: city.name,
       starts_local: utcToLocalInput(a.starts_at, city.timezone),
       time_mode: a.time_mode || 'exact', time_window: a.time_window || null, day: utcToLocalInput(a.starts_at, city.timezone).slice(0, 10),
+      day_mode: a.day_mode || 'day', last_day: (a.day_mode || 'day') !== 'day' ? utcToLocalInput(a.ends_at, city.timezone).slice(0, 10) : null,
       duration_choice: a.duration_choice || null, ends_at: new Date(endOf(a)).toISOString(),
       meeting_area: a.meeting_area, cost_mode: costMode, cost_eur: costMode === 'estimate' ? a.cost_eur : null,
       capped, max_participants: capped ? a.max_participants : null,
@@ -751,8 +753,21 @@ export function createApi(db) {
   function readActivityInput(b, city, existing) {
     const tz = city.timezone;
     const mode = TIME_MODES.includes(b.time_mode) ? b.time_mode : 'exact';
-    const day = /^\d{4}-\d{2}-\d{2}$/.test(b.day || '') ? b.day : (b.starts_local || '').slice(0, 10);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) fail(400, 'invalid', 'Please choose a day.');
+    const dayMode = DAY_MODES.includes(b.day_mode) ? b.day_mode : 'day';
+    let day; let lastDay = null;
+    if (dayMode === 'day') {
+      day = /^\d{4}-\d{2}-\d{2}$/.test(b.day || '') ? b.day : (b.starts_local || '').slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) fail(400, 'invalid', 'Please choose a day.');
+    } else {
+      // Day not fixed yet: the plan is listed from the first possible day until the last one.
+      if (mode === 'exact') fail(400, 'invalid', 'When the day isn’t fixed, choose a part of the day or “to be agreed”.');
+      const today = utcToLocalInput(new Date().toISOString(), tz).slice(0, 10);
+      const plus = (d, n) => new Date(Date.parse(`${d}T12:00:00Z`) + n * 864e5).toISOString().slice(0, 10);
+      const dow = new Date(`${today}T12:00:00Z`).getUTCDay();
+      if (dayMode === 'weekend') { day = dow === 0 || dow === 6 ? today : plus(today, 6 - dow); lastDay = new Date(`${day}T12:00:00Z`).getUTCDay() === 0 ? day : plus(day, 1); }
+      else if (dayMode === 'week') { day = today; lastDay = plus(today, 6); }
+      else { day = today; lastDay = plus(today, 13); }
+    }
     let startLocal; let endLocal = null; let win = null;
     if (mode === 'exact') {
       const time = /^\d{2}:\d{2}$/.test(b.time || '') ? b.time : (b.starts_local || '').slice(11, 16);
@@ -765,6 +780,7 @@ export function createApi(db) {
       startLocal = `${day}T12:00`; // sorting only: shown as "time to be agreed"
       endLocal = `${day}T23:59`;
     }
+    if (lastDay) endLocal = `${lastDay}T23:59`;
     const startsIso = localToUtcIso(startLocal, tz) || fail(400, 'invalid', 'Please choose a day.');
     const durationChoice = DURATIONS[b.duration_choice] ? b.duration_choice : null;
     const legacyDuration = b.duration_choice === undefined && Number(b.duration_min) >= 15 && Number(b.duration_min) <= 24 * 60 ? Math.round(Number(b.duration_min)) : 0;
@@ -797,7 +813,7 @@ export function createApi(db) {
       category: CAT_KEYS.includes(b.category) ? b.category : 'other',
       title: str(b.title, 80, 'Title', { required: true }),
       description: str(b.description, 600, 'Description'),
-      starts_at: startsIso, ends_at: endsIso, time_mode: mode, time_window: win,
+      starts_at: startsIso, ends_at: endsIso, time_mode: mode, time_window: win, day_mode: dayMode,
       duration_min: durationChoice ? 0 : legacyDuration, duration_choice: durationChoice,
       meeting_area: str(b.meeting_area, 80, 'Meeting area', { required: true }),
       meeting_point: str(b.meeting_point, 200, 'Meeting point'),
@@ -819,11 +835,11 @@ export function createApi(db) {
     const d = readActivityInput(req.body, city, null);
     const id = tx(db, () => {
       const { lastInsertRowid } = db.prepare(`INSERT INTO activities (city_id, organiser_id, template, category, title, description, starts_at, ends_at, time_mode, time_window,
-        duration_min, duration_choice, meeting_area, meeting_point, cost_eur, cost_mode, max_participants, capped, beginner_friendly, is_sample, join_mode, emoji)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+        duration_min, duration_choice, meeting_area, meeting_point, cost_eur, cost_mode, max_participants, capped, beginner_friendly, is_sample, join_mode, emoji, day_mode)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
         city.id, req.user.id, d.template, d.category, d.title, d.description, d.starts_at, d.ends_at, d.time_mode, d.time_window,
         d.duration_min, d.duration_choice, d.meeting_area, d.meeting_point, d.cost_eur, d.cost_mode, d.max_participants, d.capped, d.beginner_friendly,
-        req.user.is_demo ? 1 : 0, d.join_mode, d.emoji);
+        req.user.is_demo ? 1 : 0, d.join_mode, d.emoji, d.day_mode);
       // A student plan can point at an event (e.g. a visit to the Christmas market on a chosen day). It reserves nothing there.
       const ev = req.body.event_id && db.prepare("SELECT id FROM events WHERE id = ? AND city_id = ? AND status = 'active'").get(Number(req.body.event_id), city.id);
       if (ev) db.prepare('UPDATE activities SET event_id = ? WHERE id = ?').run(ev.id, lastInsertRowid);
@@ -847,11 +863,11 @@ export function createApi(db) {
       const d = readActivityInput(req.body, cityById(a.city_id), a);
       if (d.capped && d.max_participants < goingCount(a.id)) fail(409, 'capacity', `${goingCount(a.id)} people are already going. Remove someone before lowering the group size.`);
       db.prepare(`UPDATE activities SET template=?, category=?, title=?, description=?, starts_at=?, ends_at=?, time_mode=?, time_window=?, duration_min=?, duration_choice=?,
-        meeting_area=?, meeting_point=?, cost_eur=?, cost_mode=?, max_participants=?, capped=?, beginner_friendly=?, join_mode=?, emoji=?, updated_at=? WHERE id=?`).run(
+        meeting_area=?, meeting_point=?, cost_eur=?, cost_mode=?, max_participants=?, capped=?, beginner_friendly=?, join_mode=?, emoji=?, day_mode=?, updated_at=? WHERE id=?`).run(
         d.template, d.category, d.title, d.description, d.starts_at, d.ends_at, d.time_mode, d.time_window, d.duration_min, d.duration_choice,
-        d.meeting_area, d.meeting_point, d.cost_eur, d.cost_mode, d.max_participants, d.capped, d.beginner_friendly, d.join_mode, d.emoji, now(), a.id);
+        d.meeting_area, d.meeting_point, d.cost_eur, d.cost_mode, d.max_participants, d.capped, d.beginner_friendly, d.join_mode, d.emoji, d.day_mode, now(), a.id);
       const changes = [];
-      if (d.starts_at !== a.starts_at || d.time_mode !== (a.time_mode || 'exact')) changes.push('time');
+      if (d.starts_at !== a.starts_at || d.time_mode !== (a.time_mode || 'exact') || d.day_mode !== (a.day_mode || 'day')) changes.push('time');
       if (d.meeting_point !== a.meeting_point || d.meeting_area !== a.meeting_area) changes.push('meeting point');
       if (changes.length) {
         systemMsg(a.id, `The organiser changed the ${changes.join(' and ')}. Check the meet-up card.`);
@@ -1683,6 +1699,29 @@ export function createApi(db) {
   };
   cleanupGuests();
   setInterval(cleanupGuests, 6 * 3600e3).unref();
+
+  // About an hour before a plan with an exact time, everyone going gets a reminder pop-up (once).
+  db.exec('CREATE TABLE IF NOT EXISTS plan_reminders (activity_id INTEGER NOT NULL, user_id INTEGER NOT NULL, sent_at TEXT NOT NULL, PRIMARY KEY (activity_id, user_id))');
+  const sendReminders = () => {
+    const from = new Date(Date.now() + 40 * 60e3).toISOString();
+    const to = new Date(Date.now() + 75 * 60e3).toISOString();
+    const acts = db.prepare(`SELECT a.*, c.timezone FROM activities a JOIN cities c ON c.id = a.city_id
+      WHERE a.status = 'active' AND a.is_sample = 0 AND COALESCE(a.time_mode, 'exact') = 'exact' AND a.starts_at > ? AND a.starts_at <= ?`).all(from, to);
+    let n = 0;
+    for (const a of acts) {
+      const time = new Intl.DateTimeFormat('en-GB', { timeZone: a.timezone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(a.starts_at));
+      const people = db.prepare("SELECT user_id FROM memberships WHERE activity_id = ? AND status = 'accepted' UNION SELECT organiser_id FROM activities WHERE id = ?").all(a.id, a.id);
+      for (const p of people) {
+        if (db.prepare('INSERT OR IGNORE INTO plan_reminders (activity_id, user_id, sent_at) VALUES (?,?,?)').run(a.id, p.user_id, now()).changes) {
+          push.send(p.user_id, 'reminder', { plan: a.title, time, area: a.meeting_area, url: `/#/activity/${a.id}`, tag: `reminder-${a.id}` });
+          n++;
+        }
+      }
+    }
+    return n;
+  };
+  setInterval(() => { try { sendReminders(); } catch (e) { console.error('reminders', e.message); } }, 5 * 60e3).unref();
+  if (process.env.NODE_ENV === 'test') r.post('/push/_remind', (_req, res) => res.json({ sent: sendReminders() }));
 
   return r;
 }
