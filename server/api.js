@@ -31,7 +31,7 @@ const languageList = (v) => list(v, null, 12).map((x) => LANGUAGES.find((l) => l
 // Flags for the bio: two-letter region codes (countries and territories, e.g. IC for the Canary Islands). Purely decorative.
 const flagList = (v) => list(v, null, 8).map((x) => x.toUpperCase()).filter((x) => /^[A-Z]{2}$/.test(x));
 const REVISION = (process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT || 'local').slice(0, 7);
-const RELEASE = 'pre-launch-7-connect';
+const RELEASE = 'pre-launch-8-link-tags';
 const TIME_MODES = ['exact', 'window', 'tbd'];
 const DAY_MODES = ['day', 'weekend', 'week', 'flex'];
 // Accounts used for testing are kept out of campaign numbers and never get emails: addresses with "+test" or on test domains.
@@ -462,6 +462,7 @@ export function createApi(db) {
       db.prepare('DELETE FROM blocks WHERE blocker_id = ? OR blocked_id = ?').run(uid, uid);
       db.prepare('DELETE FROM connections WHERE requester_id = ? OR target_id = ?').run(uid, uid);
       db.prepare('DELETE FROM sessions WHERE user_id = ?').run(uid);
+      db.prepare('DELETE FROM user_sources WHERE user_id = ?').run(uid);
       db.prepare('DELETE FROM push_subscriptions WHERE user_id = ?').run(uid);
       // Keep an anonymous row only so cancelled activities still reference an organiser; all personal data is removed.
       db.prepare("UPDATE profiles SET first_name='Deleted user', intro='', photo_v=0, area=NULL, university=NULL, show_university=0, exchange_start=NULL, exchange_end=NULL, languages='[]', interests='[]', visible=0 WHERE user_id = ?").run(uid);
@@ -572,6 +573,12 @@ export function createApi(db) {
     if (u && !u.is_test && !u.is_demo) {
       db.prepare(`INSERT INTO daily_visits (day, user_id, kind) VALUES (?, ?, ?)
         ON CONFLICT(day, user_id) DO UPDATE SET opens = opens + 1, kind = excluded.kind`).run(canaryDay(), req.user.id, u.is_guest ? 'guest' : 'account');
+      // A tagged link (?src=instagram) is counted for the team. Only the tag is kept: no cookies, IPs or outside trackers.
+      const src = String(req.body?.src || '').trim().toLowerCase();
+      if (/^[a-z0-9][a-z0-9_-]{0,31}$/.test(src)) {
+        db.prepare('INSERT OR IGNORE INTO visit_sources (day, user_id, src) VALUES (?, ?, ?)').run(canaryDay(), req.user.id, src);
+        db.prepare('INSERT OR IGNORE INTO user_sources (user_id, src, day) VALUES (?, ?, ?)').run(req.user.id, src, canaryDay());
+      }
     }
     res.json({ ok: true });
   });
@@ -655,6 +662,16 @@ export function createApi(db) {
           }),
           counting_since: db.prepare('SELECT MIN(day) AS d FROM daily_visits').get().d,
         };
+      })(),
+      // Tagged links: people who opened the app from each tag, and accounts whose first tagged link it was.
+      sources: (() => {
+        const d7 = canaryDay(new Date(Date.now() - 6 * 864e5)); const d30 = canaryDay(new Date(Date.now() - 29 * 864e5));
+        return db.prepare(`SELECT s.src,
+            COUNT(DISTINCT CASE WHEN s.day >= ? THEN s.user_id END) AS people_7d,
+            COUNT(DISTINCT CASE WHEN s.day >= ? THEN s.user_id END) AS people_30d,
+            (SELECT COUNT(*) FROM user_sources f JOIN users u ON u.id = f.user_id WHERE f.src = s.src AND ${real}) AS accounts
+          FROM visit_sources s JOIN users vu ON vu.id = s.user_id WHERE vu.is_test = 0 AND vu.is_demo = 0 GROUP BY s.src ORDER BY people_30d DESC, s.src LIMIT 40`).all(d7, d30)
+          .map((x) => ({ src: x.src, people_7d: x.people_7d, people_30d: x.people_30d, accounts: x.accounts }));
       })(),
     });
   });

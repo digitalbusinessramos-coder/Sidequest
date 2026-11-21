@@ -85,6 +85,9 @@ function migrate(db) {
   // Visitor counts for the team: who opened the app on which day (Canary date), and how many times. No outside trackers, no IPs.
   db.exec(`CREATE TABLE IF NOT EXISTS daily_visits (day TEXT NOT NULL, user_id INTEGER NOT NULL, kind TEXT NOT NULL, opens INTEGER NOT NULL DEFAULT 1,
     PRIMARY KEY (day, user_id))`);
+  // Link tags (?src=instagram): which tagged link someone opened the app from, per day, and the first one per person.
+  db.exec('CREATE TABLE IF NOT EXISTS visit_sources (day TEXT NOT NULL, user_id INTEGER NOT NULL, src TEXT NOT NULL, PRIMARY KEY (day, user_id, src))');
+  db.exec('CREATE TABLE IF NOT EXISTS user_sources (user_id INTEGER PRIMARY KEY, src TEXT NOT NULL, day TEXT NOT NULL)');
 }
 
 /** Run fn inside an IMMEDIATE transaction (takes the write lock first, so capacity checks cannot race). */

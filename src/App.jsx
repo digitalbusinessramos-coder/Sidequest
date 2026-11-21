@@ -52,6 +52,24 @@ const TABS = [
 ];
 const TAB_OF = { activity: 'explore', event: 'explore', events: 'explore', create: 'explore', person: 'buddies', dm: 'buddies' };
 
+/**
+ * A tagged link (…/?src=instagram, or #/explore?src=poster) tells the team which post or poster brought someone in.
+ * The tag is read once, sent with the visit count, and removed from the address so it isn't shared on.
+ */
+function takeLinkTag() {
+  try {
+    const q = new URLSearchParams(location.search);
+    const h = location.hash.includes('?') ? new URLSearchParams(location.hash.split('?')[1]) : null;
+    const src = q.get('src') || h?.get('src') || '';
+    if (src) {
+      q.delete('src'); h?.delete('src');
+      const hash = h ? `${location.hash.split('?')[0]}${h.toString() ? `?${h}` : ''}` : location.hash;
+      history.replaceState(history.state, '', `${location.pathname}${q.toString() ? `?${q}` : ''}${hash}`);
+    }
+    return src.slice(0, 32);
+  } catch { return ''; }
+}
+
 export default function App() {
   const route = useHashRoute();
   const [meta, setMeta] = useState(null);
@@ -99,7 +117,7 @@ export default function App() {
       if (!u && m.demoMode && store('sq_wants_login') !== '1') {
         try { await api.post('/auth/guest', {}); u = await reloadMe(); } catch { /* fall back to the welcome screen */ }
       }
-      if (u) api.post('/visit', {}).catch(() => {}); // one count per app open, for the team's visitor numbers
+      if (u) api.post('/visit', { src: takeLinkTag() }).catch(() => {}); // one count per app open, for the team's visitor numbers
       if (u) syncPush();
       // No popup on arrival: Explore opens directly. “How it works” is one screen under Help.
     } catch (e) { setBootError(e); }
