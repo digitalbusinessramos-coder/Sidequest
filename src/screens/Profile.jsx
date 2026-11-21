@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { getAppName, t, tx } from '../i18n.js';
+import { NotifySettings } from './Notify.jsx';
+import { disablePush } from '../push.js';
 import { Avatar, EmailBadge, Icon, LanguageSwitch, SampleBadge, Sheet, TopBar, useApp } from '../components.jsx';
 import { areaName, resizeToJpeg, useApi } from '../util.js';
 import { categoryLabel } from '../../shared/catalog.js';
@@ -61,7 +63,6 @@ export default function Profile({ sub }) {
   const blocks = useApi('/me/blocks');
   const [busy, setBusy] = useState(false);
   const [del, setDel] = useState(null);
-  const [mailMsg, setMailMsg] = useState('');
   const [feedback, setFeedback] = useState(false);
   useEffect(() => {
     // Coming back from the link in the verification email.
@@ -77,15 +78,7 @@ export default function Profile({ sub }) {
     try { await api.put('/me/privacy', patch); await reloadMe(); if (ok) toast(ok); } catch (x) { toast(x.message, true); } finally { setBusy(false); }
   };
 
-  const sendVerification = async () => {
-    setBusy(true); setMailMsg('');
-    try {
-      const r = await api.post('/auth/verify/send');
-      setMailMsg(r.already ? tx('Your email is already confirmed.') : r.sent ? tx('Email sent. Open the link in it within 48 hours.')
-        : tx('Email sending is not set up on this server yet, so no email was sent. The project team can switch it on.'));
-    } catch (x) { setMailMsg(tx(x.message)); } finally { setBusy(false); }
-  };
-  const logout = async () => { try { localStorage.setItem('sq_wants_login', '1'); } catch { /* ignore */ } await api.post('/auth/logout'); await reloadMe(); location.hash = '#/explore'; };
+  const logout = async () => { await disablePush().catch(() => {}); try { localStorage.setItem('sq_wants_login', '1'); } catch { /* ignore */ } await api.post('/auth/logout'); await reloadMe(); location.hash = '#/explore'; };
   const unblock = async (id) => { try { await api.del(`/users/${id}/block`); blocks.reload(); } catch (x) { toast(x.message, true); } };
   const doDelete = async (e) => {
     e.preventDefault(); setBusy(true);
@@ -125,17 +118,13 @@ export default function Profile({ sub }) {
         <section className="card card-pad stack-sm" aria-labelledby="mail-h">
           <div className="row"><h3 id="mail-h" style={{ flex: 1 }}>{tx('Email')}</h3>{me.email_verified && <EmailBadge />}</div>
           <p className="small">{me.email} <span className="tiny muted">{tx('(never shown to others)')}</span></p>
-          {me.email_verified
-            ? <p className="tiny muted">{tx('Others see “Email confirmed” on your profile. It only means you can receive email at this address. It does not verify that you are a student.')}</p>
-            : (
-              <>
-                <p className="tiny muted">{t('profile.emailUnverified')}</p>
-                <button className="btn btn-secondary btn-sm" disabled={busy} onClick={sendVerification}>{tx('Send confirmation email')}</button>
-                {mailMsg && <p className="small" role="status">{mailMsg}</p>}
-              </>
-            )}
         </section>
       )}
+
+      <section className="card card-pad stack-sm" aria-labelledby="notify-h" data-tour="notify">
+        <h2 id="notify-h" className="row"><Icon name="bell" />{tx('Notifications')}</h2>
+        <NotifySettings />
+      </section>
 
       <section className="stack-sm" aria-labelledby="lang-h">
         <h2 id="lang-h">{tx('Language')}</h2>

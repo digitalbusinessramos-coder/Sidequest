@@ -48,7 +48,7 @@ export function AccountSheet({ onClose, initial = 'signup', reason, onDone }) {
         )}
         <label className="field"><span>{tx('Email')}</span>
           <input className="input" type="email" autoComplete="email" required value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} />
-          {mode === 'signup' && <span className="hint">{tx('Never shown to others. We may send a link to confirm it; you can keep using the app meanwhile.')}</span>}
+          {mode === 'signup' && <span className="hint">{tx('Never shown to others.')}</span>}
         </label>
         <label className="field"><span>{tx('Password')}</span>
           <input className="input" type="password" autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} minLength={8} required value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} />

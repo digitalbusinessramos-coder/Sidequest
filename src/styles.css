@@ -617,3 +617,10 @@ fieldset.plain > legend { margin-bottom: 6px; padding: 0; }
 .visits-table th, .visits-table td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); font-weight: 500; }
 .visits-table thead th { font-weight: 650; color: var(--ink-2); }
 .visits-table .bar { display: inline-block; height: 8px; border-radius: 4px; background: var(--blue, #1a2fd0); vertical-align: middle; margin-right: 6px; }
+
+/* "New here?" tour card and the Install app button */
+.new-here { gap: 10px; align-items: center; flex-wrap: wrap; }
+.new-here .icon-btn { width: 36px; height: 36px; margin-left: auto; }
+.new-here-text { flex: 1 1 200px; min-width: 0; }
+.install-btn { background: var(--paper); border: 1px solid var(--line); color: var(--ink); white-space: nowrap; }
+.tabbar .side-foot .install-btn { align-self: flex-start; }

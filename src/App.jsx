@@ -21,6 +21,9 @@ import { AccountSheet } from './screens/Account.jsx';
 import Team from './screens/Team.jsx';
 import Help, { ExamplePlan } from './screens/Help.jsx';
 import ResetPassword from './screens/Reset.jsx';
+import Tour from './screens/Tour.jsx';
+import { InstallButton } from './screens/Install.jsx';
+import { registerServiceWorker, syncPush } from './push.js';
 import { FeedbackSheet } from './screens/Market.jsx';
 
 function useHashRoute() {
@@ -65,6 +68,16 @@ export default function App() {
   const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch { /* private mode */ } return null; };
   const [account, setAccount] = useState(null); // { mode: 'signup' | 'login', reason, onDone }
   const [feedback, setFeedback] = useState(false);
+  const [tour, setTour] = useState(false);
+  const openTour = () => { setTour(true); };
+  const closeTour = useCallback(() => { setTour(false); store('sq_tour_done', '1'); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    registerServiceWorker();
+    // A tapped notification asks an open window to show the right screen.
+    const on = (e) => { if (e.data?.type === 'open' && e.data.url) location.href = e.data.url; };
+    navigator.serviceWorker?.addEventListener('message', on);
+    return () => navigator.serviceWorker?.removeEventListener('message', on);
+  }, []);
 
   const reloadMe = useCallback(async () => {
     const r = await api.get('/me');
@@ -86,6 +99,7 @@ export default function App() {
         try { await api.post('/auth/guest', {}); u = await reloadMe(); } catch { /* fall back to the welcome screen */ }
       }
       if (u) api.post('/visit', {}).catch(() => {}); // one count per app open, for the team's visitor numbers
+      if (u) syncPush();
       // No popup on arrival: Explore opens directly. “How it works” is one screen under Help.
     } catch (e) { setBootError(e); }
   }, [reloadMe]);
@@ -103,7 +117,7 @@ export default function App() {
   const city = meta.cities.find((c) => c.slug === me?.city?.slug) || meta.cities[0];
   const openAccount = (mode = 'signup', opts = {}) => setAccount({ mode, ...opts });
   const openFeedback = () => setFeedback(true);
-  const ctx = { meta, me, city, reloadMe, toast, api, counts, lang, changeLanguage, openAccount, openFeedback };
+  const ctx = { meta, me, city, reloadMe, toast, api, counts, lang, changeLanguage, openAccount, openFeedback, openTour };
 
   if (route.parts[0] === 'reset') return <AppCtx.Provider value={ctx}><ResetPassword token={route.query.token} />{toastNode}</AppCtx.Provider>;
   if (!me) return <AppCtx.Provider value={ctx}><Welcome key={lang} />{toastNode}</AppCtx.Provider>;
@@ -146,7 +160,7 @@ export default function App() {
           <button className="btn btn-sm btn-ghost" onClick={() => openAccount('login')}>{tx('Log in')}</button>
         </div>
       )}
-      <header className="mobile-brand"><a href="#/explore"><img src="/brand/erasquest-logo-480.png" alt={`${getAppName()} · Las Palmas`} height="34" /></a><LanguageSwitch compact /></header>
+      <header className="mobile-brand"><a href="#/explore"><img src="/brand/erasquest-logo-480.png" alt={`${getAppName()} · Las Palmas`} height="34" /></a><span className="row" style={{ gap: 6 }}><InstallButton /><LanguageSwitch compact /></span></header>
       <div className="app">
         <main id="main" key={lang}>{screen}</main>
       </div>
@@ -164,6 +178,7 @@ export default function App() {
           ))}
         </ul>
         <div className="side-foot">
+          <InstallButton className="btn-secondary" />
           <LanguageSwitch compact />
           <a className="side-help" href="#/help"><Icon name="info" size={18} />{tx('Help')}</a>
           <p className="side-indep">{tx('{app} is an independent student project developed for the Digital Business course at ULPGC.', { app: getAppName() })}</p>
@@ -171,6 +186,7 @@ export default function App() {
       </nav>
       {account && <AccountSheet initial={account.mode} reason={account.reason} onDone={account.onDone} onClose={() => setAccount(null)} />}
       {feedback && <FeedbackSheet onClose={() => setFeedback(false)} />}
+      {tour && <Tour onDone={closeTour} />}
       {toastNode}
     </AppCtx.Provider>
   );

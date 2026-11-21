@@ -88,7 +88,7 @@ export default function Buddies() {
         </section>
       )}
 
-      <section className="stack" aria-labelledby="ppl-h">
+      <section className="stack" aria-labelledby="ppl-h" data-tour="students">
         <div className="section-title"><h2 id="ppl-h">{tx('Students in {city}', { city: 'Las Palmas' })}</h2>
           {people.data && <span className="small muted">{tx('{n} people', { n: people.data.people.length })}</span>}</div>
         {people.data?.people.length > 6 && (

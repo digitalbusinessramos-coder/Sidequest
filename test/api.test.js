@@ -790,3 +790,45 @@ test('team visitors and profiles: counted once per person per day, tests left ou
   assert.equal((await a.get('/team/profiles')).status, 403);
   delete process.env.ADMIN_TOKEN;
 });
+
+test('pop-up notifications: subscribe, sent for plan updates and chat (throttled), never from a blocked person, removed on logout', async () => {
+  const org = await user('Pia'); const guest = await user('Quin');
+  await org.put('/me/privacy', { lang: 'es' });
+  const key = (await org.get('/push/key')).body.key;
+  assert.match(key, /^[\w-]{80,}$/, 'server made its own public key');
+  assert.equal((await org.post('/push/subscribe', { endpoint: 'not-a-url', keys: { p256dh: 'x', auth: 'y' } })).status, 400);
+  const sub = (tag) => ({ endpoint: `https://push.example.test/${tag}-${Date.now()}`, keys: { p256dh: 'B'.repeat(87), auth: 'A'.repeat(22) } });
+  const s1 = sub('pia');
+  assert.equal((await org.post('/push/subscribe', s1)).body.devices, 1);
+  assert.equal((await org.get('/me')).body.user.push_devices, 1);
+  await guest.post('/push/subscribe', sub('quin'));
+  const sentFor = async (uid) => (await org.get('/push/_sent')).body.sent.filter((x) => x.uid === uid);
+
+  const id = await makeActivity(org, { title: 'Paseo push', max_participants: 5 });
+  await guest.post(`/activities/${id}/requests`, { message: 'Hola' });
+  const toOrg = await sentFor(org.id);
+  assert.equal(toOrg.at(-1).kind, 'request_received');
+  assert.equal(toOrg.at(-1).payload.title, 'Quin quiere unirse', 'written in the receiver’s language');
+  assert.match(toOrg.at(-1).payload.url, new RegExp(`/#/activity/${id}$`));
+
+  await org.post(`/activities/${id}/members/${guest.id}/accept`);
+  assert.equal((await sentFor(guest.id)).at(-1).kind, 'request_accepted');
+
+  const before = (await sentFor(org.id)).length;
+  await guest.post(`/activities/${id}/messages`, { body: 'one' });
+  await guest.post(`/activities/${id}/messages`, { body: 'two' });
+  const chats = (await sentFor(org.id)).slice(before);
+  assert.equal(chats.length, 1, 'a busy chat sends one pop-up, not one per message');
+  assert.equal(chats[0].kind, 'chat');
+  assert.ok(!JSON.stringify(chats[0].payload).includes('one'), 'message text is not shown on the lock screen');
+
+  await org.post(`/users/${guest.id}/block`, {});
+  const n1 = (await sentFor(org.id)).length;
+  const left = await guest.del(`/activities/${id}/requests/mine`);
+  assert.equal(left.status, 200, JSON.stringify(left.body));
+  assert.equal((await sentFor(org.id)).length, n1, 'nothing from a blocked person');
+
+  assert.equal((await org.post('/push/test', {})).body.devices, 1);
+  assert.equal((await org.post('/push/unsubscribe', { endpoint: s1.endpoint })).body.devices, 0);
+  assert.equal((await org.post('/push/test', {})).body.devices, 0);
+});
