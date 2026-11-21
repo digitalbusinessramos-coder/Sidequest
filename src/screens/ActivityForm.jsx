@@ -1,15 +1,15 @@
 import { tx } from '../i18n.js';
 import { useEffect, useRef, useState } from 'react';
-import { AreaInput, ErrorState, Icon, Loading, TopBar, useApp } from '../components.jsx';
+import { AreaInput, EmojiTile, ErrorState, Icon, Loading, TopBar, useApp } from '../components.jsx';
 import { DURATION_LABEL, localDate, resizeToJpeg, tzLabel, useApi } from '../util.js';
 import { api as rawApi } from '../api.js';
-import { PLAN_SUGGESTIONS } from '../../shared/catalog.js';
+import { PLAN_EMOJIS, PLAN_SUGGESTIONS, planEmoji } from '../../shared/catalog.js';
 
 // Nothing is filled in for the student: no default day, time, area, duration, cost or group size.
 const empty = () => ({
   title: '', category: 'other', template: 'other', description: '', day: '', time_mode: '', time: '', time_window: '',
   meeting_area: '', meeting_point: '', duration_choice: '', cost_mode: '', cost_eur: '', capped: false, max_participants: '',
-  join_mode: 'request', beginner_friendly: false,
+  join_mode: 'request', beginner_friendly: false, emoji: '',
 });
 
 /** Links from an event, a buddy invitation or a City Guide tip carry a title, area, day or time. The student still checks everything. */
@@ -30,7 +30,7 @@ function fromActivity(a) {
     time_mode: a.time_mode || 'exact', time: a.time_mode === 'exact' ? time : '', time_window: a.time_window || '',
     meeting_area: a.meeting_area, meeting_point: a.meeting_point || '', duration_choice: a.duration_choice || '',
     cost_mode: a.cost_mode || '', cost_eur: a.cost_eur ?? '', capped: !!a.capped, max_participants: a.max_participants ?? '',
-    join_mode: a.join_mode, beginner_friendly: !!a.beginner_friendly, photo: a.photo,
+    join_mode: a.join_mode, beginner_friendly: !!a.beginner_friendly, photo: a.photo, emoji: a.emoji || '',
   };
 }
 
@@ -84,7 +84,7 @@ export default function ActivityForm({ editId, query = {} }) {
     time: v.time_mode === 'exact' ? v.time : undefined, time_window: v.time_mode === 'window' ? v.time_window : undefined,
     meeting_area: v.meeting_area, meeting_point: v.meeting_point, duration_choice: v.duration_choice || null,
     cost_mode: v.cost_mode || null, cost_eur: v.cost_mode === 'estimate' ? Number(v.cost_eur) : 0,
-    max_participants: v.capped ? Number(v.max_participants) : null, join_mode: v.join_mode, beginner_friendly: v.beginner_friendly,
+    max_participants: v.capped ? Number(v.max_participants) : null, join_mode: v.join_mode, beginner_friendly: v.beginner_friendly, emoji: v.emoji || '',
     ...(query.event && !editId ? { event_id: Number(query.event) } : {}),
   });
 
@@ -189,6 +189,22 @@ export default function ActivityForm({ editId, query = {} }) {
           </div>
           <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" onChange={pickPhoto} hidden />
         </div>
+
+        {!(photo || v.photo) && (
+          <div className="field">
+            <span className="label" id="emoji-l">{tx('No photo? Pick an emoji for your plan')}</span>
+            <div className="row" style={{ gap: 12, alignItems: 'center' }}>
+              <EmojiTile a={v} size="sm" />
+              <span className="hint">{v.emoji ? tx('Tap it again to go back to the automatic one.') : tx('Chosen from the type of plan. Tap another to change it.')}</span>
+            </div>
+            <div className="emoji-grid" role="radiogroup" aria-labelledby="emoji-l">
+              {PLAN_EMOJIS.map((e) => {
+                const on = planEmoji(v) === e;
+                return <button key={e} type="button" role="radio" aria-checked={on} className={`emoji-opt ${on ? 'on' : ''}`} onClick={() => set({ emoji: v.emoji === e ? '' : e })}>{e}</button>;
+              })}
+            </div>
+          </div>
+        )}
 
         {!more ? (
           <button type="button" className="btn btn-ghost" onClick={() => setMore(true)} aria-expanded="false"><Icon name="plus" size={16} />{tx('More details (optional): exact meeting point, cost, group size…')}</button>

@@ -1417,4 +1417,7 @@ export const es = {
   "Say what you feel like doing, when and roughly where. Others can join you.": "Di qué te apetece hacer, cuándo y más o menos dónde. Otros pueden unirse.",
   "Everything you joined or created, with the chat and the meeting point.": "Todo lo que has creado o a lo que te has unido, con el chat y el punto de encuentro.",
   "Turn on notifications to know when someone joins your plan or writes to you.": "Activa las notificaciones para saber cuándo alguien se une a tu plan o te escribe.",
+  "No photo? Pick an emoji for your plan": "¿Sin foto? Elige un emoji para tu plan",
+  "Tap it again to go back to the automatic one.": "Tócalo otra vez para volver al automático.",
+  "Chosen from the type of plan. Tap another to change it.": "Elegido según el tipo de plan. Toca otro para cambiarlo.",
 };

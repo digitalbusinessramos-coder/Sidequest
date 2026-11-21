@@ -118,3 +118,15 @@ export const PLAN_SUGGESTIONS = [
 ];
 // Suggested public meeting areas. Students can type any other area.
 export const AREA_SUGGESTIONS = ['Las Canteras', 'Santa Catalina', 'Triana', 'Vegueta', 'Campus de Tafira', 'Campus del Obelisco'];
+
+// A plan without an uploaded photo shows a coloured tile with an emoji. The creator can pick one; otherwise the category's is used.
+export const CAT_EMOJI = {
+  coffee: '☕', museum: '🏛️', culture: '🎶', hiking: '🥾', beach: '🌅', surf: '🏄', sports: '⚽', daytrip: '🚌',
+  nightout: '🍻', food: '🍽️', study: '📚', wellness: '🧘', games: '🎲', shopping: '🛍️', photo: '📷', other: '✨',
+};
+export const PLAN_EMOJIS = [
+  '☕', '🍻', '🍷', '🍹', '🍽️', '🍕', '🌮', '🥘', '🎉', '💃', '🎶', '🎤',
+  '🏛️', '🎨', '🎬', '📚', '🗣️', '🎲', '🏄', '🏊', '🌊', '🌅', '🏖️', '🥾',
+  '🚴', '⚽', '🏐', '🧘', '🚌', '🌋', '📷', '🛍️', '🐶', '🎸', '🎂', '✨',
+];
+export const planEmoji = (a) => (a?.emoji && PLAN_EMOJIS.includes(a.emoji) ? a.emoji : CAT_EMOJI[a?.category] || CAT_EMOJI.other);

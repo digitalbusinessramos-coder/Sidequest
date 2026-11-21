@@ -832,3 +832,14 @@ test('pop-up notifications: subscribe, sent for plan updates and chat (throttled
   assert.equal((await org.post('/push/unsubscribe', { endpoint: s1.endpoint })).body.devices, 0);
   assert.equal((await org.post('/push/test', {})).body.devices, 0);
 });
+
+test('plans without a photo keep the emoji the creator picked; unknown emoji are ignored', async () => {
+  const org = await user('Emi');
+  const id = await makeActivity(org, { title: 'Tapas night', category: 'food', emoji: '🌮' });
+  assert.equal((await org.get(`/activities/${id}`)).body.activity.emoji, '🌮');
+  assert.equal((await org.get(`/activities/${id}`)).body.activity.photo, null);
+  const a = (await org.get(`/activities/${id}`)).body.activity;
+  const r = await org.put(`/activities/${id}`, { title: a.title, category: 'food', day: a.day, time_mode: 'exact', time: '20:00', meeting_area: a.meeting_area, join_mode: a.join_mode, emoji: '<script>' });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal((await org.get(`/activities/${id}`)).body.activity.emoji, '', 'not in the list: falls back to the automatic one');
+});
