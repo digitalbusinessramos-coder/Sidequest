@@ -173,6 +173,7 @@ export default function Profile({ sub }) {
         <h2 id="about-h">{tx('About {app}')}</h2>
         <p className="small muted">{tx('{app} is an independent student project developed for the Digital Business course at ULPGC.', { app: getAppName() })} {tx('Plans and profiles are posted by students. Example content is kept out of the app; one clearly labelled example plan is in Help. We are not affiliated with ESN Las Palmas, Erasmus Life Las Palmas or any other organisation.')}</p>
         <a className="btn btn-secondary btn-sm" style={{ alignSelf: 'flex-start' }} href="#/help"><Icon name="info" size={16} />{tx('Help')}</a>
+        {me.team && <a className="btn btn-secondary btn-sm" style={{ alignSelf: 'flex-start' }} href="#/team"><Icon name="shield" size={16} />{tx('Team inbox')}</a>}
       </section>
 
       <div className="stack-sm">

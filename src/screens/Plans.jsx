@@ -23,7 +23,8 @@ function Updates() {
   const { api, reloadMe, city } = useApp();
   const { data, reload } = useApi('/notifications', { poll: 20000 });
   const [showAll, setShowAll] = useState(false);
-  if (!data || data.notifications.length === 0) return null;
+  if (!data || (data.notifications.length === 0 && !data.chats?.length)) return null;
+  const chats = data.chats || [];
   const list = data.notifications;
   const unread = list.filter((n) => !n.read).length;
   const shown = showAll ? list : list.slice(0, Math.max(3, unread));
@@ -40,6 +41,13 @@ function Updates() {
         {unread > 0 && <button className="btn btn-ghost btn-sm" onClick={markAll}>{tx('Mark all as read')}</button>}
       </div>
       <div className="card" style={{ overflow: 'hidden' }}>
+        {chats.map((c) => (
+          <a key={`chat-${c.activity.id}`} className="note unread" href={`#/activity/${c.activity.id}/chat`}>
+            <Icon name="chat" size={18} />
+            <span style={{ flex: 1 }}>{c.unread === 1 ? tx('1 new message in “{title}”', { title: c.activity.title }) : tx('{n} new messages in “{title}”', { n: c.unread, title: c.activity.title })}</span>
+            <span className="dot" aria-label={tx('Unread')} />
+          </a>
+        ))}
         {shown.map((n) => {
           const [text, icon] = NOTE_TEXT[n.kind] || ['{title}', 'info'];
           return (

@@ -1,6 +1,7 @@
 import { getAppName, tx } from '../i18n.js';
 import { Icon, TopBar, useApp, DetailPhoto, SampleBadge } from '../components.jsx';
 import { photo } from '../../shared/photos.js';
+import { InstallSteps, canSuggestInstall, installContext } from './Install.jsx';
 
 /**
  * One read-only example plan, reachable from Create and Help. It is not stored in the database, so it never appears in
@@ -60,6 +61,14 @@ export default function Help() {
             <a className="btn btn-secondary btn-sm" href="#/example">{tx('See an example plan')}</a>
           </div>
         </section>
+
+        {(canSuggestInstall() || installContext().standalone) && (
+          <section className="stack-sm" aria-labelledby="inst-h" id="install">
+            <h2 id="inst-h" className="row"><Icon name="plus" />{tx('Add {app} to your home screen', { app: getAppName() })}</h2>
+            <p className="small muted">{tx('Open your plans with one tap, like an app. Nothing to download from a store.')}</p>
+            <InstallSteps />
+          </section>
+        )}
 
         <section className="stack-sm" aria-labelledby="em-h" id="emergencies">
           <h2 id="em-h" className="row"><Icon name="shield" />{tx('Help and emergencies')}</h2>

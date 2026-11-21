@@ -18,6 +18,7 @@ import Guide from './screens/Guide.jsx';
 import Profile from './screens/Profile.jsx';
 import Person from './screens/Person.jsx';
 import { AccountSheet } from './screens/Account.jsx';
+import Team from './screens/Team.jsx';
 import Help, { ExamplePlan } from './screens/Help.jsx';
 import ResetPassword from './screens/Reset.jsx';
 import { FeedbackSheet } from './screens/Market.jsx';
@@ -124,6 +125,7 @@ export default function App() {
   else if (p0 === 'person') screen = <Person id={p1} />;
   else if (p0 === 'example') screen = <ExamplePlan />;
   else if (p0 === 'help') screen = <Help />;
+  else if (p0 === 'team') screen = <Team />;
   else if (p0 === 'plans') screen = <Plans />;
   else if (p0 === 'buddies') screen = <Buddies />;
   else if (p0 === 'guide') screen = <Guide />;

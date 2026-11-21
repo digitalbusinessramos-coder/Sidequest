@@ -255,6 +255,7 @@ a[href^="#/person"]:hover strong { text-decoration: underline; }
 .note { display: flex; gap: 12px; align-items: flex-start; width: 100%; text-align: left; padding: 12px 14px; border: 0; border-bottom: 1px solid var(--line);
   background: var(--paper); cursor: pointer; font-size: 0.92rem; }
 .note:last-child { border-bottom: 0; }
+a.note { color: inherit; text-decoration: none; }
 .note svg { margin-top: 2px; color: var(--ink-3); flex: none; }
 .note.unread { background: var(--blue-soft); }
 .note.unread svg { color: var(--blue-ink); }
@@ -598,3 +599,17 @@ fieldset.plain > legend { margin-bottom: 6px; padding: 0; }
 .how-steps { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 12px; }
 .how-steps li { display: flex; gap: 12px; align-items: flex-start; background: var(--paper); border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px; }
 .how-steps li > svg { flex: none; color: var(--blue-ink); margin-top: 2px; }
+.team-open { border-left: 4px solid var(--coral, #e4572e); }
+.install-steps { padding-left: 20px; margin: 0; display: grid; gap: 6px; }
+.carousel { position: relative; border-radius: 20px; overflow: hidden; background: var(--blue-soft); }
+.carousel-track { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.carousel-track::-webkit-scrollbar { display: none; }
+.carousel-track:focus-visible { outline: 3px solid var(--blue, #1a2fd0); outline-offset: -3px; }
+.carousel-slide { flex: 0 0 100%; scroll-snap-align: start; }
+.carousel-slide img { width: 100%; height: min(360px, 70vw); object-fit: cover; display: block; }
+.carousel-btn { position: absolute; top: 50%; transform: translateY(-50%); width: 40px; height: 40px; border-radius: 999px; border: 0; background: rgba(255,255,255,.9); color: #041836; display: grid; place-items: center; cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,.2); }
+.carousel-btn:disabled { opacity: 0; pointer-events: none; }
+.carousel-btn.prev { left: 10px; } .carousel-btn.next { right: 10px; }
+.carousel-count { position: absolute; right: 12px; bottom: 12px; background: rgba(4,24,54,.75); color: #fff; font-size: .8rem; font-weight: 600; padding: 3px 9px; border-radius: 999px; }
+.thumb-wrap { position: relative; display: inline-block; }
+.thumb-x { position: absolute; top: -6px; right: -6px; width: 24px; height: 24px; border-radius: 999px; border: 0; background: #041836; color: #fff; display: grid; place-items: center; cursor: pointer; }
