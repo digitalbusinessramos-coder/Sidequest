@@ -624,3 +624,16 @@ fieldset.plain > legend { margin-bottom: 6px; padding: 0; }
 .new-here-text { flex: 1 1 200px; min-width: 0; }
 .install-btn { background: var(--paper); border: 1px solid var(--line); color: var(--ink); white-space: nowrap; }
 .tabbar .side-foot .install-btn { align-self: flex-start; }
+
+/* Emoji tile: shown instead of a stock photo when a plan has no picture */
+.emoji-tile { --tile: #4a4f61; display: grid; place-items: center; width: 100%; height: 100%; border-radius: inherit;
+  background: radial-gradient(circle at 30% 25%, color-mix(in srgb, var(--tile) 16%, #fff) 0%, color-mix(in srgb, var(--tile) 30%, #fdf6ea) 100%); }
+.emoji-tile span { font-size: 56px; line-height: 1; filter: drop-shadow(0 3px 6px rgba(0,0,0,.15)); }
+.card-cover.is-emoji .emoji-tile span { font-size: 52px; }
+.emoji-tile.lg { height: 180px; border-radius: 20px; margin-top: -4px; }
+.emoji-tile.lg span { font-size: 88px; }
+.emoji-tile.sm { width: 64px; height: 64px; border-radius: 16px; flex: none; }
+.emoji-tile.sm span { font-size: 34px; }
+.emoji-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: 6px; }
+.emoji-opt { height: 44px; border-radius: 12px; border: 1px solid var(--line); background: var(--paper); font-size: 22px; cursor: pointer; }
+.emoji-opt.on { border-color: var(--ink); box-shadow: 0 0 0 2px var(--ink) inset; background: var(--paper-2); }

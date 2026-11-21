@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { t, tx } from '../i18n.js';
-import { Avatar, ErrorState, Icon, Loading, ReportSheet, SampleBadge, Sheet, Stamp, StatusBadge, TopBar, useApp, DetailPhoto, GoogleMap } from '../components.jsx';
-import { photoFor } from '../../shared/photos.js';
+import { Avatar, ErrorState, Icon, Loading, ReportSheet, SampleBadge, Sheet, Stamp, StatusBadge, TopBar, useApp, EmojiTile, GoogleMap } from '../components.jsx';
 import { fmtPlanCost, fmtPlanDuration, fmtPlanWhen, fmtPlaces, tzLabel, useApi } from '../util.js';
 import { ShareButton } from './Share.jsx';
 import { langName } from './ProfileBits.jsx';
@@ -81,7 +80,7 @@ export default function ActivityDetail({ id, query = {} }) {
       </TopBar>
       <div className="page">
         {a.is_sample && <div className="notice blue"><Icon name="info" />{tx('This is an example plan made up to show how plans look. Nobody can join it.')}</div>}
-        {a.photo ? <figure className="detail-photo"><img src={a.photo} alt="" /></figure> : <DetailPhoto ph={photoFor(a.category)} />}
+        {a.photo ? <figure className="detail-photo"><img src={a.photo} alt="" /></figure> : <EmojiTile a={a} size="lg" />}
         <div className="detail-head">
           <Stamp category={a.category} size="lg" />
           <div className="stack-sm" style={{ flex: 1 }}>

@@ -6,7 +6,7 @@ import { createPush } from './push.js';
 import { config } from './config.js';
 import { hashPassword, verifyPassword, createSession, destroySession, sessionUser, rateLimiter } from './auth.js';
 import { localToUtcIso, utcToLocalInput, slotOf } from './time.js';
-import { CATEGORIES, TEMPLATES, LANGUAGES, STAY_KINDS, BUDGETS, REPORT_REASONS, REC_CATEGORIES, MARKET_KINDS, MARKET_CATEGORIES, FEEDBACK_KINDS, categoryPhrase, slotLabel } from '../shared/catalog.js';
+import { CATEGORIES, TEMPLATES, LANGUAGES, STAY_KINDS, BUDGETS, REPORT_REASONS, REC_CATEGORIES, MARKET_KINDS, MARKET_CATEGORIES, FEEDBACK_KINDS, PLAN_EMOJIS, categoryPhrase, slotLabel } from '../shared/catalog.js';
 
 export class HttpError extends Error {
   constructor(status, code, message) { super(message); this.status = status; this.code = code; }
@@ -31,7 +31,7 @@ const languageList = (v) => list(v, null, 12).map((x) => LANGUAGES.find((l) => l
 // Flags for the bio: two-letter region codes (countries and territories, e.g. IC for the Canary Islands). Purely decorative.
 const flagList = (v) => list(v, null, 8).map((x) => x.toUpperCase()).filter((x) => /^[A-Z]{2}$/.test(x));
 const REVISION = (process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT || 'local').slice(0, 7);
-const RELEASE = 'pre-launch-4-push';
+const RELEASE = 'pre-launch-5-emoji';
 const TIME_MODES = ['exact', 'window', 'tbd'];
 // Accounts used for testing are kept out of campaign numbers and never get emails: addresses with "+test" or on test domains.
 const TEST_DOMAINS = (process.env.TEST_EMAIL_DOMAINS || 'example.com,example.org,test.invalid').split(',').map((d) => d.trim().toLowerCase()).filter(Boolean);
@@ -181,7 +181,7 @@ export function createApi(db) {
       duration_choice: a.duration_choice || null, ends_at: new Date(endOf(a)).toISOString(),
       meeting_area: a.meeting_area, cost_mode: costMode, cost_eur: costMode === 'estimate' ? a.cost_eur : null,
       capped, max_participants: capped ? a.max_participants : null,
-      photo: a.photo_mime ? `/api/activities/${a.id}/photo?v=${a.photo_v || 0}` : null,
+      photo: a.photo_mime ? `/api/activities/${a.id}/photo?v=${a.photo_v || 0}` : null, emoji: a.emoji || '',
       beginner_friendly: !!a.beginner_friendly, pace: a.pace, transport: a.transport,
       languages: J(a.languages), solo_format: !!a.solo_format, is_sample: !!a.is_sample,
       status: a.status, cancel_reason: a.cancel_reason, state, going, spots_left: capped ? Math.max(0, a.max_participants - going) : null,
@@ -804,6 +804,7 @@ export function createApi(db) {
       cost_eur: Math.round(cost * 100) / 100, cost_mode: costMode, max_participants: max, capped: capped ? 1 : 0,
       beginner_friendly: b.beginner_friendly ? 1 : 0,
       join_mode: b.join_mode === 'open' ? 'open' : 'request',
+      emoji: PLAN_EMOJIS.includes(b.emoji) ? b.emoji : '',
     };
   }
 
@@ -818,11 +819,11 @@ export function createApi(db) {
     const d = readActivityInput(req.body, city, null);
     const id = tx(db, () => {
       const { lastInsertRowid } = db.prepare(`INSERT INTO activities (city_id, organiser_id, template, category, title, description, starts_at, ends_at, time_mode, time_window,
-        duration_min, duration_choice, meeting_area, meeting_point, cost_eur, cost_mode, max_participants, capped, beginner_friendly, is_sample, join_mode)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+        duration_min, duration_choice, meeting_area, meeting_point, cost_eur, cost_mode, max_participants, capped, beginner_friendly, is_sample, join_mode, emoji)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
         city.id, req.user.id, d.template, d.category, d.title, d.description, d.starts_at, d.ends_at, d.time_mode, d.time_window,
         d.duration_min, d.duration_choice, d.meeting_area, d.meeting_point, d.cost_eur, d.cost_mode, d.max_participants, d.capped, d.beginner_friendly,
-        req.user.is_demo ? 1 : 0, d.join_mode);
+        req.user.is_demo ? 1 : 0, d.join_mode, d.emoji);
       // A student plan can point at an event (e.g. a visit to the Christmas market on a chosen day). It reserves nothing there.
       const ev = req.body.event_id && db.prepare("SELECT id FROM events WHERE id = ? AND city_id = ? AND status = 'active'").get(Number(req.body.event_id), city.id);
       if (ev) db.prepare('UPDATE activities SET event_id = ? WHERE id = ?').run(ev.id, lastInsertRowid);
@@ -846,9 +847,9 @@ export function createApi(db) {
       const d = readActivityInput(req.body, cityById(a.city_id), a);
       if (d.capped && d.max_participants < goingCount(a.id)) fail(409, 'capacity', `${goingCount(a.id)} people are already going. Remove someone before lowering the group size.`);
       db.prepare(`UPDATE activities SET template=?, category=?, title=?, description=?, starts_at=?, ends_at=?, time_mode=?, time_window=?, duration_min=?, duration_choice=?,
-        meeting_area=?, meeting_point=?, cost_eur=?, cost_mode=?, max_participants=?, capped=?, beginner_friendly=?, join_mode=?, updated_at=? WHERE id=?`).run(
+        meeting_area=?, meeting_point=?, cost_eur=?, cost_mode=?, max_participants=?, capped=?, beginner_friendly=?, join_mode=?, emoji=?, updated_at=? WHERE id=?`).run(
         d.template, d.category, d.title, d.description, d.starts_at, d.ends_at, d.time_mode, d.time_window, d.duration_min, d.duration_choice,
-        d.meeting_area, d.meeting_point, d.cost_eur, d.cost_mode, d.max_participants, d.capped, d.beginner_friendly, d.join_mode, now(), a.id);
+        d.meeting_area, d.meeting_point, d.cost_eur, d.cost_mode, d.max_participants, d.capped, d.beginner_friendly, d.join_mode, d.emoji, now(), a.id);
       const changes = [];
       if (d.starts_at !== a.starts_at || d.time_mode !== (a.time_mode || 'exact')) changes.push('time');
       if (d.meeting_point !== a.meeting_point || d.meeting_area !== a.meeting_area) changes.push('meeting point');

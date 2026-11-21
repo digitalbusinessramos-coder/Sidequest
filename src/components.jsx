@@ -1,7 +1,8 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { LANGUAGE_OPTIONS, t, tx } from './i18n.js';
 import { eventText, fmtEventWhen, fmtPlaces, fmtPlanCost, fmtPlanWhen } from './util.js';
-import { PHOTOS, photo, photoFor } from '../shared/photos.js';
+import { PHOTOS, photo } from '../shared/photos.js';
+import { planEmoji } from '../shared/catalog.js';
 import { AREA_SUGGESTIONS, DAYS, categoryLabel } from '../shared/catalog.js';
 
 export const AppCtx = createContext(null);
@@ -117,6 +118,16 @@ export function PhotoHero({ photoKey, children, height = 200, className = '' }) 
 }
 
 /** Photo strip on top of a card, with the category stamp on it. Decorative: the card text says everything. */
+/** Shown instead of a photo: the plan's emoji on a soft tile in its category colour. Nothing to download. */
+export function EmojiTile({ a, size = '' }) {
+  const c = CAT_COLOR[a?.category] || CAT_COLOR.other;
+  return (
+    <div className={`emoji-tile ${size}`} style={{ '--tile': c }} aria-hidden="true">
+      <span>{planEmoji(a)}</span>
+    </div>
+  );
+}
+
 export function CardCover({ ph, category }) {
   return (
     <div className="card-cover" aria-hidden="true">
@@ -205,7 +216,7 @@ export function ActivityCard({ a, reason }) {
   const ticket = a.event && !a.event.is_sample;
   return (
     <a href={`#/activity/${a.id}`} className={`card act-card has-cover ${cls}`} aria-label={`${a.title}, ${when}`}>
-      {a.photo ? <div className="card-cover" aria-hidden="true"><img src={a.photo} alt="" loading="lazy" /><Stamp category={a.category} /></div> : <CardCover ph={photoFor(a.category)} category={a.category} />}
+      {a.photo ? <div className="card-cover" aria-hidden="true"><img src={a.photo} alt="" loading="lazy" /><Stamp category={a.category} /></div> : <div className="card-cover is-emoji"><EmojiTile a={a} /></div>}
       <div className="stack-sm" style={{ minWidth: 0 }}>
         <div className="row wrap" style={{ gap: 6 }}>
           <span className="when">{when}</span>
@@ -238,7 +249,7 @@ export function EventCard({ e, more = 0 }) {
   const txt = eventText(e);
   return (
     <a href={`#/event/${e.id}`} className="card act-card has-cover event-card">
-      <CardCover ph={(e.photo_key && photo(e.photo_key)) || photoFor(e.category)} category={e.category} />
+      {e.photo_key && photo(e.photo_key) ? <CardCover ph={photo(e.photo_key)} category={e.category} /> : <div className="card-cover is-emoji"><EmojiTile a={{ category: e.category }} /></div>}
       <div className="stack-sm" style={{ minWidth: 0 }}>
         <div className="row wrap" style={{ gap: 6 }}>
           <span className="when">{fmtEventWhen(e, { withEnd: false })}</span>

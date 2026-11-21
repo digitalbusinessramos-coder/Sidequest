@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { getAppName, t, tx } from '../i18n.js';
-import { ActivityCard, Avatar, ChoiceChips, ErrorState, Icon, Loading, SampleBadge, Sheet, Stamp, TopBar, useApp, DetailPhoto, GoogleMap } from '../components.jsx';
-import { photo, photoFor } from '../../shared/photos.js';
+import { ActivityCard, Avatar, ChoiceChips, ErrorState, Icon, Loading, SampleBadge, Sheet, Stamp, TopBar, useApp, DetailPhoto, EmojiTile, GoogleMap } from '../components.jsx';
+import { photo } from '../../shared/photos.js';
 import { eventText, fmtDay, fmtDuration, fmtEventWhen, tzLabel, useApi } from '../util.js';
 import { LanguagePicker, langName } from './ProfileBits.jsx';
 
@@ -60,7 +60,7 @@ export default function EventDetail({ id }) {
     <>
       <TopBar title={e.title} />
       <div className="page">
-        <DetailPhoto ph={(e.photo_key && photo(e.photo_key)) || photoFor(e.category)} />
+        {e.photo_key && photo(e.photo_key) ? <DetailPhoto ph={photo(e.photo_key)} /> : <EmojiTile a={{ category: e.category }} size="lg" />}
         <div className="detail-head">
           <Stamp category={e.category} size="lg" />
           <div className="stack-sm" style={{ flex: 1 }}>
