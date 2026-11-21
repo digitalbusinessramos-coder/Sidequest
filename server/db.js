@@ -17,6 +17,12 @@ function migrate(db) {
   const cols = (t) => db.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name);
   if (!cols('users').includes('email_verified_at')) db.exec('ALTER TABLE users ADD COLUMN email_verified_at TEXT');
   if (!cols('profiles').includes('lang')) db.exec("ALTER TABLE profiles ADD COLUMN lang TEXT NOT NULL DEFAULT 'en'");
+  // Intro and meeting area are shown on the profile only if the student switches them on. Intros written before this keep showing.
+  if (!cols('profiles').includes('show_intro')) {
+    db.exec('ALTER TABLE profiles ADD COLUMN show_intro INTEGER NOT NULL DEFAULT 0');
+    db.exec("UPDATE profiles SET show_intro = 1 WHERE intro IS NOT NULL AND intro != ''");
+  }
+  if (!cols('profiles').includes('show_area')) db.exec('ALTER TABLE profiles ADD COLUMN show_area INTEGER NOT NULL DEFAULT 0');
   if (!cols('profiles').includes('photo_v')) db.exec('ALTER TABLE profiles ADD COLUMN photo_v INTEGER NOT NULL DEFAULT 0');
   if (!cols('activities').includes('join_mode')) db.exec("ALTER TABLE activities ADD COLUMN join_mode TEXT NOT NULL DEFAULT 'request'");
   if (!cols('notifications').includes('listing_id')) db.exec('ALTER TABLE notifications ADD COLUMN listing_id INTEGER REFERENCES listings(id) ON DELETE CASCADE');

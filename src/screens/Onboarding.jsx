@@ -14,6 +14,10 @@ export function ProfileFields({ v, set, meta }) {
       <label className="field"><span>{tx('Short introduction (optional)')}</span>
         <textarea className="textarea" maxLength={280} value={v.intro} placeholder={tx('e.g. Here for the year. Up for hikes, beach volleyball and tapas.')} onChange={(e) => set({ intro: e.target.value })} />
       </label>
+      {v.intro?.trim() && (
+        <label className="check"><input type="checkbox" checked={!!v.show_intro} onChange={(e) => set({ show_intro: e.target.checked })} />
+          <span>{tx('Show my introduction on my profile')}</span></label>
+      )}
       <div className="field"><span className="label">{tx('I am… (optional)')}</span>
         <ChoiceChips label={tx('I am')} value={v.role} onChange={(role) => set({ role: role || 'exchange' })}
           options={[{ key: 'exchange', label: tx('Erasmus / exchange student') }, { key: 'international', label: tx('International student') }, { key: 'intern', label: tx('Intern / trainee') }, { key: 'local', label: tx('Local student') }]} />
@@ -21,6 +25,10 @@ export function ProfileFields({ v, set, meta }) {
       <StayPicker v={v} set={set} />
       <AreaInput id="meet-area" label={tx('Where do you like to meet? (optional)')} value={v.meet_area} onChange={(meet_area) => set({ meet_area })}
         hint={tx('A broad area, like a neighbourhood or a campus. Never your home address.')} />
+      {v.meet_area?.trim() && (
+        <label className="check"><input type="checkbox" checked={!!v.show_area} onChange={(e) => set({ show_area: e.target.checked })} />
+          <span>{tx('Show where I like to meet on my profile')}</span></label>
+      )}
       <LanguagePicker value={v.languages} onChange={(languages) => set({ languages })} />
       <FlagPicker value={v.flags} onChange={(flags) => set({ flags })} />
       <div className="field"><span className="label">{tx('What would you like to do? (optional)')}</span>
@@ -40,7 +48,7 @@ export function ProfileFields({ v, set, meta }) {
 
 export const profileDefaults = (me) => ({
   first_name: me.first_name === 'Someone' || me.first_name === 'Guest' ? '' : me.first_name || '', intro: me.intro || '', role: me.role || 'exchange',
-  meet_area: me.meet_area || '', university: me.university || '', show_university: !!me.show_university,
+  meet_area: me.meet_area || '', university: me.university || '', show_university: !!me.show_university, show_intro: !!me.show_intro, show_area: !!me.show_area,
   stay: me.stay || (me.exchange_start || me.exchange_end ? 'custom' : ''), exchange_start: me.exchange_start || '', exchange_end: me.exchange_end || '',
   languages: me.languages || [], flags: me.flags || [], interests: me.interests || [],
 });

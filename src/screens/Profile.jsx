@@ -101,12 +101,12 @@ export default function Profile({ sub }) {
         </div>
         <a className="btn btn-secondary btn-sm" href="#/profile/edit"><Icon name="edit" size={16} />{t('profile.edit')}</a>
       </div>
-      {me.intro && <p>{me.intro}</p>}
+      {me.intro && <p>{me.intro} {!me.show_intro && <span className="tiny muted">{tx('(hidden)')}</span>}</p>}
       <div className="card card-pad facts-list">
         <Icon name="globe" /><div>{me.languages.map(langName).join(', ') || <span className="muted">{tx('No languages yet')}</span>}</div>
         {me.flags?.length > 0 && <><Icon name="flag" /><div><FlagList flags={me.flags} /></div></>}
         <Icon name="heart" /><div>{me.interests.map((c) => tx(categoryLabel(c))).join(', ') || <span className="muted">{tx('No interests yet')}</span>}</div>
-        <Icon name="pin" /><div>{me.meet_area || areaName(city.areas, me.area) ? tx('Likes to meet around {area}', { area: me.meet_area || areaName(city.areas, me.area) }) : <span className="muted">{tx('Meeting area not set')}</span>}</div>
+        <Icon name="pin" /><div>{me.meet_area || areaName(city.areas, me.area) ? <>{tx('Likes to meet around {area}', { area: me.meet_area || areaName(city.areas, me.area) })} <span className="tiny muted">{me.show_area ? tx('(shown on profile)') : tx('(hidden)')}</span></> : <span className="muted">{tx('Meeting area not set')}</span>}</div>
         {stayText(me) && <><Icon name="plans" /><div>{stayText(me)}</div></>}
         {me.university && <><Icon name="school" /><div>{me.university} <span className="tiny muted">{me.show_university ? tx('(shown on profile)') : tx('(hidden)')}</span></div></>}
       </div>
@@ -140,10 +140,10 @@ export default function Profile({ sub }) {
 
       <section className="stack-sm" aria-labelledby="priv-h">
         <h2 id="priv-h" className="row"><Icon name="shield" />{t('profile.privacy')}</h2>
-        <div className="card card-pad" style={{ paddingTop: 0, paddingBottom: 0 }}>
-          <label className="switch"><span><strong>{t('profile.visible')}</strong><br /><span className="hint">{t('profile.visibleHint')}</span></span>
-            <input type="checkbox" role="switch" checked={me.visible} disabled={busy} onChange={(e) => privacy({ visible: e.target.checked }, e.target.checked ? tx("You’re visible again.") : tx("Visibility paused."))} /></label>
-        </div>
+        {!me.is_guest && <div className="card card-pad" style={{ paddingTop: 0, paddingBottom: 0 }}>
+          <label className="switch"><span><strong>{tx('Only people in my plans can see me')}</strong><br /><span className="hint">{tx('Off: students with an account can find you in Buddies and see your short card (first name, photo, languages, interests and dates of stay). On: only people who share a plan with you, or you’re connected with, can open your profile. Guests never see profiles.')}</span></span>
+            <input type="checkbox" role="switch" checked={!me.visible} disabled={busy} onChange={(e) => privacy({ visible: !e.target.checked }, e.target.checked ? tx('Only people in your plans can see you now.') : tx('Students with an account can find you in Buddies again.'))} /></label>
+        </div>}
       </section>
 
       <section className="card card-pad stack-sm" aria-labelledby="fb-h">

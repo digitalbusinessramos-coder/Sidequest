@@ -28,6 +28,8 @@ export function createApp(db) {
     }
     next();
   });
+  // Profiles and plans are for people using the app, never for search engines.
+  app.use('/api', (_req, res, next) => { res.set('X-Robots-Tag', 'noindex, nofollow'); next(); });
   app.use('/api', createApi(db));
   app.use('/api', (_req, _res, next) => next(new HttpError(404, 'not_found', 'Not found.')));
 

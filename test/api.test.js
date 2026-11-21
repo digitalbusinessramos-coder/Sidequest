@@ -793,6 +793,37 @@ test('team visitors and profiles: counted once per person per day, tests left ou
   delete process.env.ADMIN_TOKEN;
 });
 
+test('profile visibility: short card for students with an account, never guests; "only people in my plans" hides from everyone else', async () => {
+  const a = await user('Lia', { intro: 'Here for a year', meet_area: 'Las Canteras', university: 'ULPGC', show_university: false });
+  const b = await user('Max');
+  // Intro, meeting area and university start hidden: the short card only.
+  let card = (await b.get(`/users/${a.id}`)).body.profile;
+  assert.equal(card.first_name, 'Lia'); assert.deepEqual(card.languages, ['English']); assert.deepEqual(card.interests, ['museum']);
+  assert.equal(card.intro, ''); assert.equal(card.meet_area, null); assert.equal(card.university, null);
+  const mine = (await a.get('/me')).body.user;
+  assert.equal(mine.intro, 'Here for a year'); assert.equal(mine.meet_area, 'Las Canteras'); assert.equal(mine.show_intro, false);
+  await a.put('/me/profile', { first_name: 'Lia', city: 'las-palmas', show_intro: true, show_area: true });
+  card = (await b.get(`/users/${a.id}`)).body.profile;
+  assert.equal(card.intro, 'Here for a year'); assert.equal(card.meet_area, 'Las Canteras');
+  assert.equal((await a.get('/me')).body.user.intro, 'Here for a year', 'saving without intro keeps it');
+  // Guests never see profiles or the student list. Search engines are told not to index.
+  const g = client(); await g.post('/auth/guest');
+  assert.equal((await g.get(`/users/${a.id}`)).status, 401);
+  const gp = await g.get('/people'); assert.equal(gp.body.account_needed, true); assert.equal(gp.body.people.length, 0);
+  assert.match((await fetch(`${base}/people`)).headers.get('x-robots-tag') || '', /noindex/);
+  // "Only people in my plans can see me".
+  await a.put('/me/privacy', { visible: false });
+  assert.equal((await b.get(`/users/${a.id}`)).status, 404);
+  const c = await user('Noa');
+  const plan = await makeActivity(a);
+  assert.equal((await c.post(`/activities/${plan}/requests`, {})).status < 300, true);
+  assert.equal((await c.get(`/users/${a.id}`)).status, 200, 'someone in her plan can still see her');
+  assert.equal((await a.get(`/users/${c.id}`)).status, 200);
+  assert.equal((await b.post(`/users/${a.id}/connect`, {})).status, 403, 'hidden people cannot get connect requests');
+  await a.put('/me/privacy', { visible: true });
+  assert.equal((await b.get(`/users/${a.id}`)).status, 200);
+});
+
 test('link tags: ?src= counted per tag for the team, first tag per person, test accounts and bad tags left out', async () => {
   process.env.ADMIN_TOKEN = 'team-code-for-tests-123';
   const team = await user('Lead'); await team.post('/team/unlock', { code: process.env.ADMIN_TOKEN });
