@@ -1487,4 +1487,11 @@ export const es = {
   "This request is no longer open.": "Esta solicitud ya no está abierta.",
   "You can message each other once the request is accepted.": "Podréis escribiros cuando se acepte la solicitud.",
   "Message": "Mensaje",
+  "Where people came from": "De dónde vienen",
+  "People who opened the app from a tagged link, and accounts whose first tagged link it was.": "Personas que abrieron la app desde un enlace etiquetado y cuentas cuyo primer enlace etiquetado fue ese.",
+  "Tag": "Etiqueta",
+  "7 days": "7 días",
+  "30 days": "30 días",
+  "No tagged links opened yet.": "Todavía nadie ha abierto un enlace etiquetado.",
+  "Add ?src= and a short name to any link you post, for example {link}. Shared plan links are tagged “share” on their own. Only the tag is counted: no cookies or outside trackers.": "Añade ?src= y un nombre corto a cualquier enlace que publiques, por ejemplo {link}. Los enlaces de planes compartidos se etiquetan como «share» solos. Solo se cuenta la etiqueta: sin cookies ni rastreadores externos.",
 };

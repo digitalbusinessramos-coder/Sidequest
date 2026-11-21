@@ -686,7 +686,9 @@ test('R1 examples stay out of discovery and cannot be joined; real content and l
   assert.equal((await u.get(`/activities/${id}`)).status, 200);
   const share = await fetch(base.replace('/api', `/p/${id}`));
   const html = await share.text();
-  assert.ok(html.includes('Museum visit') && html.includes(`/#/activity/${id}`));
+  assert.ok(html.includes('Museum visit') && html.includes(`/?src=share#/activity/${id}`));
+  assert.ok((await (await fetch(base.replace('/api', `/p/${id}?src=Poster`))).text()).includes(`/?src=poster#/activity/${id}`));
+  assert.ok((await (await fetch(base.replace('/api', `/p/${id}?src=<x>`))).text()).includes(`/?src=share#/activity/${id}`));
   assert.ok(!html.includes('Cathedral steps'), 'the share preview never shows the exact meeting point');
 });
 
@@ -788,6 +790,28 @@ test('team visitors and profiles: counted once per person per day, tests left ou
   assert.ok(pa && pa.last_visit && !('email' in pa));
   assert.ok(!profiles.some((p) => p.first_name === 'Guest'));
   assert.equal((await a.get('/team/profiles')).status, 403);
+  delete process.env.ADMIN_TOKEN;
+});
+
+test('link tags: ?src= counted per tag for the team, first tag per person, test accounts and bad tags left out', async () => {
+  process.env.ADMIN_TOKEN = 'team-code-for-tests-123';
+  const team = await user('Lead'); await team.post('/team/unlock', { code: process.env.ADMIN_TOKEN });
+  const tag = `ig${Date.now() % 100000}`;
+  const g = client(); await g.post('/auth/guest');
+  await g.post('/visit', { src: tag.toUpperCase() }); await g.post('/visit', { src: tag }); await g.post('/visit', { src: 'later' });
+  const a = await user('Tagi'); await a.post('/visit', { src: tag });
+  const t = client(); await t.post('/auth/signup', { email: `qa-src${Date.now()}@example.com`, password: 'password123' }); await t.post('/visit', { src: tag });
+  await a.post('/visit', { src: '<script>' }); await a.post('/visit', { src: 'x'.repeat(40) });
+  let rows = (await team.get('/team/numbers')).body.sources;
+  let row = rows.find((x) => x.src === tag);
+  assert.deepEqual([row.people_7d, row.people_30d, row.accounts], [2, 2, 1], 'guest + account counted once each; the test account is not');
+  assert.ok(!rows.some((x) => x.src.includes('<') || x.src.length > 32));
+  // The guest signs up: their first tag (not the later one) gets the account.
+  await g.post('/auth/claim', { email: `src${Date.now()}@mail.test`, password: 'password123', first_name: 'Gia' });
+  rows = (await team.get('/team/numbers')).body.sources;
+  assert.equal(rows.find((x) => x.src === tag).accounts, 2);
+  assert.equal(rows.find((x) => x.src === 'later').accounts, 0);
+  assert.equal((await a.get('/team/numbers')).status, 403);
   delete process.env.ADMIN_TOKEN;
 });
 

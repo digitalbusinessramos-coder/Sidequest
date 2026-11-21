@@ -160,6 +160,15 @@ function Numbers() {
         </tbody>
       </table>
       <p className="tiny muted">{v.counting_since ? tx('Counting since {date}. Each person counts once per day, however often they open the app. No outside trackers or cookies are used, and test accounts are left out.', { date: dayLabel(v.counting_since) }) : tx('Counting starts with the next visit.')}</p>
+      <h3>{tx('Where people came from')}</h3>
+      {data.sources?.length ? (
+        <table className="visits-table">
+          <caption className="tiny muted" style={{ textAlign: 'left' }}>{tx('People who opened the app from a tagged link, and accounts whose first tagged link it was.')}</caption>
+          <thead><tr><th scope="col">{tx('Tag')}</th><th scope="col">{tx('7 days')}</th><th scope="col">{tx('30 days')}</th><th scope="col">{tx('Accounts')}</th></tr></thead>
+          <tbody>{data.sources.map((x) => <tr key={x.src}><th scope="row">{x.src}</th><td>{x.people_7d}</td><td>{x.people_30d}</td><td>{x.accounts}</td></tr>)}</tbody>
+        </table>
+      ) : <p className="small muted">{tx('No tagged links opened yet.')}</p>}
+      <p className="tiny muted">{tx('Add ?src= and a short name to any link you post, for example {link}. Shared plan links are tagged “share” on their own. Only the tag is counted: no cookies or outside trackers.', { link: `${location.origin}/?src=instagram` })}</p>
       <h3>{tx('Activity')}</h3>
       <div className="card" style={{ padding: 0 }}>
         {rows.map(([k, v]) => <div key={k} className="person-row" style={{ padding: '10px 14px' }}><span style={{ flex: 1 }}>{tx(k)}</span><strong>{v}</strong></div>)}

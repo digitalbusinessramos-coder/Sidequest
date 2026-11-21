@@ -38,7 +38,10 @@ export function createApp(db) {
       FROM activities a JOIN cities c ON c.id = a.city_id WHERE a.id = ?`).get(id) : null;
     const esc = (x) => String(x).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
     const base = `${req.protocol}://${req.get('host')}`;
-    const target = a ? `/#/activity/${a.id}` : '/#/explore';
+    // Shared plan links count as 'share' in the team numbers unless the link already carries its own tag.
+    const tag = String(req.query.src || 'share').toLowerCase();
+    const src = /^[a-z0-9][a-z0-9_-]{0,31}$/.test(tag) ? tag : 'share';
+    const target = `/?src=${src}${a ? `#/activity/${a.id}` : '#/explore'}`;
     let title = `${config.appName} · Las Palmas`;
     let desc = 'Find someone to go with in Las Palmas de Gran Canaria.';
     if (a && a.status === 'active' && !a.is_sample) {
