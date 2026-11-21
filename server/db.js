@@ -35,6 +35,15 @@ function migrate(db) {
   if (!cols('profiles').includes('status_category')) {
     for (const c of ['status_category', 'status_slot', 'status_area', 'status_note', 'status_expires_at']) db.exec(`ALTER TABLE profiles ADD COLUMN ${c} TEXT`);
   }
+  // Pre-launch release 1 (Nov 2026): plans keep only what the creator actually said. All nullable, so older rows keep their meaning:
+  // time_mode NULL = an exact time (older plans), cost_mode NULL = the historical cost_eur value, capped NULL = capped (older plans).
+  for (const [c, type] of [['time_mode', 'TEXT'], ['time_window', 'TEXT'], ['ends_at', 'TEXT'], ['duration_choice', 'TEXT'], ['cost_mode', 'TEXT'],
+    ['capped', 'INTEGER'], ['photo_mime', 'TEXT'], ['photo', 'BLOB'], ['photo_v', 'INTEGER NOT NULL DEFAULT 0']]) {
+    if (!cols('activities').includes(c)) db.exec(`ALTER TABLE activities ADD COLUMN ${c} ${type}`);
+  }
+  db.exec(`CREATE TABLE IF NOT EXISTS password_tokens (token_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, expires_at TEXT NOT NULL)`);
+  // Test accounts are excluded from campaign numbers.
+  if (!cols('users').includes('is_test')) db.exec('ALTER TABLE users ADD COLUMN is_test INTEGER NOT NULL DEFAULT 0');
 }
 
 /** Run fn inside an IMMEDIATE transaction (takes the write lock first, so capacity checks cannot race). */

@@ -106,7 +106,10 @@ export function seed(db, { force = false } = {}) {
     ((category = 'hiking' AND slots = '["sat_morning","sun_morning"]' AND budget = 'any') OR (category = 'beach' AND slots = '["sat_afternoon","sun_afternoon","fri_evening"]' AND budget = 'free'))`).run();
   // Real events (stable ids, safe to re-run).
   importEvents(db);
-  if (!config.demoMode) return;
+  // Since the pre-launch release, example people, plans, listings and tips are no longer created or refreshed on the live site.
+  // Existing example rows stay in the database (marked is_sample / is_demo) but never appear in discovery.
+  // Automated tests can still create them with SEED_EXAMPLES=1.
+  if (!config.demoMode || !process.env.SEED_EXAMPLES) return;
 
   const SEED_VERSION = 5;
   const stored = Number(db.prepare("SELECT value FROM settings WHERE key = 'seed_version'").get()?.value || 0);

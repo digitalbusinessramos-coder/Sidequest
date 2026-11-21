@@ -18,6 +18,9 @@ import Guide from './screens/Guide.jsx';
 import Profile from './screens/Profile.jsx';
 import Person from './screens/Person.jsx';
 import Tour, { AccountSheet } from './screens/Tour.jsx';
+import Help, { ExamplePlan } from './screens/Help.jsx';
+import ResetPassword from './screens/Reset.jsx';
+import { FeedbackSheet } from './screens/Market.jsx';
 
 function useHashRoute() {
   const parse = () => {
@@ -60,7 +63,8 @@ export default function App() {
 
   const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch { /* private mode */ } return null; };
   const [tour, setTour] = useState(false);
-  const [account, setAccount] = useState(null); // 'signup' | 'login'
+  const [account, setAccount] = useState(null); // { mode: 'signup' | 'login', reason, onDone }
+  const [feedback, setFeedback] = useState(false);
   const closeTour = useCallback(() => { setTour(false); store('sq_tour_done', '1'); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const reloadMe = useCallback(async () => {
@@ -98,9 +102,11 @@ export default function App() {
 
   const city = meta.cities.find((c) => c.slug === me?.city?.slug) || meta.cities[0];
   const openTour = () => setTour(true);
-  const openAccount = (mode = 'signup') => setAccount(mode);
-  const ctx = { meta, me, city, reloadMe, toast, api, counts, lang, changeLanguage, openTour, openAccount };
+  const openAccount = (mode = 'signup', opts = {}) => setAccount({ mode, ...opts });
+  const openFeedback = () => setFeedback(true);
+  const ctx = { meta, me, city, reloadMe, toast, api, counts, lang, changeLanguage, openTour, openAccount, openFeedback };
 
+  if (route.parts[0] === 'reset') return <AppCtx.Provider value={ctx}><ResetPassword token={route.query.token} />{toastNode}</AppCtx.Provider>;
   if (!me) return <AppCtx.Provider value={ctx}><Welcome key={lang} />{toastNode}</AppCtx.Provider>;
   if (!me.onboarded) return <AppCtx.Provider value={ctx}><Onboarding key={lang} />{toastNode}</AppCtx.Provider>;
 
@@ -108,7 +114,7 @@ export default function App() {
   let screen;
   if (p0 === 'activity' && p2 === 'chat') screen = <Chat id={p1} />;
   else if (p0 === 'activity' && p2 === 'edit') screen = <ActivityForm editId={p1} />;
-  else if (p0 === 'activity') screen = <ActivityDetail id={p1} />;
+  else if (p0 === 'activity') screen = <ActivityDetail id={p1} query={route.query} />;
   else if (p0 === 'market' && p1 === 'new') screen = <ListingForm query={route.query} />;
   else if (p0 === 'market' && p1 && p2 === 'edit') screen = <ListingForm editId={p1} />;
   else if (p0 === 'market' && p1 && p2 === 'chat') screen = <ListingChat id={p1} query={route.query} />;
@@ -119,6 +125,8 @@ export default function App() {
   else if (p0 === 'events') screen = <Events />;
   else if (p0 === 'create') screen = <ActivityForm query={route.query} />;
   else if (p0 === 'person') screen = <Person id={p1} />;
+  else if (p0 === 'example') screen = <ExamplePlan />;
+  else if (p0 === 'help') screen = <Help />;
   else if (p0 === 'plans') screen = <Plans />;
   else if (p0 === 'buddies') screen = <Buddies />;
   else if (p0 === 'guide') screen = <Guide />;
@@ -157,12 +165,13 @@ export default function App() {
         </ul>
         <div className="side-foot">
           <LanguageSwitch compact />
-          <button className="side-help" onClick={openTour}><Icon name="info" size={18} />{tx('How it works')}</button>
+          <a className="side-help" href="#/help"><Icon name="info" size={18} />{tx('Help')}</a>
           <p className="side-indep">{tx('{app} is an independent student project developed for the Digital Business course at ULPGC.', { app: getAppName() })}</p>
         </div>
       </nav>
       {tour && <Tour onDone={closeTour} />}
-      {account && <AccountSheet initial={account} onClose={() => setAccount(null)} />}
+      {account && <AccountSheet initial={account.mode} reason={account.reason} onDone={account.onDone} onClose={() => setAccount(null)} />}
+      {feedback && <FeedbackSheet onClose={() => setFeedback(false)} />}
       {toastNode}
     </AppCtx.Provider>
   );

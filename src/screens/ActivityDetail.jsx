@@ -2,10 +2,11 @@ import { useState } from 'react';
 import { t, tx } from '../i18n.js';
 import { Avatar, ErrorState, Icon, Loading, ReportSheet, SampleBadge, Sheet, Stamp, StatusBadge, TopBar, useApp, DetailPhoto, GoogleMap } from '../components.jsx';
 import { photoFor } from '../../shared/photos.js';
-import { fmtCost, fmtDuration, fmtWhen, tzLabel, useApi } from '../util.js';
+import { fmtPlanCost, fmtPlanDuration, fmtPlanWhen, fmtPlaces, tzLabel, useApi } from '../util.js';
+import { ShareButton } from './Share.jsx';
 
-export default function ActivityDetail({ id }) {
-  const { api, toast, reloadMe, meta } = useApp();
+export default function ActivityDetail({ id, query = {} }) {
+  const { api, toast, reloadMe, meta, me, openAccount } = useApp();
   const { data, error, loading, reload } = useApi(`/activities/${id}`, { poll: 10000 });
   const [busy, setBusy] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
@@ -13,6 +14,8 @@ export default function ActivityDetail({ id }) {
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
   const [report, setReport] = useState(null);
+  const [justJoined, setJustJoined] = useState(false);
+  const [openConfirm, joinOpenSheet] = useState(false);
 
   if (loading && !data) return <><TopBar title="" /><div className="page"><Loading rows={2} /></div></>;
   if (error && !data) return <><TopBar title="" /><div className="page"><ErrorState error={error} onRetry={reload} /></div></>;
@@ -26,14 +29,19 @@ export default function ActivityDetail({ id }) {
     try { await fn(); if (okText) toast(okText); await reload(true); reloadMe().catch(() => {}); return true; } catch (x) { toast(x.message, true); await reload(true); return false; } finally { setBusy(false); }
   };
 
-  const join = async (e) => {
-    e.preventDefault();
-    if (await act(() => api.post(`/activities/${a.id}/requests`, { message: msg }), tx("Request sent. You’ll see the answer in My Plans."))) { setJoinOpen(false); setMsg(''); }
+  // Guests save an account first (a few seconds); the request or join then goes through without leaving this plan.
+  const needAccount = (then, reason) => openAccount('signup', { reason, onDone: then });
+  const sendRequest = async () => {
+    if (await act(() => api.post(`/activities/${a.id}/requests`, { message: msg }), tx('Request sent. You’ll see the answer here and in My Plans.'))) { setJoinOpen(false); setMsg(''); setJustJoined(true); }
   };
+  const join = (e) => {
+    e.preventDefault();
+    if (me.is_guest) { setJoinOpen(false); needAccount(sendRequest, tx('Create a free account so {name} can see who is asking. Your request is sent right after.', { name: a.organiser.first_name })); } else sendRequest();
+  };
+  const joinNow = async () => { if (await act(() => api.post(`/activities/${a.id}/requests`, { message: '' }), tx('You’re in! Say hello in the chat.'))) setJustJoined(true); };
   const joinOpenPlan = () => {
-    if (confirm(tx('Join “{title}”? Your first name and picture become visible to the group, and you can chat with them.', { title: a.title }))) {
-      act(() => api.post(`/activities/${a.id}/requests`, { message: '' }), tx("You’re in! Say hello in the chat."));
-    }
+    if (me.is_guest) needAccount(joinNow, tx('Create a free account to join. You join this plan right after.'));
+    else joinOpenSheet(true);
   };
   const leave = () => {
     const text = a.my_status === 'accepted' ? tx("Leave this activity? You will lose access to its chat.") : tx("Withdraw your request?");
@@ -49,11 +57,15 @@ export default function ActivityDetail({ id }) {
   };
   const invitation = (action) => act(() => api.post(`/activities/${a.id}/invitation/${action}`), action === 'accept' ? tx("You’re in! Say hello in the chat.") : tx("Invitation declined."));
 
+  const posted = isOrg ? tx('Posted by you') : tx('Posted by {name}', { name: a.organiser.first_name });
+  const cost = fmtPlanCost(a);
+  const duration = fmtPlanDuration(a);
+  const places = fmtPlaces(a);
   const notice = {
     cancelled: ['coral', 'x', `${t('act.cancelledNote')}${a.cancel_reason ? ` ${tx('Reason: {reason}', { reason: a.cancel_reason })}` : ''}`],
     past: ['', 'clock', t('act.pastNote')],
   }[a.state] || {
-    pending: ['', 'clock', t('act.pendingNote')],
+    pending: ['', 'clock', tx('Request sent. {name} decides; you’ll see the answer here and in My Plans. You are not confirmed yet.', { name: a.organiser.first_name })],
     accepted: ['lime', 'check', t('act.acceptedNote')],
     invited: ['blue', 'heart', t('act.invitedNote', { name: a.organiser.first_name })],
     declined: ['', 'info', tx("The organiser didn’t accept this request. There are plenty of other plans in Explore.")],
@@ -66,33 +78,34 @@ export default function ActivityDetail({ id }) {
         {!isOrg && <button className="icon-btn" aria-label={tx("Report this activity")} onClick={() => setReport({ type: 'activity', id: a.id, label: 'activity' })}><Icon name="flag" /></button>}
       </TopBar>
       <div className="page">
-        <DetailPhoto ph={photoFor(a.category)} />
+        {a.is_sample && <div className="notice blue"><Icon name="info" />{tx('This is an example plan made up to show how plans look. Nobody can join it.')}</div>}
+        {a.photo ? <figure className="detail-photo"><img src={a.photo} alt="" /></figure> : <DetailPhoto ph={photoFor(a.category)} />}
         <div className="detail-head">
           <Stamp category={a.category} size="lg" />
           <div className="stack-sm" style={{ flex: 1 }}>
             <div className="row wrap" style={{ gap: 6 }}>
               {a.is_sample && <SampleBadge />}
               <StatusBadge status={closed ? a.state : a.my_status || (a.state === 'full' ? 'full' : null)} />
-              {a.solo_format && <span className="badge badge-solo">{t('card.solo')}</span>}
           {a.join_mode === 'open' && <span className="badge badge-open"><Icon name="bolt" size={12} />{tx('Join directly')}</span>}
             </div>
             <h1 style={{ fontSize: '1.45rem' }}>{a.title}</h1>
             <a href={`#/person/${a.organiser.id}`} className="row small" style={{ textDecoration: 'none', color: 'var(--ink-2)' }}>
-              <Avatar person={a.organiser} size="sm" />{tx("Organised by")} <strong>{isOrg ? tx('you') : a.organiser.first_name}</strong>{a.organiser.is_demo && !isOrg && <SampleBadge />}
+              <Avatar person={a.organiser} size="sm" />{posted}{a.organiser.is_demo && !isOrg && <SampleBadge />}
             </a>
           </div>
         </div>
 
+        {query.created && isOrg && !closed && <div className="notice lime" role="status"><Icon name="check" />{tx('Your plan is published. Share the link so people can join. Requests and messages appear in My Plans.')}</div>}
         {notice && <div className={`notice ${notice[0]}`} role="status"><Icon name={notice[1]} />{notice[2]}</div>}
 
         <div className="card card-pad facts-list">
-          <Icon name="clock" /><div><strong>{fmtWhen(a.starts_at, a.timezone)}</strong> · {fmtDuration(a.duration_min)}<div className="tiny muted">{tzLabel(a.timezone)}</div></div>
-          <Icon name="pin" /><div><strong>{a.meeting_area}</strong>{!insider && <div className="tiny muted">{t('act.meetPointHidden')}</div>}</div>
-          <Icon name="euro" /><div><strong>{fmtCost(a.cost_eur)}</strong>{a.cost_eur > 0 && <div className="tiny muted">{tx('Estimated by the organiser. Everyone pays their own share directly; nothing is paid in the app.')}</div>}</div>
-          <Icon name="group" /><div><strong>{a.max_participants === 2 ? tx("One buddy (2 people)") : tx('Up to {n} people', { n: a.max_participants })}</strong>{tx(', including the organiser')} · {tx('{n} going', { n: a.going })} · {tx('{n} left', { n: a.spots_left })}</div>
-          {a.languages.length > 0 && <><Icon name="globe" /><div>{a.languages.map((l) => tx(l)).join(', ')}</div></>}
-          {(a.beginner_friendly || a.pace) && <><Icon name="sprout" /><div>{[a.beginner_friendly && tx("Beginners welcome"), a.pace && tx('Pace: {pace}', { pace: a.pace })].filter(Boolean).join(' · ')}</div></>}
-          {a.transport && <><Icon name="bus" /><div>{a.transport}</div></>}
+          <Icon name="clock" /><div><strong>{fmtPlanWhen(a)}</strong>{duration && <> · {duration}</>}<div className="tiny muted">{tx(tzLabel(a.timezone))}</div></div>
+          <Icon name="pin" /><div><strong>{a.meeting_area}</strong><div className="tiny muted">{insider ? tx('Public meeting area') : tx('Public meeting area. Confirmed participants see the exact meeting point.')}</div></div>
+          {cost && <><Icon name="euro" /><div><strong>{cost}</strong>{a.cost_mode === 'estimate' && <div className="tiny muted">{tx('Estimated by the organiser. Everyone pays their own share directly; nothing is paid in the app.')}</div>}</div></>}
+          <Icon name="group" /><div>{a.capped
+            ? <><strong>{tx('Up to {n} people, including the organiser', { n: a.max_participants })}</strong> · {tx('{n} going', { n: a.going })} · {places}</>
+            : <strong>{tx('{n} going', { n: a.going })}</strong>}</div>
+          {a.beginner_friendly && <><Icon name="sprout" /><div>{tx('Beginners welcome')}</div></>}
         </div>
 
         {a.event && (
@@ -104,19 +117,13 @@ export default function ActivityDetail({ id }) {
         {a.description && <p>{a.description}</p>}
         <GoogleMap query={a.meeting_area.split(' / ')[0]} title={tx('Map of {place}', { place: a.meeting_area })} note={insider ? null : tx('Shows the neighbourhood only. The exact meeting point is shared with confirmed participants.')} />
 
-        {(a.solo_format || a.welcome_plan || a.recognise_tip) && (
-          <section className="card card-pad stack-sm" aria-label={tx("How it starts")}>
-            <h3>{tx("How it starts")}</h3>
-            {a.solo_format && <p className="small">{t('act.soloExplainer')}</p>}
-            {a.welcome_plan && <p className="small"><strong>{t('act.welcome')}:</strong> {a.welcome_plan}</p>}
-            {a.recognise_tip && <p className="small"><strong>{t('act.recognise')}:</strong> {a.recognise_tip}</p>}
-          </section>
-        )}
+        {!insider && !closed && !a.my_status && <p className="small reassure"><Icon name="heart" size={16} />{tx('You’re welcome to come on your own.')}</p>}
+        {!a.is_sample && <ShareButton activity={a} />}
 
         {insider && (
           <section className="meetup stack-sm" aria-label={t('act.meetup')}>
             <h3><Icon name="pin" />{t('act.meetup')}</h3>
-            <p><strong>{fmtWhen(a.starts_at, a.timezone)}</strong></p>
+            <p><strong>{fmtPlanWhen(a)}</strong></p>
             <p>{a.meeting_point || <span className="muted">{isOrg ? tx('No exact meeting point yet. Agree on a public place in the chat and add it with Edit.') : tx('No exact meeting point yet. Agree on a public place in the chat.')}</span>}</p>
             <p className="tiny muted">{t('act.public')}</p>
             <a className="btn btn-primary btn-sm" href={`#/activity/${a.id}/chat`}><Icon name="chat" />{t('act.chat')}</a>
@@ -137,7 +144,7 @@ export default function ActivityDetail({ id }) {
               ))}
               {a.participants.length === 0 && <p className="small muted" style={{ padding: '10px 0' }}>{tx("Nobody confirmed yet.")}</p>}
             </div>
-          ) : <p className="small muted">{a.going} going. {t('act.whoHidden')}</p>}
+          ) : <p className="small muted">{tx('{n} going', { n: a.going })}. {t('act.whoHidden')}</p>}
         </section>
 
         {isOrg && (
@@ -172,16 +179,19 @@ export default function ActivityDetail({ id }) {
           </section>
         )}
 
-        {!isOrg && !closed && (
+        {!isOrg && !closed && !a.is_sample && (
           <div className="sticky-actions">
             {!a.my_status || ['left', 'withdrawn'].includes(a.my_status) ? (
               a.state === 'full'
                 ? <button className="btn btn-secondary btn-block" disabled>{t('status.full')}</button>
                 : a.join_mode === 'open'
-                  ? <button className="btn btn-primary btn-block" onClick={joinOpenPlan} disabled={busy}><Icon name="bolt" />{tx('Join now')}</button>
+                  ? <button className="btn btn-primary btn-block" onClick={joinOpenPlan} disabled={busy}><Icon name="bolt" />{tx('Join plan')}</button>
                   : <button className="btn btn-primary btn-block" onClick={() => setJoinOpen(true)} disabled={busy}>{t('act.request')}</button>
             ) : a.my_status === 'pending' ? (
-              <button className="btn btn-secondary btn-block" onClick={leave} disabled={busy}>{t('act.withdraw')}</button>
+              <div className="row">
+                <span className="badge badge-pending" style={{ flex: 1, justifyContent: 'center', minHeight: 40 }}><Icon name="check" size={14} />{tx('Request sent')}</span>
+                <button className="btn btn-ghost" onClick={leave} disabled={busy}>{t('act.withdraw')}</button>
+              </div>
             ) : a.my_status === 'invited' ? (
               <div className="row">
                 <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => invitation('accept')} disabled={busy || a.state === 'full'}>{t('act.acceptInvite')}</button>
@@ -208,6 +218,15 @@ export default function ActivityDetail({ id }) {
             </label>
             <button className="btn btn-primary btn-block" disabled={busy}>{tx("Send request")}</button>
           </form>
+        </Sheet>
+      )}
+      {openConfirm && (
+        <Sheet title={tx('Join plan')} onClose={() => joinOpenSheet(false)}>
+          <div className="stack">
+            <p className="small">{tx('Your first name and picture become visible to the group, and you can chat with them.')}</p>
+            {a.event && <div className="notice blue"><Icon name="info" />{t('event.separate')}</div>}
+            <button className="btn btn-primary btn-block" disabled={busy} onClick={async () => { joinOpenSheet(false); await joinNow(); }}><Icon name="bolt" />{tx('Join plan')}</button>
+          </div>
         </Sheet>
       )}
       {cancelOpen && (

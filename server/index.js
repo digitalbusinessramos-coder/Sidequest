@@ -29,6 +29,33 @@ export function createApp(db) {
   app.use('/api', createApi(db));
   app.use('/api', (_req, _res, next) => next(new HttpError(404, 'not_found', 'Not found.')));
 
+  // Share links for Instagram and WhatsApp: a preview card (title, day, public area only), then the plan opens in the app.
+  app.get('/p/:id', (req, res) => {
+    const id = Number(req.params.id);
+    const a = Number.isInteger(id) ? db.prepare(`SELECT a.id, a.title, a.starts_at, a.time_mode, a.time_window, a.meeting_area, a.status, a.is_sample, c.timezone
+      FROM activities a JOIN cities c ON c.id = a.city_id WHERE a.id = ?`).get(id) : null;
+    const esc = (x) => String(x).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+    const base = `${req.protocol}://${req.get('host')}`;
+    const target = a ? `/#/activity/${a.id}` : '/#/explore';
+    let title = `${config.appName} · Las Palmas`;
+    let desc = 'Find someone to go with in Las Palmas de Gran Canaria.';
+    if (a && a.status === 'active' && !a.is_sample) {
+      const d = new Date(a.starts_at);
+      const day = new Intl.DateTimeFormat('en-GB', { timeZone: a.timezone, weekday: 'short', day: 'numeric', month: 'short' }).format(d);
+      const when = a.time_mode === 'window' ? `${day}, ${a.time_window}` : a.time_mode === 'tbd' ? `${day}, time to be agreed`
+        : `${day}, ${new Intl.DateTimeFormat('en-GB', { timeZone: a.timezone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(d)}`;
+      title = a.title;
+      desc = `${when} · ${a.meeting_area} · Join on ${config.appName}`;
+    }
+    res.set('Cache-Control', 'no-cache');
+    res.type('html').send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(title)}</title><meta name="description" content="${esc(desc)}">
+<meta property="og:type" content="website"><meta property="og:site_name" content="${esc(config.appName)}"><meta property="og:title" content="${esc(title)}">
+<meta property="og:description" content="${esc(desc)}"><meta property="og:image" content="${base}/brand/og-image.png"><meta property="og:url" content="${base}/p/${a ? a.id : ''}">
+<meta name="twitter:card" content="summary_large_image"><meta http-equiv="refresh" content="0;url=${target}">
+<link rel="icon" href="/favicon.ico"></head><body><p><a href="${target}">${esc(title)}</a></p><script>location.replace(${JSON.stringify(target)})</script></body></html>`);
+  });
+
   const dist = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist');
   if (fs.existsSync(dist)) {
     app.use(express.static(dist, { index: false, maxAge: '1h' }));

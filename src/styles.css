@@ -581,3 +581,20 @@ a.chip[aria-pressed='true'] { background: var(--blue); color: #fff; border-color
 .event-actions { display: grid; grid-template-columns: 1fr; gap: 10px; }
 @media (min-width: 600px) { .event-actions { grid-template-columns: 1fr 1fr; } }
 .event-note { display: flex; gap: 6px; align-items: center; color: var(--ink-2); margin-top: -4px; }
+
+/* ---------- pre-launch release 1: short Create form ---------- */
+.create-q { font-family: var(--font-head); font-weight: 800; font-size: 1.5rem; line-height: 1.15; color: var(--ink); }
+.input-lg { min-height: 54px; font-size: 1.1rem; }
+.suggest-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.chip-sm { min-height: 34px; padding: 0 12px; font-size: 0.88rem; }
+.input-date { width: auto; min-width: 0; flex: 1 1 150px; max-width: 220px; min-height: 40px; }
+fieldset.plain { border: 0; padding: 0; margin: 0; min-width: 0; }
+fieldset.plain > legend { margin-bottom: 6px; padding: 0; }
+.seg-wrap { flex-wrap: wrap; max-width: 100%; }
+.more-details { padding-top: 4px; border-top: 1px solid var(--line); }
+.reassure { display: flex; gap: 8px; align-items: center; color: var(--lime-ink); font-weight: 600; margin: 0; }
+.share-row { gap: 10px; }
+.share-row .tiny { overflow-wrap: anywhere; }
+.how-steps { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 12px; }
+.how-steps li { display: flex; gap: 12px; align-items: flex-start; background: var(--paper); border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px; }
+.how-steps li > svg { flex: none; color: var(--blue-ink); margin-top: 2px; }

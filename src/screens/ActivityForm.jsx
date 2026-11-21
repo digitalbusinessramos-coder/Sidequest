@@ -1,211 +1,265 @@
-import { t, tx } from '../i18n.js';
-import { useEffect, useState } from 'react';
-import { ChoiceChips, ErrorState, Icon, Loading, Stamp, TopBar, useApp } from '../components.jsx';
-import { nextSlot, tzLabel, useApi } from '../util.js';
+import { tx } from '../i18n.js';
+import { useEffect, useRef, useState } from 'react';
+import { AreaInput, ErrorState, Icon, Loading, TopBar, useApp } from '../components.jsx';
+import { DURATION_LABEL, localDate, resizeToJpeg, tzLabel, useApi } from '../util.js';
 import { api as rawApi } from '../api.js';
+import { PLAN_SUGGESTIONS } from '../../shared/catalog.js';
 
-function defaultStart(tz, hhmm = '17:00') {
-  // Tomorrow at 17:00 in the city's time zone, as a wall-clock string for <input type="datetime-local">.
-  const d = new Date(Date.now() + 864e5);
-  const day = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
-  return `${day}T${hhmm}`;
-}
-
-const blank = (tpl, city, me) => ({
-  template: tpl.key, category: tpl.category, title: tpl.title, description: '', starts_local: defaultStart(city.timezone, tpl.time),
-  duration_min: tpl.duration, meeting_area: city.areas.find((a) => a.key === me.area)?.name || city.areas[0]?.name || '', meeting_point: '', join_mode: 'request',
-  cost_eur: tpl.cost, max_participants: tpl.max, beginner_friendly: !!tpl.beginner, pace: tpl.pace || '', transport: tpl.transport || '',
-  languages: me.languages?.slice(0, 2) || [], solo_format: false, welcome_plan: '', recognise_tip: '',
+// Nothing is filled in for the student: no default day, time, area, duration, cost or group size.
+const empty = () => ({
+  title: '', category: 'other', template: 'other', description: '', day: '', time_mode: '', time: '', time_window: '',
+  meeting_area: '', meeting_point: '', duration_choice: '', cost_mode: '', cost_eur: '', capped: false, max_participants: '',
+  join_mode: 'request', beginner_friendly: false,
 });
 
-/** Fill in what the link carries (from a buddy's status or a City Guide tip). The user still picks everything else. */
-function applyQuery(v, query, city) {
+/** Links from an event, a buddy invitation or a City Guide tip carry a title, area, day or time. The student still checks everything. */
+function applyQuery(v, query) {
   const out = { ...v };
   if (query.title) out.title = String(query.title).slice(0, 80);
-  if (query.cost !== undefined && query.cost !== '' && !Number.isNaN(Number(query.cost))) out.cost_eur = Number(query.cost);
-  if (query.category) out.category = query.category;
-  const area = city.areas.find((a) => a.key === query.area || a.name === query.area);
-  if (area) out.meeting_area = area.name;
-  else if (query.area) out.meeting_area = String(query.area).slice(0, 80);
-  const slot = query.slot && nextSlot(query.slot, city.timezone);
-  if (slot) out.starts_local = `${slot.date}T${slot.time}`;
-  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(query.start || '')) out.starts_local = query.start;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(query.date || '')) out.starts_local = `${query.date}T${out.starts_local.slice(11) || '17:00'}`;
+  if (query.category) out.category = String(query.category);
+  if (query.area) out.meeting_area = String(query.area).slice(0, 80);
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(query.start || '')) Object.assign(out, { day: query.start.slice(0, 10), time: query.start.slice(11), time_mode: 'exact' });
+  else if (/^\d{4}-\d{2}-\d{2}$/.test(query.date || '')) out.day = query.date;
   return out;
 }
 
-/** Pick a neighbourhood from the list (no typing needed), or type another public place. */
-function AreaPicker({ value, onChange, areas }) {
-  const known = areas.some((a) => a.name === value);
-  const [other, setOther] = useState(!known && !!value);
-  return (
-    <div className="field">
-      <label htmlFor="area-select" className="label">{tx("Meeting area")}</label>
-      <select id="area-select" className="select" value={other ? '__other' : value}
-        onChange={(e) => { if (e.target.value === '__other') { setOther(true); onChange(''); } else { setOther(false); onChange(e.target.value); } }}>
-        {areas.map((a) => <option key={a.key} value={a.name}>{a.name}</option>)}
-        <option value="__other">{tx("Somewhere else…")}</option>
-      </select>
-      {other && <input className="input" aria-label={tx("Other meeting area")} required maxLength={80} value={value} onChange={(e) => onChange(e.target.value)} placeholder={tx("Neighbourhood or landmark")} style={{ marginTop: 8 }} autoFocus />}
-      <span className="hint">{tx("Shown to everyone. Pick a public place.")}</span>
-    </div>
-  );
+function fromActivity(a) {
+  const [day, time] = (a.starts_local || '').split('T');
+  return {
+    ...empty(), title: a.title, category: a.category, template: a.template, description: a.description || '', day,
+    time_mode: a.time_mode || 'exact', time: a.time_mode === 'exact' ? time : '', time_window: a.time_window || '',
+    meeting_area: a.meeting_area, meeting_point: a.meeting_point || '', duration_choice: a.duration_choice || '',
+    cost_mode: a.cost_mode || '', cost_eur: a.cost_eur ?? '', capped: !!a.capped, max_participants: a.max_participants ?? '',
+    join_mode: a.join_mode, beginner_friendly: !!a.beginner_friendly, photo: a.photo,
+  };
 }
 
 export default function ActivityForm({ editId, query = {} }) {
-  const { meta, city, me, api, toast } = useApp();
-  const [tpl, setTpl] = useState(() => meta.templates.find((x) => x.key === query.template) || (query.category ? { ...meta.templates.find((x) => x.key === 'other'), category: query.category } : null));
-  const [v, setV] = useState(null);
+  const { city, me, api, toast, openAccount } = useApp();
+  const [v, setV] = useState(() => (editId ? null : applyQuery(empty(), query)));
   const [loadErr, setLoadErr] = useState(null);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
-  const [showMore, setShowMore] = useState(false);
+  const [more, setMore] = useState(false);
+  const [photo, setPhoto] = useState(null);
+  const fileInput = useRef(null);
+  const formRef = useRef(null);
   const invitee = useApi(query.invite ? `/users/${Number(query.invite)}` : null).data?.profile;
   const set = (patch) => setV((x) => ({ ...x, ...patch }));
+  const tz = city.timezone;
 
   useEffect(() => {
-    if (editId) {
-      rawApi.get(`/activities/${editId}`).then(({ activity: a }) => {
-        if (a.my_status !== 'organiser') throw Object.assign(new Error(tx("Only the organiser can edit this activity.")), { status: 403 });
-        setV({ ...a, meeting_point: a.meeting_point || '', pace: a.pace || '', transport: a.transport || '' });
-        setShowMore(true);
-      }).catch(setLoadErr);
-    } else if (tpl) setV(applyQuery(blank(tpl, city, me), query, city));
-  }, [editId, tpl]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!editId) return;
+    rawApi.get(`/activities/${editId}`).then(({ activity: a }) => {
+      if (a.my_status !== 'organiser') throw Object.assign(new Error(tx('Only the organiser can edit this activity.')), { status: 403 });
+      setV(fromActivity(a));
+      setMore(true);
+    }).catch(setLoadErr);
+  }, [editId]);
 
-  if (loadErr) return <><TopBar title={tx("Edit activity")} /><div className="page"><ErrorState error={loadErr} /></div></>;
-
-  if (!editId && !tpl) {
-    return (
-      <>
-        <TopBar title={tx("Create a plan")} />
-        <div className="page">
-          <div className="stack-sm"><span className="eyebrow">{tx("Takes about a minute")}</span><h1>{tx("What do you want to do?")}</h1>
-            <p className="muted small">{tx("Pick a template. You can change everything on the next screen.")}</p></div>
-          <div className="template-grid">
-            {meta.templates.map((x) => (
-              <button key={x.key} onClick={() => setTpl(x)}><Stamp category={x.category} />{tx(x.label)}</button>
-            ))}
-          </div>
-        </div>
-      </>
-    );
-  }
+  if (loadErr) return <><TopBar title={tx('Edit plan')} /><div className="page"><ErrorState error={loadErr} /></div></>;
   if (!v) return <><TopBar title="" /><div className="page"><Loading rows={2} /></div></>;
 
-  const submit = async (e) => {
-    e.preventDefault();
+  const pickPhoto = async (e) => {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    try { setPhoto(await resizeToJpeg(f, 1200, false)); } catch (x) { toast(x.message, true); }
+  };
+
+  const validate = () => {
+    if (!v.title.trim()) return tx('Write what you feel like doing.');
+    if (!v.day) return tx('Choose a day.');
+    if (!v.time_mode) return tx('Choose an exact time, a part of the day, or “time to be agreed”.');
+    if (v.time_mode === 'exact' && !v.time) return tx('Choose a time.');
+    if (v.time_mode === 'window' && !v.time_window) return tx('Choose morning, afternoon or evening.');
+    if (!v.meeting_area.trim()) return tx('Add a meeting area.');
+    if (v.cost_mode === 'estimate' && !(Number(v.cost_eur) > 0)) return tx('Add the estimated cost per person, or choose another cost option.');
+    if (v.capped && !(Number(v.max_participants) >= 2 && Number(v.max_participants) <= 30)) return tx('Set a limit between 2 and 30 people, including you, or leave the plan without a limit.');
+    return '';
+  };
+
+  const payload = () => ({
+    title: v.title, category: v.category, template: v.template, description: v.description, day: v.day, time_mode: v.time_mode,
+    time: v.time_mode === 'exact' ? v.time : undefined, time_window: v.time_mode === 'window' ? v.time_window : undefined,
+    meeting_area: v.meeting_area, meeting_point: v.meeting_point, duration_choice: v.duration_choice || null,
+    cost_mode: v.cost_mode || null, cost_eur: v.cost_mode === 'estimate' ? Number(v.cost_eur) : 0,
+    max_participants: v.capped ? Number(v.max_participants) : null, join_mode: v.join_mode, beginner_friendly: v.beginner_friendly,
+    ...(query.event && !editId ? { event_id: Number(query.event) } : {}),
+  });
+
+  const publish = async () => {
     setErr(''); setBusy(true);
     try {
       if (editId) {
-        await api.put(`/activities/${editId}`, v);
-        toast(tx("Changes saved."));
+        await api.put(`/activities/${editId}`, payload());
+        if (photo) await api.put(`/activities/${editId}/photo`, { data: photo });
+        toast(tx('Changes saved.'));
         location.hash = `#/activity/${editId}`;
-      } else {
-        const { id } = await api.post('/activities', query.event ? { ...v, event_id: Number(query.event) } : v);
-        if (query.invite) {
-          try { await api.post(`/activities/${id}/invite`, { userId: Number(query.invite) }); toast(tx("Plan created and invitation sent. They decide whether to join.")); } catch (x) { toast(tx('Plan created, but the invitation failed: {error}', { error: tx(x.message) }), true); }
-        } else toast(tx("Your plan is live. You’ll see requests in My Plans."));
-        location.replace(`#/activity/${id}`);
+        return;
       }
-    } catch (x) { setErr(x.message); } finally { setBusy(false); }
+      const { id } = await api.post('/activities', payload());
+      if (photo) { try { await api.put(`/activities/${id}/photo`, { data: photo }); } catch (x) { toast(tx('Plan published, but the picture could not be saved: {error}', { error: tx(x.message) }), true); } }
+      if (query.invite) {
+        try { await api.post(`/activities/${id}/invite`, { userId: Number(query.invite) }); toast(tx('Plan published and invitation sent. They decide whether to join.')); } catch (x) { toast(tx('Plan published, but the invitation failed: {error}', { error: tx(x.message) }), true); }
+      }
+      location.replace(`#/activity/${id}?created=1`);
+    } catch (x) { setErr(tx(x.message)); } finally { setBusy(false); }
   };
+
+  const submit = (e) => {
+    e.preventDefault();
+    const problem = validate();
+    if (problem) { setErr(problem); return; }
+    // Guests first save an account (a few seconds), then the plan is published straight away.
+    if (me.is_guest) openAccount('signup', { reason: tx('Create a free account to publish your plan. It is published right after.'), onDone: publish });
+    else publish();
+  };
+
+  const days = [[localDate(tz, 0), tx('Today')], [localDate(tz, 1), tx('Tomorrow')]];
 
   return (
     <>
-      <TopBar title={editId ? tx("Edit activity") : tx("New plan")} />
-      <form className="page" onSubmit={submit}>
+      <TopBar title={editId ? tx('Edit plan') : tx('New plan')} />
+      <form className="page create-form" onSubmit={submit} ref={formRef} noValidate>
         {query.invite && <div className="notice lime"><Icon name="heart" />{invitee
           ? tx('Check the details, then publish to send {name} the invitation. Nothing is sent before that, and nobody is added until they accept.', { name: invitee.first_name })
-          : tx("After you create this plan, we’ll send an invitation. Nobody is added until they accept.")}</div>}
+          : tx('After you publish this plan, we’ll send the invitation. Nobody is added until they accept.')}</div>}
         {query.from === 'event' && <div className="notice"><Icon name="info" />{query.start
-          ? tx('This group is linked to the event and its time is filled in (30 minutes before it starts). Choose where to meet and how many can join, then review and publish. It does not reserve tickets.')
-          : tx('This student plan is linked to the event. Pick the day and time you want to go. It does not reserve tickets or places at the event.')}</div>}
-        {query.from === 'tip' && <div className="notice"><Icon name="info" />{tx('Title and area come from the tip. Pick the date, time and group size.')}</div>}
-        <label className="field"><span>{tx("Title")}</span>
-          <input className="input" required maxLength={80} value={v.title} onChange={(e) => set({ title: e.target.value })} placeholder={tx("e.g. Sunset walk on the promenade")} />
-        </label>
-        <label className="field"><span>{tx("Short description (optional)")}</span>
-          <textarea className="textarea" maxLength={600} value={v.description} onChange={(e) => set({ description: e.target.value })} placeholder={tx("What you’ll do, in a sentence or two.")} />
-        </label>
-        <div className="field"><span className="label">{tx("Activity type")}</span>
-          <select className="select" value={v.category} onChange={(e) => set({ category: e.target.value })}>
-            {meta.categories.map((c) => <option key={c.key} value={c.key}>{tx(c.label)}</option>)}
-          </select>
+          ? tx('This group is linked to the event and starts 30 minutes before it. Check the details, then publish. It does not reserve tickets.')
+          : tx('This plan is linked to the event. Pick the day you want to go. It does not reserve tickets or places at the event.')}</div>}
+        {query.from === 'tip' && <div className="notice"><Icon name="info" />{tx('Title and area come from the tip. Choose the day and time.')}</div>}
+
+        <div className="field">
+          <label htmlFor="plan-title" className="create-q">{tx('What do you feel like doing?')}</label>
+          <input id="plan-title" className="input input-lg" required maxLength={80} autoFocus={!editId} enterKeyHint="next" value={v.title}
+            onChange={(e) => {
+              // A suggestion sets the kind of plan only while its title is kept; a rewritten title becomes a custom plan.
+              const sug = PLAN_SUGGESTIONS.find((x) => tx(x.title) === v.title && x.category === v.category);
+              set(sug && e.target.value !== v.title ? { title: e.target.value, category: query.category || 'other' } : { title: e.target.value });
+            }} placeholder={tx('e.g. Sunset walk on the promenade')} />
+          {!editId && (
+            <div className="suggest-row" role="group" aria-label={tx('Suggestions')}>
+              {PLAN_SUGGESTIONS.map((s) => (
+                <button key={s.key} type="button" className="chip chip-sm" aria-pressed={v.title === tx(s.title)}
+                  onClick={() => { set({ title: tx(s.title), category: s.category }); document.getElementById('plan-title')?.focus(); }}>{tx(s.title)}</button>
+              ))}
+            </div>
+          )}
         </div>
-        <div className="grid-2">
-          <label className="field"><span>{tx("Date and time")}</span>
-            <input className="input" type="datetime-local" required value={v.starts_local} onChange={(e) => set({ starts_local: e.target.value })} />
-          </label>
-          <label className="field"><span>{tx("Duration")}</span>
-            <select className="select" value={v.duration_min} onChange={(e) => set({ duration_min: Number(e.target.value) })}>
-              {[30, 45, 60, 90, 120, 150, 180, 240, 300, 360, 480].map((m) => <option key={m} value={m}>{m < 60 ? `${m} min` : `${m / 60} h`}</option>)}
-            </select>
-          </label>
-        </div>
-        <p className="hint" style={{ marginTop: -10 }}>{tx('Times are in {tz}.', { tz: tx(tzLabel(city.timezone)) })}</p>
-        <AreaPicker value={v.meeting_area} onChange={(meeting_area) => set({ meeting_area })} areas={city.areas} />
-        <label className="field"><span>{tx("Exact meeting point (optional)")}</span>
-          <input className="input" maxLength={200} value={v.meeting_point} onChange={(e) => set({ meeting_point: e.target.value })} placeholder={tx("e.g. In front of the café at the north end of the beach")} />
-          <span className="hint">{tx("Only confirmed participants see this. You can also agree on it later in the chat.")}</span>
-        </label>
-        <div className="grid-2">
-          <label className="field"><span>{tx("Estimated cost per person (€)")}</span>
-            <input className="input" type="number" min="0" max="500" step="0.5" inputMode="decimal" value={v.cost_eur} onChange={(e) => set({ cost_eur: e.target.value })} />
-            <span className="hint">{tx("0 means free.")}</span>
-          </label>
-          <label className="field"><span>{tx("Group size, including you")}</span>
-            <input className="input" type="number" min="2" max="30" required value={v.max_participants} onChange={(e) => set({ max_participants: Number(e.target.value) })} />
-            <span className="hint">{tx("2 means one buddy.")}</span>
-          </label>
-        </div>
-        <fieldset className="field" style={{ border: 0, padding: 0, margin: 0 }}>
-          <legend className="label" style={{ marginBottom: 6 }}>{tx("How do people join?")}</legend>
-          <div className="choice-cards">
-            {[['request', 'check', "People ask, you accept", "You decide who comes. Best for small groups."],
-              ['open', 'bolt', "Anyone can join directly", "No waiting. People get a place straight away while there’s space. You can still remove someone."]].map(([key, icon, title, hint]) => (
-              <label key={key} className={`choice-card ${v.join_mode === key ? 'on' : ''}`}>
-                <input type="radio" name="join_mode" value={key} checked={v.join_mode === key} onChange={() => set({ join_mode: key })} />
-                <Icon name={icon} size={20} />
-                <span><strong>{tx(title)}</strong><br /><span className="hint">{tx(hint)}</span></span>
-              </label>
-            ))}
+
+        <fieldset className="field plain">
+          <legend className="label">{tx('Day')}</legend>
+          <div className="row wrap" style={{ gap: 8 }}>
+            {days.map(([d, label]) => <button key={d} type="button" className="chip" aria-pressed={v.day === d} onClick={() => set({ day: d })}>{label}</button>)}
+            <input className="input input-date" type="date" aria-label={tx('Pick a date')} min={localDate(tz, 0)} value={v.day} onChange={(e) => set({ day: e.target.value })} />
           </div>
         </fieldset>
-        <label className="check"><input type="checkbox" checked={v.solo_format} onChange={(e) => set({ solo_format: e.target.checked })} />
-          <span><strong>{tx("Everyone comes solo")}</strong><br /><span className="hint">{tx("Participants sign up individually and are open to meeting new people. Good for people who don’t know anyone yet.")}</span></span>
-        </label>
-        <label className="check"><input type="checkbox" checked={v.beginner_friendly} onChange={(e) => set({ beginner_friendly: e.target.checked })} />
-          <span><strong>{tx("Beginner-friendly")}</strong><br /><span className="hint">{tx("No experience or special equipment needed.")}</span></span>
+
+        <fieldset className="field plain">
+          <legend className="label">{tx('Time')}</legend>
+          <div className="row wrap" style={{ gap: 8 }} role="radiogroup" aria-label={tx('Time')}>
+            {[['exact', tx('Exact time')], ['window', tx('Part of the day')], ['tbd', tx('To be agreed')]].map(([k, label]) => (
+              <button key={k} type="button" role="radio" aria-checked={v.time_mode === k} className={`chip ${v.time_mode === k ? 'on' : ''}`} onClick={() => set({ time_mode: k })}>{label}</button>
+            ))}
+          </div>
+          {v.time_mode === 'exact' && <input className="input" type="time" aria-label={tx('Start time')} value={v.time} onChange={(e) => set({ time: e.target.value })} style={{ marginTop: 8, maxWidth: 180 }} />}
+          {v.time_mode === 'window' && (
+            <div className="row wrap" style={{ gap: 8, marginTop: 8 }}>
+              {['morning', 'afternoon', 'evening'].map((w) => <button key={w} type="button" className="chip" aria-pressed={v.time_window === w} onClick={() => set({ time_window: w })}>{tx(w)}</button>)}
+            </div>
+          )}
+          {v.time_mode === 'tbd' && <span className="hint">{tx('You can agree on the time in the plan chat.')}</span>}
+          <span className="hint">{tx('Times are in {tz}.', { tz: tx(tzLabel(tz)) })}</span>
+        </fieldset>
+
+        <AreaInput id="plan-area" label={tx('Meeting area (public)')} value={v.meeting_area} onChange={(meeting_area) => set({ meeting_area })} required
+          hint={tx('Everyone sees this area. Pick a public place, never a home address.')} />
+
+        <label className="field"><span>{tx('Short description (optional)')}</span>
+          <textarea className="textarea" maxLength={600} rows={3} value={v.description} onChange={(e) => set({ description: e.target.value })} placeholder={tx('What you’ll do, in a sentence or two.')} />
         </label>
 
-        {!showMore ? (
-          <button type="button" className="btn btn-ghost" onClick={() => setShowMore(true)}><Icon name="plus" size={16} />{tx("Languages, pace, transport and welcome details")}</button>
+        <div className="field">
+          <span className="label">{tx('Photo (optional)')}</span>
+          <div className="row wrap" style={{ gap: 10 }}>
+            {(photo || v.photo) && <img src={photo || v.photo} alt="" className="listing-thumb" />}
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => fileInput.current?.click()}><Icon name="camera" size={16} />{photo || v.photo ? tx('Change picture') : tx('Add a picture')}</button>
+            {photo && <button type="button" className="btn btn-ghost btn-sm" onClick={() => setPhoto(null)}>{tx('Remove')}</button>}
+          </div>
+          <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" onChange={pickPhoto} hidden />
+        </div>
+
+        {!more ? (
+          <button type="button" className="btn btn-ghost" onClick={() => setMore(true)} aria-expanded="false"><Icon name="plus" size={16} />{tx('More details (optional): exact meeting point, cost, group size…')}</button>
         ) : (
-          <>
-            <div className="field"><span className="label">{tx("Languages for this plan")}</span>
-              <ChoiceChips multiple label={tx("Languages")} value={v.languages} onChange={(languages) => set({ languages })} options={meta.languages.map((l) => ({ key: l, label: l }))} />
-            </div>
-            <div className="grid-2">
-              <label className="field"><span>{tx("Pace (optional)")}</span>
-                <input className="input" maxLength={40} value={v.pace} onChange={(e) => set({ pace: e.target.value })} placeholder={tx("e.g. Relaxed")} />
-              </label>
-              <label className="field"><span>{tx("Transport (optional)")}</span>
-                <input className="input" maxLength={160} value={v.transport} onChange={(e) => set({ transport: e.target.value })} placeholder={tx("e.g. City bus")} />
-              </label>
-            </div>
-            <label className="field"><span>{tx("Who welcomes the group? (optional)")}</span>
-              <input className="input" maxLength={300} value={v.welcome_plan} onChange={(e) => set({ welcome_plan: e.target.value })} placeholder={tx("e.g. I’ll wait at the meeting point 10 minutes early")} />
+          <div className="stack more-details">
+            <label className="field"><span>{tx('Exact meeting point (optional)')}</span>
+              <input className="input" maxLength={200} value={v.meeting_point} onChange={(e) => set({ meeting_point: e.target.value })} placeholder={tx('e.g. In front of the café at the north end of the beach')} />
+              <span className="hint">{tx('Only confirmed participants see this. You can also agree on it in the private plan chat.')}</span>
             </label>
-            <label className="field"><span>{tx("How will people recognise each other? (optional)")}</span>
-              <input className="input" maxLength={160} value={v.recognise_tip} onChange={(e) => set({ recognise_tip: e.target.value })} placeholder={tx("e.g. Yellow cap")} />
+
+            <fieldset className="field plain">
+              <legend className="label">{tx('How long? (optional)')}</legend>
+              <div className="row wrap" style={{ gap: 8 }}>
+                {Object.entries(DURATION_LABEL).map(([k, label]) => <button key={k} type="button" className="chip" aria-pressed={v.duration_choice === k} onClick={() => set({ duration_choice: v.duration_choice === k ? '' : k })}>{tx(label)}</button>)}
+              </div>
+            </fieldset>
+
+            <fieldset className="field plain">
+              <legend className="label">{tx('Cost (optional)')}</legend>
+              <div className="row wrap" style={{ gap: 8 }}>
+                {[['free', tx('Free')], ['estimate', tx('Estimated cost per person')], ['unknown', tx('There’s a cost, amount unknown')]].map(([k, label]) => (
+                  <button key={k} type="button" className="chip" aria-pressed={v.cost_mode === k} onClick={() => set({ cost_mode: v.cost_mode === k ? '' : k })}>{label}</button>
+                ))}
+              </div>
+              {v.cost_mode === 'estimate' && (
+                <label className="row" style={{ gap: 8, marginTop: 8 }}>
+                  <span className="small">€</span>
+                  <input className="input" style={{ maxWidth: 140 }} type="number" min="0.5" max="500" step="0.5" inputMode="decimal" aria-label={tx('Estimated cost per person in euros')} value={v.cost_eur} onChange={(e) => set({ cost_eur: e.target.value })} />
+                  <span className="hint">{tx('per person')}</span>
+                </label>
+              )}
+              <span className="hint">{tx('Leave it blank if you’re not sure. Nothing is paid in the app.')}</span>
+            </fieldset>
+
+            <fieldset className="field plain">
+              <legend className="label">{tx('Group size (optional)')}</legend>
+              <div className="row wrap" style={{ gap: 8 }}>
+                <button type="button" className="chip" aria-pressed={!v.capped} onClick={() => set({ capped: false })}>{tx('No limit')}</button>
+                <button type="button" className="chip" aria-pressed={v.capped} onClick={() => set({ capped: true })}>{tx('Set a limit')}</button>
+              </div>
+              {v.capped && (
+                <label className="row" style={{ gap: 8, marginTop: 8 }}>
+                  <input className="input" style={{ maxWidth: 100 }} type="number" min="2" max="30" inputMode="numeric" aria-label={tx('Maximum number of people, including you')} value={v.max_participants} onChange={(e) => set({ max_participants: e.target.value })} />
+                  <span className="hint">{tx('people, including you')}</span>
+                </label>
+              )}
+            </fieldset>
+
+            <fieldset className="field plain">
+              <legend className="label">{tx('How do people join?')}</legend>
+              <div className="choice-cards">
+                {[['request', 'check', 'People ask, you accept', 'You decide who comes. They tap “Ask to join”.'],
+                  ['open', 'bolt', 'Anyone can join directly', 'They tap “Join plan” and are in straight away. You can still remove someone.']].map(([key, icon, title, hint]) => (
+                  <label key={key} className={`choice-card ${v.join_mode === key ? 'on' : ''}`}>
+                    <input type="radio" name="join_mode" value={key} checked={v.join_mode === key} onChange={() => set({ join_mode: key })} />
+                    <Icon name={icon} size={20} />
+                    <span><strong>{tx(title)}</strong><br /><span className="hint">{tx(hint)}</span></span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
+            <label className="check"><input type="checkbox" checked={v.beginner_friendly} onChange={(e) => set({ beginner_friendly: e.target.checked })} />
+              <span><strong>{tx('Beginners welcome')}</strong><br /><span className="hint">{tx('For sports, hikes and similar: no experience or special equipment needed.')}</span></span>
             </label>
-          </>
+          </div>
         )}
 
         {err && <div className="form-error" role="alert">{err}</div>}
-        <button className="btn btn-primary btn-block" disabled={busy}>{editId ? tx("Save changes") : tx("Publish plan")}</button>
-        {!editId && <p className="tiny muted">{v.join_mode === 'open' ? tx("You count as one of the group. People can join directly until the group is full.") : tx("You count as one of the group. People ask to join and you decide who comes.")}</p>}
+        <button className="btn btn-primary btn-block btn-lg" disabled={busy}>{editId ? tx('Save changes') : tx('Publish plan')}</button>
+        {!editId && <p className="tiny muted">{tx('Only what you fill in is shown. You can edit the plan or agree on details in the chat later.')} <a href="#/example">{tx('See an example plan')}</a></p>}
       </form>
     </>
   );
