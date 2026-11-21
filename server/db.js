@@ -57,6 +57,8 @@ function migrate(db) {
   db.exec(`CREATE TABLE IF NOT EXISTS listing_photos (id INTEGER PRIMARY KEY, listing_id INTEGER NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
     sort INTEGER NOT NULL DEFAULT 0, mime TEXT NOT NULL, data BLOB NOT NULL, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')))`);
   db.exec('CREATE INDEX IF NOT EXISTS idx_listing_photos ON listing_photos(listing_id, sort)');
+  // The day can be left open: 'day' (a chosen day), 'weekend', 'week' or 'flex' (in the next two weeks).
+  if (!cols('activities').includes('day_mode')) db.exec("ALTER TABLE activities ADD COLUMN day_mode TEXT NOT NULL DEFAULT 'day'");
   // Plans without a photo show an emoji the creator picked ('' = the category's emoji).
   if (!cols('activities').includes('emoji')) db.exec("ALTER TABLE activities ADD COLUMN emoji TEXT NOT NULL DEFAULT ''");
   // Visitor counts for the team: who opened the app on which day (Canary date), and how many times. No outside trackers, no IPs.

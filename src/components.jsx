@@ -118,7 +118,13 @@ export function PhotoHero({ photoKey, children, height = 200, className = '' }) 
 }
 
 /** Photo strip on top of a card, with the category stamp on it. Decorative: the card text says everything. */
-/** Shown instead of a photo: the plan's emoji on a soft tile in its category colour. Nothing to download. */
+/** Small round emoji beside the title, used when a plan has no photo. */
+export function EmojiBadge({ a, size = '' }) {
+  const c = CAT_COLOR[a?.category] || CAT_COLOR.other;
+  return <span className={`emoji-badge ${size}`} style={{ '--tile': c }} aria-hidden="true">{planEmoji(a)}</span>;
+}
+
+/** The plan's emoji on a soft square in its category colour (preview in the form). */
 export function EmojiTile({ a, size = '' }) {
   const c = CAT_COLOR[a?.category] || CAT_COLOR.other;
   return (
@@ -215,8 +221,8 @@ export function ActivityCard({ a, reason }) {
   const places = fmtPlaces(a);
   const ticket = a.event && !a.event.is_sample;
   return (
-    <a href={`#/activity/${a.id}`} className={`card act-card has-cover ${cls}`} aria-label={`${a.title}, ${when}`}>
-      {a.photo ? <div className="card-cover" aria-hidden="true"><img src={a.photo} alt="" loading="lazy" /><Stamp category={a.category} /></div> : <div className="card-cover is-emoji"><EmojiTile a={a} /></div>}
+    <a href={`#/activity/${a.id}`} className={`card act-card ${a.photo ? 'has-cover' : 'no-cover'} ${cls}`} aria-label={`${a.title}, ${when}`}>
+      {a.photo ? <div className="card-cover" aria-hidden="true"><img src={a.photo} alt="" loading="lazy" /><Stamp category={a.category} /></div> : <EmojiBadge a={a} />}
       <div className="stack-sm" style={{ minWidth: 0 }}>
         <div className="row wrap" style={{ gap: 6 }}>
           <span className="when">{when}</span>
@@ -248,8 +254,8 @@ export function ActivityCard({ a, reason }) {
 export function EventCard({ e, more = 0 }) {
   const txt = eventText(e);
   return (
-    <a href={`#/event/${e.id}`} className="card act-card has-cover event-card">
-      {e.photo_key && photo(e.photo_key) ? <CardCover ph={photo(e.photo_key)} category={e.category} /> : <div className="card-cover is-emoji"><EmojiTile a={{ category: e.category }} /></div>}
+    <a href={`#/event/${e.id}`} className={`card act-card event-card ${e.photo_key && photo(e.photo_key) ? 'has-cover' : 'no-cover'}`}>
+      {e.photo_key && photo(e.photo_key) ? <CardCover ph={photo(e.photo_key)} category={e.category} /> : <EmojiBadge a={{ category: e.category }} />}
       <div className="stack-sm" style={{ minWidth: 0 }}>
         <div className="row wrap" style={{ gap: 6 }}>
           <span className="when">{fmtEventWhen(e, { withEnd: false })}</span>
@@ -321,7 +327,7 @@ export function Sheet({ title, onClose, children }) {
       <div className="sheet" role="dialog" aria-modal="true" aria-label={title} ref={ref}>
         <div className="row">
           <h2 style={{ flex: 1 }}>{title}</h2>
-          <button className="icon-btn" onClick={onClose} aria-label={t('common.close')}><Icon name="x" /></button>
+          <button type="button" className="icon-btn" onClick={onClose} aria-label={t('common.close')}><Icon name="x" /></button>
         </div>
         {children}
       </div>

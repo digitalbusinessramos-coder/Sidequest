@@ -2,6 +2,7 @@ import { t, tx } from '../i18n.js';
 import { useMemo, useState } from 'react';
 import { ActivityCard, Empty, ErrorState, Icon, Loading, Stamp, useApp } from '../components.jsx';
 import { locale } from '../i18n.js';
+import { NotifyNudge } from './Notify.jsx';
 import { fmtPlanWhen, fmtWhen, useApi } from '../util.js';
 
 const NOTE_TEXT = {
@@ -182,6 +183,7 @@ export default function Plans() {
         <a className="btn btn-primary btn-sm" href="#/create"><Icon name="plus" size={16} />{tx("New plan")}</a>
       </div>
       <Updates />
+      {total > 0 && <NotifyNudge id="sq_notify_nudge_plans" text={tx('Know straight away when someone joins, gets accepted or writes in your plans.')} />}
       {loading && !data ? <Loading /> : error && !data ? <ErrorState error={error} onRetry={reload} /> : total === 0 ? (
         <Empty icon="plans" title={t('plans.empty')} hint={t('plans.emptyHint')}>
           <a className="btn btn-primary btn-sm" href="#/explore">{tx("Go to Explore")}</a>

@@ -29,6 +29,9 @@ function useDeferred() {
 
 const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch { /* private mode */ } return null; };
 
+const ShareGlyph = () => <svg viewBox="0 0 24 24" width="22" height="22"><path d="M12 3v12M8 7l4-4 4 4M6 11H5v10h14V11h-1" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+const AddGlyph = () => <svg viewBox="0 0 24 24" width="22" height="22"><rect x="4" y="4" width="16" height="16" rx="4" fill="none" stroke="currentColor" strokeWidth="1.8" /><path d="M12 8v8M8 12h8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>;
+
 /** Steps that work on this device. Returns null where adding to the home screen isn't possible, so nothing is promised. */
 export function InstallSteps() {
   const ctx = installContext();
@@ -51,12 +54,17 @@ export function InstallSteps() {
     return <button className="btn btn-secondary" onClick={install}><Icon name="plus" size={16} />{tx('Add to home screen')}</button>;
   }
   if (ctx.ios) {
+    // Apple doesn't let a website add itself to the home screen, so we show exactly where to tap, with the same symbols Safari uses.
+    const ipad = /iPad/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     return (
-      <ol className="small install-steps">
-        <li>{tx('Tap the Share button (the square with an arrow) in the browser bar.')}</li>
-        <li>{tx('Scroll down and tap “Add to Home Screen”.')}</li>
-        <li>{tx('Tap “Add”. {app} opens from its icon, without the browser bar.', { app })}</li>
-      </ol>
+      <>
+        <ol className="install-steps ios-steps">
+          <li><span className="ios-glyph" aria-hidden="true"><ShareGlyph /></span><span>{tx('Tap the Share button {where}. In newer Safari, tap ••• first, then Share.', { where: ipad ? tx('at the top right') : tx('in the bar at the bottom') })}</span></li>
+          <li><span className="ios-glyph" aria-hidden="true"><AddGlyph /></span><span>{tx('Scroll down and tap “Add to Home Screen”. If you don’t see it, tap “More” or “Edit Actions”.')}</span></li>
+          <li><span className="ios-glyph" aria-hidden="true"><img src="/brand/icon-180.png" alt="" width="28" height="28" /></span><span>{tx('Tap “Add”. {app} now opens from its icon, like an app, and can send you notifications.', { app })}</span></li>
+        </ol>
+        {!ipad && <div className="ios-arrow" aria-hidden="true"><span>{tx('Share is down here')}</span><svg viewBox="0 0 24 24" width="34" height="34"><path d="M12 4v15m-6-6 6 6 6-6" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" /></svg></div>}
+      </>
     );
   }
   if (ctx.android) {
@@ -127,5 +135,34 @@ export function InstallButton({ className = '' }) {
         </Sheet>
       )}
     </>
+  );
+}
+
+const seenRecently = (k, days) => { const t = Number(store(k) || 0); return t && Date.now() - t < days * 864e5; };
+
+/** On Explore, for phones not using the installed app yet: a small card with the one-tap install (or the iPhone steps). */
+export function InstallNudge() {
+  const prompt = useDeferred();
+  const [hidden, setHidden] = useState(() => seenRecently('sq_install_nudge', 5));
+  const [open, setOpen] = useState(false);
+  const ctx = installContext();
+  if (hidden || ctx.standalone || !(ctx.mobile || prompt)) return null;
+  const hide = () => { store('sq_install_nudge', String(Date.now())); setHidden(true); };
+  const tap = async () => {
+    if (prompt) { prompt.prompt(); try { const c = await prompt.userChoice; if (c?.outcome === 'accepted') hide(); } catch { /* ignore */ } deferred = null; listeners.forEach((f) => f()); return; }
+    setOpen(true);
+  };
+  return (
+    <div className="card card-pad row new-here" role="region" aria-label={tx('Get the app')}>
+      <img src="/brand/icon-180.png" alt="" width="40" height="40" className="nudge-icon" />
+      <div className="new-here-text"><strong>{tx('Get {app} on your home screen', { app: getAppName() })}</strong> <span className="small muted">{tx('Opens like an app and tells you when someone joins or writes.')}</span></div>
+      <button className="btn btn-primary btn-sm" onClick={tap}>{prompt ? tx('Install') : tx('Show me how')}</button>
+      <button className="icon-btn" onClick={hide} aria-label={tx('Close')}><Icon name="x" size={16} /></button>
+      {open && (
+        <Sheet title={tx('Add {app} to your home screen', { app: getAppName() })} onClose={() => setOpen(false)}>
+          <div className="stack"><InstallSteps /><button className="btn btn-primary btn-block" onClick={() => setOpen(false)}>{tx('Done')}</button></div>
+        </Sheet>
+      )}
+    </div>
   );
 }

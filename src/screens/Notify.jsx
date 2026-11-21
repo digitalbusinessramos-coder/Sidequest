@@ -45,3 +45,22 @@ export function NotifySettings({ compact = false, onChange }) {
     </div>
   );
 }
+
+const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch { /* private mode */ } return null; };
+
+/** A small card that asks once in a while, never the browser prompt itself: that only appears after a tap. */
+export function NotifyNudge({ id = 'sq_notify_nudge', text }) {
+  const [state, setState] = useState(null);
+  const [hidden, setHidden] = useState(() => { const t = Number(store(id) || 0); return t && Date.now() - t < 5 * 864e5; });
+  useEffect(() => { if (!hidden) pushState().then(setState).catch(() => {}); }, [hidden]);
+  if (hidden || state !== 'off') return null;
+  const hide = () => { store(id, String(Date.now())); setHidden(true); };
+  return (
+    <div className="card card-pad row new-here" role="region" aria-label={tx('Notifications')}>
+      <Icon name="bell" />
+      <div className="new-here-text"><strong>{tx('Don’t miss replies')}</strong> <span className="small muted">{text || tx('Get a pop-up when someone joins your plan or writes to you.')}</span></div>
+      <NotifySettings compact onChange={(s) => { if (s !== 'off') hide(); }} />
+      <button className="icon-btn" onClick={hide} aria-label={tx('Close')}><Icon name="x" size={16} /></button>
+    </div>
+  );
+}

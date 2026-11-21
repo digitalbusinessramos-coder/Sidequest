@@ -1,5 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { t, tx } from '../i18n.js';
+import { InstallNudge, installContext } from './Install.jsx';
+import { NotifyNudge } from './Notify.jsx';
 import { ActivityCard, ChoiceChips, Empty, ErrorState, EventCard, Icon, Loading, PeopleStrip, PhotoHero, Sheet, useApp } from '../components.jsx';
 
 const MapView = lazy(() => import('../MapView.jsx'));
@@ -92,6 +94,9 @@ export default function Explore() {
           <button className="icon-btn" onClick={hideNewHere} aria-label={tx('Close')}><Icon name="x" size={16} /></button>
         </div>
       )}
+
+      {/* One small card at a time: install first on phones (it brings notifications on iPhone too), then notifications. */}
+      {!newHere && (installContext().mobile && !installContext().standalone ? <InstallNudge /> : <NotifyNudge />)}
 
       <div className="explore-tools">
         <div className="row tools-row tools-top">

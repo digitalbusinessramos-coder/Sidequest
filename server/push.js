@@ -18,6 +18,7 @@ const TEXT = {
     chat: ['New message in “{plan}”', '{name} wrote in the plan chat.'],
     market_message: ['New message about “{plan}”', '{name} sent you a message in the Marketplace.'],
     test: ['Notifications are on', 'This is how updates about your plans will look.'],
+    reminder: ['Starting soon: {plan}', 'Today at {time} · {area}. Have fun!'],
   },
   es: {
     request_received: ['{name} quiere unirse', '«{plan}». Ábrelo para aceptar o rechazar.'],
@@ -33,6 +34,7 @@ const TEXT = {
     chat: ['Nuevo mensaje en «{plan}»', '{name} ha escrito en el chat del plan.'],
     market_message: ['Nuevo mensaje sobre «{plan}»', '{name} te ha escrito en el Mercadillo.'],
     test: ['Notificaciones activadas', 'Así verás las novedades de tus planes.'],
+    reminder: ['Empieza pronto: {plan}', 'Hoy a las {time} · {area}. ¡Que lo disfrutes!'],
   },
 };
 const fill = (s, v) => s.replace(/\{(\w+)\}/g, (_, k) => v[k] ?? '');
@@ -73,14 +75,16 @@ export function createPush(db) {
   const count = (uid) => db.prepare('SELECT COUNT(*) AS n FROM push_subscriptions WHERE user_id = ?').get(uid).n;
 
   /** Fire and forget: a failed or slow push never affects the request that caused it. */
-  const send = (uid, kind, { name = '', plan = '', url = '/#/plans', tag } = {}) => {
+  const send = (uid, kind, { name = '', plan = '', time = '', area = '', url = '/#/plans', tag } = {}) => {
     const subs = db.prepare('SELECT * FROM push_subscriptions WHERE user_id = ?').all(uid);
     if (!subs.length) return;
     const lang = db.prepare('SELECT lang FROM profiles WHERE user_id = ?').get(uid)?.lang === 'es' ? 'es' : 'en';
     const t = TEXT[lang][kind];
     if (!t) return;
-    const v = { name, plan: plan.length > 60 ? `${plan.slice(0, 57)}…` : plan };
-    const payload = JSON.stringify({ title: fill(t[0], v), body: fill(t[1], v), url, tag: tag || `${kind}-${url}` });
+    const v = { name, time, area, plan: plan.length > 60 ? `${plan.slice(0, 57)}…` : plan };
+    // Number shown on the app icon (installed app): unread updates for this person.
+    const count = db.prepare('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND read_at IS NULL').get(uid).n;
+    const payload = JSON.stringify({ title: fill(t[0], v), body: fill(t[1], v), url, tag: tag || `${kind}-${url}`, count });
     sent.push({ uid, kind, payload: JSON.parse(payload) });
     if (sent.length > 50) sent.shift();
     if (!live) return;

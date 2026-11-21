@@ -6,14 +6,16 @@ self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
 self.addEventListener('push', (e) => {
   let d = {};
   try { d = e.data ? e.data.json() : {}; } catch { d = { title: 'Erasquest', body: e.data ? e.data.text() : '' }; }
-  e.waitUntil(self.registration.showNotification(d.title || 'Erasquest', {
+  const badge = Number.isInteger(d.count) && self.navigator.setAppBadge
+    ? (d.count > 0 ? self.navigator.setAppBadge(d.count) : self.navigator.clearAppBadge()).catch(() => {}) : Promise.resolve();
+  e.waitUntil(badge.then(() => self.registration.showNotification(d.title || 'Erasquest', {
     body: d.body || '',
     icon: '/brand/icon-192.png',
     badge: '/brand/badge-96.png',
     tag: d.tag,
     renotify: !!d.tag,
     data: { url: d.url || '/#/plans' },
-  }));
+  })));
 });
 
 self.addEventListener('notificationclick', (e) => {

@@ -3,7 +3,8 @@ import { getAppName, t, tx } from '../i18n.js';
 import { NotifySettings } from './Notify.jsx';
 import { disablePush } from '../push.js';
 import { Avatar, EmailBadge, Icon, LanguageSwitch, SampleBadge, Sheet, TopBar, useApp } from '../components.jsx';
-import { areaName, resizeToJpeg, useApi } from '../util.js';
+import { areaName, useApi } from '../util.js';
+import { CropSheet } from './Crop.jsx';
 import { categoryLabel } from '../../shared/catalog.js';
 import { ProfileFields, profileDefaults } from './Onboarding.jsx';
 import { FlagList, langName, stayText } from './ProfileBits.jsx';
@@ -12,13 +13,17 @@ import { FeedbackSheet } from './Market.jsx';
 function PhotoPicker() {
   const { me, api, reloadMe, toast } = useApp();
   const [busy, setBusy] = useState(false);
+  const [cropFile, setCropFile] = useState(null);
   const input = useRef(null);
   const pick = async (e) => {
     const f = e.target.files?.[0];
     e.target.value = '';
-    if (!f) return;
+    if (f) setCropFile(f);
+  };
+  const upload = async (data) => {
+    setCropFile(null);
     setBusy(true);
-    try { await api.put('/me/photo', { data: await resizeToJpeg(f) }); await reloadMe(); toast(tx('Profile picture updated.')); } catch (x) { toast(x.message, true); } finally { setBusy(false); }
+    try { await api.put('/me/photo', { data }); await reloadMe(); toast(tx('Profile picture updated.')); } catch (x) { toast(x.message, true); } finally { setBusy(false); }
   };
   const remove = async () => {
     setBusy(true);
@@ -32,6 +37,7 @@ function PhotoPicker() {
         <span className="photo-pick-badge"><Icon name="camera" size={14} /></span>
       </button>
       <input ref={input} type="file" accept="image/jpeg,image/png,image/webp" onChange={pick} hidden />
+      {cropFile && <CropSheet file={cropFile} shapes={['square']} max={512} round title={tx('Adjust your profile picture')} onDone={upload} onCancel={() => setCropFile(null)} />}
       {me.photo && <button type="button" className="btn btn-ghost btn-sm" style={{ minHeight: 28, padding: '0 6px' }} onClick={remove} disabled={busy}>{tx('Remove')}</button>}
     </div>
   );

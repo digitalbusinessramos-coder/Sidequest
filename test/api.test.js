@@ -843,3 +843,37 @@ test('plans without a photo keep the emoji the creator picked; unknown emoji are
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.equal((await org.get(`/activities/${id}`)).body.activity.emoji, '', 'not in the list: falls back to the automatic one');
 });
+
+test('reminder pop-up about an hour before a plan, sent once to everyone going', async () => {
+  const org = await user('Rhea'); const pal = await user('Sami');
+  await org.post('/push/subscribe', { endpoint: `https://push.example.test/rhea-${Date.now()}`, keys: { p256dh: 'B'.repeat(87), auth: 'A'.repeat(22) } });
+  await pal.post('/push/subscribe', { endpoint: `https://push.example.test/sami-${Date.now()}`, keys: { p256dh: 'B'.repeat(87), auth: 'A'.repeat(22) } });
+  const id = await makeActivity(org, { title: 'Soon walk', join_mode: 'open' });
+  db.prepare('UPDATE activities SET starts_at = ?, time_mode = ? WHERE id = ?').run(new Date(Date.now() + 60 * 60e3).toISOString(), 'exact', id);
+  await pal.post(`/activities/${id}/requests`, {});
+  const first = (await org.post('/push/_remind', {})).body.sent;
+  assert.ok(first >= 2, `sent ${first}`);
+  assert.equal((await org.post('/push/_remind', {})).body.sent, 0, 'only once');
+  const sent = (await org.get('/push/_sent')).body.sent.filter((x) => x.kind === 'reminder' && x.payload.url.endsWith(`/${id}`));
+  assert.deepEqual(sent.map((x) => x.uid).sort(), [org.id, pal.id].sort());
+  assert.match(sent[0].payload.title, /Soon walk/);
+  assert.equal(typeof sent[0].payload.count, 'number');
+});
+
+test('day not fixed yet: this weekend, this week or flexible; exact time needs a day', async () => {
+  const org = await user('Dora');
+  const base = { title: 'Some plan', category: 'food', meeting_area: 'Triana', join_mode: 'open' };
+  assert.equal((await org.post('/activities', { ...base, day_mode: 'flex', time_mode: 'exact', time: '20:00' })).status, 400);
+  for (const mode of ['weekend', 'week', 'flex']) {
+    const r = await org.post('/activities', { ...base, day_mode: mode, time_mode: 'tbd' });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    const a = (await org.get(`/activities/${r.body.id}`)).body.activity;
+    assert.equal(a.day_mode, mode);
+    assert.ok(a.last_day >= a.day, `${a.day} .. ${a.last_day}`);
+    if (mode === 'weekend') assert.ok([0, 6].includes(new Date(`${a.day}T12:00:00Z`).getUTCDay()), 'weekend starts on Saturday or Sunday');
+    if (mode === 'flex') assert.equal((Date.parse(a.last_day) - Date.parse(a.day)) / 864e5, 13);
+  }
+  const w = await org.post('/activities', { ...base, day_mode: 'week', time_mode: 'window', time_window: 'evening' });
+  assert.equal(w.status, 201);
+  assert.equal((await org.get(`/activities/${w.body.id}`)).body.activity.time_window, 'evening');
+});
