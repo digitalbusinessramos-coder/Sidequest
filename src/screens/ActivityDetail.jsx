@@ -4,6 +4,7 @@ import { Avatar, ErrorState, Icon, Loading, ReportSheet, SampleBadge, Sheet, Sta
 import { photoFor } from '../../shared/photos.js';
 import { fmtPlanCost, fmtPlanDuration, fmtPlanWhen, fmtPlaces, tzLabel, useApi } from '../util.js';
 import { ShareButton } from './Share.jsx';
+import { langName } from './ProfileBits.jsx';
 
 export default function ActivityDetail({ id, query = {} }) {
   const { api, toast, reloadMe, meta, me, openAccount } = useApp();
@@ -155,7 +156,7 @@ export default function ActivityDetail({ id, query = {} }) {
                 <div className="row">
                   <Avatar person={r.user} />
                   <a href={`#/person/${r.user.id}`} style={{ flex: 1, color: 'inherit' }}><strong>{r.user.first_name}</strong>{r.user.is_demo && <> <SampleBadge /></>}
-                    <div className="tiny muted">{r.user.languages.map((l) => tx(l)).join(', ')}</div></a>
+                    <div className="tiny muted">{r.user.languages.map(langName).join(', ')}</div></a>
                   <StatusBadge status={r.status} />
                 </div>
                 {r.message && <p className="small">“{r.message}”</p>}

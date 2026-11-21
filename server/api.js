@@ -5,7 +5,7 @@ import { tx } from './db.js';
 import { config } from './config.js';
 import { hashPassword, verifyPassword, createSession, destroySession, sessionUser, rateLimiter } from './auth.js';
 import { localToUtcIso, utcToLocalInput, slotOf } from './time.js';
-import { CATEGORIES, TEMPLATES, LANGUAGES, BUDGETS, REPORT_REASONS, REC_CATEGORIES, MARKET_KINDS, MARKET_CATEGORIES, FEEDBACK_KINDS, categoryPhrase, slotLabel } from '../shared/catalog.js';
+import { CATEGORIES, TEMPLATES, LANGUAGES, STAY_KINDS, BUDGETS, REPORT_REASONS, REC_CATEGORIES, MARKET_KINDS, MARKET_CATEGORIES, FEEDBACK_KINDS, categoryPhrase, slotLabel } from '../shared/catalog.js';
 
 export class HttpError extends Error {
   constructor(status, code, message) { super(message); this.status = status; this.code = code; }
@@ -25,8 +25,12 @@ const list = (v, allowed, max = 12) => {
   return [...new Set(allowed ? arr.filter((x) => allowed.includes(x)) : arr.map((x) => x.trim().slice(0, 40)).filter(Boolean))].slice(0, max);
 };
 const CAT_KEYS = CATEGORIES.map((c) => c.key);
+// Known languages are stored by their English name; anything else is kept as the person typed it ("Add another language").
+const languageList = (v) => list(v, null, 12).map((x) => LANGUAGES.find((l) => l.toLowerCase() === x.toLowerCase()) || x);
+// Flags for the bio: two-letter region codes (countries and territories, e.g. IC for the Canary Islands). Purely decorative.
+const flagList = (v) => list(v, null, 8).map((x) => x.toUpperCase()).filter((x) => /^[A-Z]{2}$/.test(x));
 const REVISION = (process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT || 'local').slice(0, 7);
-const RELEASE = 'pre-launch-1';
+const RELEASE = 'pre-launch-2';
 const TIME_MODES = ['exact', 'window', 'tbd'];
 // Accounts used for testing are kept out of campaign numbers and never get emails: addresses with "+test" or on test domains.
 const TEST_DOMAINS = (process.env.TEST_EMAIL_DOMAINS || 'example.com,example.org,test.invalid').split(',').map((d) => d.trim().toLowerCase()).filter(Boolean);
@@ -108,8 +112,10 @@ export function createApi(db) {
     ...personSummary(p),
     intro: p.intro, interests: J(p.interests),
     university: p.show_university ? p.university : null,
-    exchange_start: p.exchange_start, exchange_end: p.exchange_end,
-    area: p.area, status: statusOf(p),
+    exchange_start: p.exchange_start, exchange_end: p.exchange_end, stay: p.stay || null, flags: J(p.flags || '[]'),
+    // Where they like to meet: free text since release 2; older profiles only have a neighbourhood key.
+    area: p.area, meet_area: p.meet_area || null,
+    status: null, // statuses were removed in release 2; stored rows are kept but never shown
     email_verified: !!p.email_verified_at, // means: confirmed they can receive email at their sign-up address. Nothing more.
   });
 
@@ -358,19 +364,33 @@ export function createApi(db) {
     const city = cityBySlug(b.city);
     if (!city) fail(400, 'invalid', 'Unknown city.');
     const areas = J(city.areas).map((a) => a.key);
-    const area = areas.includes(b.area) ? b.area : null;
+    const cur = profileOf(req.user.id);
+    // Fields the client did not send stay as they are (the short sign-up only sends a first name).
+    const has = (k) => Object.prototype.hasOwnProperty.call(b, k);
+    const area = has('area') ? (areas.includes(b.area) ? b.area : null) : cur.area;
     const date = (v) => (/^\d{4}-\d{2}(-\d{2})?$/.test(v || '') ? v : null);
-    db.prepare(`UPDATE profiles SET first_name=?, intro=?, city_id=?, area=?, university=?, show_university=?, exchange_start=?, exchange_end=?,
-      role=?, languages=?, interests=?, onboarded=1 WHERE user_id=?`).run(
-      str(b.first_name, 40, 'First name', { required: true }), str(b.intro, 280, 'Introduction'), city.id, area,
-      str(b.university, 80, 'University') || null, b.show_university ? 1 : 0, date(b.exchange_start), date(b.exchange_end),
-      ['exchange', 'international', 'intern', 'local'].includes(b.role) ? b.role : 'exchange',
-      JSON.stringify(list(b.languages, LANGUAGES)), JSON.stringify(list(b.interests, CAT_KEYS)), req.user.id,
+    const stay = has('stay') ? (STAY_KINDS.includes(b.stay) ? b.stay : null) : cur.stay;
+    // Dates only belong to "custom dates"; every other choice clears them. Older clients send dates without a stay kind.
+    const keepDates = stay === 'custom' || (!has('stay') && (has('exchange_start') || has('exchange_end')));
+    const start = keepDates ? date(has('exchange_start') ? b.exchange_start : cur.exchange_start) : null;
+    const end = keepDates ? date(has('exchange_end') ? b.exchange_end : cur.exchange_end) : null;
+    if (start && end && end < start) fail(400, 'invalid', 'The end date is before the start date.');
+    db.prepare(`UPDATE profiles SET first_name=?, intro=?, city_id=?, area=?, meet_area=?, university=?, show_university=?, exchange_start=?, exchange_end=?,
+      stay=?, flags=?, role=?, languages=?, interests=?, onboarded=1 WHERE user_id=?`).run(
+      str(b.first_name, 40, 'First name', { required: true }), has('intro') ? str(b.intro, 280, 'Introduction') : cur.intro, city.id, area,
+      has('meet_area') ? (str(b.meet_area, 80, 'Where you like to meet') || null) : cur.meet_area,
+      has('university') ? (str(b.university, 80, 'University') || null) : cur.university, has('show_university') ? (b.show_university ? 1 : 0) : cur.show_university,
+      start, end, stay, has('flags') ? JSON.stringify(flagList(b.flags)) : (cur.flags || '[]'),
+      has('role') ? (['exchange', 'international', 'intern', 'local'].includes(b.role) ? b.role : 'exchange') : cur.role,
+      has('languages') ? JSON.stringify(languageList(b.languages)) : cur.languages,
+      has('interests') ? JSON.stringify(list(b.interests, CAT_KEYS.filter((k) => k !== 'other'))) : cur.interests, req.user.id,
     );
     res.json({ ok: true });
   });
 
   r.put('/me/status', auth, (req, res) => {
+    // Statuses were removed in release 2. Older rows stay in the database but are not shown or extended.
+    if (!process.env.ALLOW_STATUS) fail(410, 'removed', 'Statuses are no longer available. Create a plan instead.');
     const b = req.body || {};
     const p = profileOf(req.user.id);
     const city = cityById(p.city_id);
@@ -397,7 +417,8 @@ export function createApi(db) {
     const b = req.body;
     const set = (col, val) => db.prepare(`UPDATE profiles SET ${col} = ? WHERE user_id = ?`).run(val, req.user.id);
     if ('visible' in b) set('visible', b.visible ? 1 : 0);
-    if ('nearby_enabled' in b) set('nearby_enabled', b.nearby_enabled ? 1 : 0);
+    // Location-based discovery was removed: it can be switched off, never on.
+    if ('nearby_enabled' in b && !b.nearby_enabled) set('nearby_enabled', 0);
     if ('show_sample' in b) set('show_sample', b.show_sample ? 1 : 0);
     if ('lang' in b && ['en', 'es'].includes(b.lang)) set('lang', b.lang);
     // Only an approximate area name is ever stored: never coordinates.
@@ -461,9 +482,10 @@ export function createApi(db) {
       .map((p) => {
         const interests = J(p.interests);
         const plans = db.prepare(`SELECT COUNT(*) AS n FROM activities WHERE organiser_id = ? AND status = 'active' AND starts_at > ?`).get(p.user_id, now()).n;
-        return { ...personSummary(p), intro: p.intro, interests, area: areaName(p.area), shared: interests.filter((i) => mine.has(i)), open_plans: plans, status: statusOf(p) };
+        return { ...personSummary(p), intro: p.intro, interests, area: p.meet_area || areaName(p.area), stay: p.stay || null, flags: J(p.flags || '[]'),
+          shared: interests.filter((i) => mine.has(i)), open_plans: plans };
       })
-      .sort((a, b) => (a.is_demo - b.is_demo) || (!!b.status - !!a.status) || (b.shared.length - a.shared.length) || (b.open_plans - a.open_plans));
+      .sort((a, b) => (b.shared.length - a.shared.length) || (b.open_plans - a.open_plans));
     res.json({ people });
   });
 
@@ -818,17 +840,19 @@ export function createApi(db) {
    * for company for the linked event. This stops the app being used to message strangers out of the blue.
    */
   function inviteEligible(a, targetId) {
+    // Since release 2 anyone who is visible in Buddies can be invited to a specific plan. They decide whether to join.
     const tp = profileOf(targetId);
-    if (!tp || !tp.visible || tp.first_name === 'Deleted user') return false;
-    if (a.event_id && db.prepare('SELECT 1 FROM event_interests WHERE event_id = ? AND user_id = ?').get(a.event_id, targetId)) return true;
-    return !!db.prepare('SELECT 1 FROM wishes WHERE user_id = ? AND city_id = ? AND category = ?').get(targetId, a.city_id, a.category);
+    return !!tp && !!tp.visible && !!tp.onboarded && !tp.is_guest && !tp.is_demo && tp.first_name !== 'Deleted user' && tp.city_id === a.city_id;
   }
 
   function invite(a, organiserId, targetId) {
     if (targetId === organiserId) fail(400, 'own', 'You cannot invite yourself.');
     if (a.status === 'cancelled' || isPast(a)) fail(409, 'state', 'This activity is not open.');
     if (blockedSet(organiserId).has(targetId)) fail(404, 'not_found', 'This person is not available.');
-    if (!inviteEligible(a, targetId)) fail(403, 'not_eligible', 'You can only invite people who said they are interested in this kind of plan.');
+    if (!inviteEligible(a, targetId)) fail(403, 'not_eligible', 'This person cannot be invited right now.');
+    // A brake on mass invitations: at most 30 a day per organiser.
+    const sent = db.prepare("SELECT COUNT(*) AS n FROM notifications WHERE actor_id = ? AND kind = 'invited' AND created_at > ?").get(organiserId, new Date(Date.now() - 864e5).toISOString()).n;
+    if (sent >= 30) fail(429, 'rate', 'You sent a lot of invitations today. Please try again tomorrow.');
     if (isFull(a)) fail(409, 'full', 'This activity is full.');
     const m = membershipOf(a.id, targetId);
     if (m) {
@@ -1000,7 +1024,7 @@ export function createApi(db) {
     const pref = ['buddy', 'small', 'either'].includes(b.group_pref) ? b.group_pref : 'either';
     db.prepare(`INSERT INTO event_interests (event_id, user_id, group_pref, languages, meeting_option, note) VALUES (?,?,?,?,?,?)
       ON CONFLICT(event_id, user_id) DO UPDATE SET group_pref=excluded.group_pref, languages=excluded.languages, meeting_option=excluded.meeting_option, note=excluded.note`)
-      .run(e.id, req.user.id, pref, JSON.stringify(list(b.languages, LANGUAGES)), str(b.meeting_option, 80, 'Meeting option'), str(b.note, 200, 'Note'));
+      .run(e.id, req.user.id, pref, JSON.stringify(languageList(b.languages)), str(b.meeting_option, 80, 'Meeting option'), str(b.note, 200, 'Note'));
     res.json({ ok: true });
   });
 
@@ -1016,6 +1040,8 @@ export function createApi(db) {
       const e = db.prepare('SELECT * FROM events WHERE id = ?').get(Number(req.params.id)) || fail(404, 'not_found', 'Event not found.');
       const mine = db.prepare('SELECT * FROM event_interests WHERE event_id = ? AND user_id = ?').get(e.id, uid);
       if (!mine) fail(409, 'no_interest', 'First tell us you are looking for company for this event.');
+      // From an event page you can only invite people who said they are looking for company for that event.
+      if (!db.prepare('SELECT 1 FROM event_interests WHERE event_id = ? AND user_id = ?').get(e.id, Number(req.body.userId))) fail(403, 'not_eligible', 'This person is not looking for company for this event.');
       let a = db.prepare("SELECT * FROM activities WHERE event_id = ? AND organiser_id = ? AND status = 'active'").get(e.id, uid);
       if (!a) {
         const meet = new Date(new Date(e.starts_at).getTime() - 20 * 60e3).toISOString();
@@ -1044,6 +1070,8 @@ export function createApi(db) {
   });
 
   r.post('/wishes', auth, (req, res) => {
+    // Wishes and wish matching were removed in release 2; nothing subscribes people to alerts any more. Old rows are kept.
+    if (!process.env.ALLOW_STATUS) fail(410, 'removed', 'Wishes are no longer available. Create a plan or invite someone from Buddies instead.');
     const p = profileOf(req.user.id);
     const n = db.prepare('SELECT COUNT(*) AS n FROM wishes WHERE user_id = ?').get(req.user.id).n;
     if (n >= 10) fail(409, 'limit', 'You can save up to 10 wishes.');

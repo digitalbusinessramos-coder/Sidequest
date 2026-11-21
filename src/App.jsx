@@ -17,7 +17,7 @@ import Buddies from './screens/Buddies.jsx';
 import Guide from './screens/Guide.jsx';
 import Profile from './screens/Profile.jsx';
 import Person from './screens/Person.jsx';
-import Tour, { AccountSheet } from './screens/Tour.jsx';
+import { AccountSheet } from './screens/Account.jsx';
 import Help, { ExamplePlan } from './screens/Help.jsx';
 import ResetPassword from './screens/Reset.jsx';
 import { FeedbackSheet } from './screens/Market.jsx';
@@ -62,10 +62,8 @@ export default function App() {
   const [toastNode, toast] = useToast();
 
   const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch { /* private mode */ } return null; };
-  const [tour, setTour] = useState(false);
   const [account, setAccount] = useState(null); // { mode: 'signup' | 'login', reason, onDone }
   const [feedback, setFeedback] = useState(false);
-  const closeTour = useCallback(() => { setTour(false); store('sq_tour_done', '1'); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const reloadMe = useCallback(async () => {
     const r = await api.get('/me');
@@ -86,7 +84,7 @@ export default function App() {
       if (!u && m.demoMode && store('sq_wants_login') !== '1') {
         try { await api.post('/auth/guest', {}); u = await reloadMe(); } catch { /* fall back to the welcome screen */ }
       }
-      // No popup on arrival: Explore opens directly. The tour stays under “How it works”.
+      // No popup on arrival: Explore opens directly. “How it works” is one screen under Help.
     } catch (e) { setBootError(e); }
   }, [reloadMe]);
 
@@ -101,10 +99,9 @@ export default function App() {
   if (!meta || me === undefined) return <div className="page"><Loading /></div>;
 
   const city = meta.cities.find((c) => c.slug === me?.city?.slug) || meta.cities[0];
-  const openTour = () => setTour(true);
   const openAccount = (mode = 'signup', opts = {}) => setAccount({ mode, ...opts });
   const openFeedback = () => setFeedback(true);
-  const ctx = { meta, me, city, reloadMe, toast, api, counts, lang, changeLanguage, openTour, openAccount, openFeedback };
+  const ctx = { meta, me, city, reloadMe, toast, api, counts, lang, changeLanguage, openAccount, openFeedback };
 
   if (route.parts[0] === 'reset') return <AppCtx.Provider value={ctx}><ResetPassword token={route.query.token} />{toastNode}</AppCtx.Provider>;
   if (!me) return <AppCtx.Provider value={ctx}><Welcome key={lang} />{toastNode}</AppCtx.Provider>;
@@ -169,7 +166,6 @@ export default function App() {
           <p className="side-indep">{tx('{app} is an independent student project developed for the Digital Business course at ULPGC.', { app: getAppName() })}</p>
         </div>
       </nav>
-      {tour && <Tour onDone={closeTour} />}
       {account && <AccountSheet initial={account.mode} reason={account.reason} onDone={account.onDone} onClose={() => setAccount(null)} />}
       {feedback && <FeedbackSheet onClose={() => setFeedback(false)} />}
       {toastNode}

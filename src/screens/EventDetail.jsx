@@ -3,6 +3,7 @@ import { getAppName, t, tx } from '../i18n.js';
 import { ActivityCard, Avatar, ChoiceChips, ErrorState, Icon, Loading, SampleBadge, Sheet, Stamp, TopBar, useApp, DetailPhoto, GoogleMap } from '../components.jsx';
 import { photo, photoFor } from '../../shared/photos.js';
 import { eventText, fmtDay, fmtDuration, fmtEventWhen, tzLabel, useApi } from '../util.js';
+import { LanguagePicker, langName } from './ProfileBits.jsx';
 
 const MEET_OPTIONS = ["Meet at the venue entrance", "Meet nearby 20 minutes before", "Walk or take the bus there together"];
 
@@ -166,11 +167,11 @@ export default function EventDetail({ id }) {
                 <div className="row">
                   <Avatar person={s.user} />
                   <a href={`#/person/${s.user.id}`} style={{ flex: 1, color: 'inherit' }}><strong>{s.user.first_name}</strong> {s.user.is_demo && <SampleBadge />}
-                    <div className="tiny muted">{s.group_pref === 'buddy' ? tx("Prefers one buddy") : s.group_pref === 'small' ? tx("Prefers a small group") : tx("One buddy or a small group")} · {s.languages.map((l) => tx(l)).join(', ')}</div></a>
+                    <div className="tiny muted">{s.group_pref === 'buddy' ? tx("Prefers one buddy") : s.group_pref === 'small' ? tx("Prefers a small group") : tx("One buddy or a small group")} · {s.languages.map(langName).join(', ')}</div></a>
                 </div>
                 {s.meeting_option && <p className="small"><Icon name="pin" size={14} /> {tx(s.meeting_option)}</p>}
                 {s.reasons.length > 0 && <span className="reason">{[
-                  s.match.shared_languages.length && tx('You both speak {langs}', { langs: s.match.shared_languages.map((l) => tx(l)).join(tx(' and ')) }),
+                  s.match.shared_languages.length && tx('You both speak {langs}', { langs: s.match.shared_languages.map(langName).join(tx(' and ')) }),
                   s.match.same_pref && tx(s.match.same_pref === 'buddy' ? 'You both prefer one buddy' : 'You both prefer a small group'),
                   s.match.same_meeting && tx('Same meeting option: {opt}', { opt: tx(s.meeting_option) }),
                 ].filter(Boolean).join(' · ')}</span>}
@@ -187,9 +188,7 @@ export default function EventDetail({ id }) {
               <ChoiceChips label={tx("Group preference")} value={form.group_pref} onChange={(group_pref) => setForm({ ...form, group_pref: group_pref || 'either' })}
                 options={[{ key: 'buddy', label: tx("One buddy") }, { key: 'small', label: tx("A small group") }, { key: 'either', label: tx("Either is fine") }]} />
             </div>
-            <div className="field"><span className="label">{tx("Languages")}</span>
-              <ChoiceChips multiple label={tx("Languages")} value={form.languages} onChange={(languages) => setForm({ ...form, languages })} options={meta.languages.map((l) => ({ key: l, label: l }))} />
-            </div>
+            <LanguagePicker value={form.languages} onChange={(languages) => setForm({ ...form, languages })} />
             <div className="field"><span className="label">{tx("Meeting option")}</span>
               <ChoiceChips label={tx("Meeting option")} value={form.meeting_option} onChange={(meeting_option) => setForm({ ...form, meeting_option })} options={MEET_OPTIONS.map((m) => ({ key: m, label: tx(m) }))} />
             </div>

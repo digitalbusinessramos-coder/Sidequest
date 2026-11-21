@@ -38,7 +38,19 @@ export const TEMPLATES = [
   { key: 'other', category: 'other', label: 'Start from scratch', title: '', duration: 90, max: 4, cost: 0 },
 ];
 
-export const LANGUAGES = ['English', 'Spanish', 'Italian', 'German', 'French', 'Portuguese', 'Polish', 'Dutch', 'Czech', 'Romanian', 'Greek', 'Swedish', 'Turkish', 'Other'];
+// Languages people can pick. Stored by English name; shown in the app's language (Intl.DisplayNames) from the ISO code.
+// Anything not listed can be added as typed text ("Add another language"). 'Other' only exists on older profiles.
+export const LANGUAGE_CODES = {
+  Arabic: 'ar', Bulgarian: 'bg', Catalan: 'ca', Chinese: 'zh', Croatian: 'hr', Czech: 'cs', Danish: 'da', Dutch: 'nl', English: 'en',
+  Estonian: 'et', Finnish: 'fi', French: 'fr', Galician: 'gl', German: 'de', Greek: 'el', Hindi: 'hi', Hungarian: 'hu', Irish: 'ga',
+  Italian: 'it', Japanese: 'ja', Korean: 'ko', Latvian: 'lv', Lithuanian: 'lt', Norwegian: 'no', Polish: 'pl', Portuguese: 'pt',
+  Romanian: 'ro', Russian: 'ru', Serbian: 'sr', Slovak: 'sk', Slovenian: 'sl', Spanish: 'es', Swedish: 'sv', Turkish: 'tr', Ukrainian: 'uk',
+  Basque: 'eu',
+};
+export const LANGUAGES = Object.keys(LANGUAGE_CODES);
+
+// Optional stay in Las Palmas. Works for exchange students, interns and people who live here.
+export const STAY_KINDS = ['sem1', 'sem2', 'year', 'custom', 'local'];
 
 export const DAYS = [
   ['mon', 'Monday'], ['tue', 'Tuesday'], ['wed', 'Wednesday'], ['thu', 'Thursday'],

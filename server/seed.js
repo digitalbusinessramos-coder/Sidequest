@@ -12,7 +12,7 @@ import { createAvatar } from '@dicebear/core';
 import { notionists } from '@dicebear/collection';
 
 const TZ = 'Atlantic/Canary';
-const GUIDE_CHECKED = '2026-11-06';
+const GUIDE_CHECKED = '2026-11-21';
 
 // Approximate neighbourhood centres. Used only to suggest the nearest area name on the user's own device.
 const AREAS = [
@@ -26,25 +26,21 @@ const AREAS = [
   { key: 'isleta', name: 'La Isleta / El Confital', lat: 28.160, lng: -15.425 },
 ];
 
+// Checked by opening each page on 21 Nov 2026. Descriptions say what the page itself offers; no copied timetables or prices.
+// Bump GUIDE_VERSION when this list changes so the live guide is refreshed on the next start.
+const GUIDE_VERSION = 2;
 const GUIDE = [
   // transport
-  ['transport', 'official', 'City buses (Guaguas Municipales)', 'The city bus company’s own site: lines and timetables, fares and travel cards, service alerts, a route planner and card top-up.', 'https://www.guaguas.com/', 'Guaguas Municipales'],
-  ['transport', 'official', 'Getting to and from the airport by bus', 'Aena’s page for Gran Canaria Airport lists the bus lines that serve the airport, with schedules and fares.', 'https://www.aena.es/en/gran-canaria/getting-there/bus.html', 'Aena'],
-  ['transport', 'placeholder', 'Island-wide buses (Global)', 'Buses between towns are run by the interurban operator Global. We could not open its website when checking this guide, so add the official link after verifying it.', null, null],
-  // health
-  ['health', 'official', 'Emergencies: 112', 'Your Europe (EU portal): 112 is the European emergency number, free to call from fixed and mobile phones across the EU.', 'https://europa.eu/youreurope/citizens/travel/security-and-emergencies/emergency/index_en.htm', 'Your Europe (European Union)'],
-  ['health', 'official', 'European Health Insurance Card (EHIC)', 'European Commission: the EHIC gives access to medically necessary state healthcare during a temporary stay. It is not a replacement for travel insurance.', 'https://employment-social-affairs.ec.europa.eu/policies-and-activities/moving-working-europe/eu-social-security-coordination/european-health-insurance-card_en', 'European Commission'],
-  ['health', 'official', 'Canary Islands Health Service', 'The Servicio Canario de la Salud homepage, with information for citizens and listings of hospitals and health areas.', 'https://www3.gobiernodecanarias.org/sanidad/scs/', 'Servicio Canario de la Salud'],
-  ['health', 'official', 'Insurance rules for ULPGC exchange students', 'ULPGC’s exchange-student page asks incoming students for private medical insurance and says this is not the EHIC. Check the page for the exact requirement.', 'https://internacional.ulpgc.es/en/movilidad-incoming/estudiantes-incoming/study-at-the-ulpgc-incoming/exchange-students', 'ULPGC International Office'],
+  ['transport', 'official', 'City buses (Guaguas Municipales)', 'The city bus company: lines and timetables, fares and travel cards, online card top-up, a “next bus” lookup and current service changes.', 'https://www.guaguas.com/', 'Guaguas Municipales'],
+  ['transport', 'official', 'Buses around the island (Global)', 'The intercity bus operator for Gran Canaria: route search, next buses, fares and prepaid cards. Use it for trips to other towns and beaches.', 'https://guaguasglobal.com/en/home/', 'Global'],
+  ['transport', 'official', 'Airport bus', 'Aena’s page for Gran Canaria Airport lists the bus lines between the airport and Las Palmas, where they stop and their timetables.', 'https://www.aena.es/en/gran-canaria/getting-there/bus.html', 'Aena'],
   // housing
-  ['housing', 'official', 'ULPGC scholarships and accommodation', 'The university’s “Becas y alojamiento” section, linked from its homepage. We could not load its contents when checking, so open it to see the current options.', 'https://www10.ulpgc.es/becas_y_alojamiento', 'ULPGC'],
-  ['housing', 'community', 'Before you pay for a room', 'General advice from the project team (not legal advice): see the room in person or by live video before paying, ask for a written contract, and get a receipt for any deposit.', null, 'Erasquest project team'],
-  // university & students
-  ['university', 'official', 'ULPGC exchange students', 'Practical guide for incoming exchange students: Welcome Day, the university Buddy Program, Spanish courses and paperwork.', 'https://internacional.ulpgc.es/en/movilidad-incoming/estudiantes-incoming/study-at-the-ulpgc-incoming/exchange-students', 'ULPGC International Office'],
-  ['university', 'official', 'ESN Las Palmas', 'The local Erasmus Student Network section’s own site: ESNcard, discounts, events and its Buddy Program. Not affiliated with this app.', 'https://esnlaspalmas.org/', 'ESN Las Palmas'],
-  ['students', 'placeholder', 'Student recommendations', 'Tips from students (favourite cafés, study spots, beginner-friendly hikes) will appear here. None have been collected yet.', null, null],
+  ['housing', 'official', 'ULPGC residences and partner housing', 'The university’s accommodation page: its own residences in the city and on the Tafira campus, campus apartments, and private residences with places reserved for ULPGC students.', 'https://www.ulpgc.es/alojamiento', 'ULPGC'],
+  ['housing', 'community', 'Before you pay for a room', 'See the room in person or on a live video call before paying, ask for a written contract, and get a receipt for any deposit. General advice, not legal advice.', null, 'Erasquest project team'],
+  // university
+  ['university', 'official', 'ULPGC exchange students', 'The International Office page for incoming exchange students: Welcome Day, the Buddy Programme, Spanish courses, insurance requirements and paperwork.', 'https://internacional.ulpgc.es/en/movilidad-incoming/estudiantes-incoming/study-at-the-ulpgc-incoming/exchange-students/', 'ULPGC International Office'],
   // links
-  ['links', 'official', 'Official city tourism site', 'LPA Visit: things to do, routes, getting around and the city’s events agenda.', 'https://lpavisit.com/en/', 'LPA Visit (City of Las Palmas de Gran Canaria)'],
+  ['links', 'official', 'City tourism site', 'LPA Visit: things to do, routes, getting around and the city’s events agenda.', 'https://lpavisit.com/en/', 'LPA Visit (City of Las Palmas de Gran Canaria)'],
 ];
 
 const PERSONAS = [
@@ -92,10 +88,12 @@ export function seed(db, { force = false } = {}) {
       .run('las-palmas', 'Las Palmas de Gran Canaria', 'Spain', TZ, JSON.stringify(AREAS));
     city = db.prepare("SELECT * FROM cities WHERE slug = 'las-palmas'").get();
   }
-  if (!db.prepare('SELECT 1 FROM guide_items WHERE city_id = ?').get(city.id) || force) {
+  const guideStored = Number(db.prepare("SELECT value FROM settings WHERE key = 'guide_version'").get()?.value || 0);
+  if (!db.prepare('SELECT 1 FROM guide_items WHERE city_id = ?').get(city.id) || force || guideStored < GUIDE_VERSION) {
     db.prepare('DELETE FROM guide_items WHERE city_id = ?').run(city.id);
     const ins = db.prepare('INSERT INTO guide_items (city_id, section, kind, title, summary, url, source_name, checked_at, sort) VALUES (?,?,?,?,?,?,?,?,?)');
     GUIDE.forEach((g, i) => ins.run(city.id, ...g, g[4] ? GUIDE_CHECKED : null, i));
+    db.prepare("INSERT INTO settings (key, value) VALUES ('guide_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(String(GUIDE_VERSION));
   }
   // Rename: the guide's own advice used to be credited to the old working name.
   db.prepare("UPDATE guide_items SET source_name = 'Erasquest project team' WHERE source_name = 'SIDEQUEST project team'").run();
