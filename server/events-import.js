@@ -36,7 +36,8 @@ const alboroto = ALBOROTO_DATES.map(([id, slug, original, day]) => ({
   price_short: '€12–16 at the door',
   age_note: '21+',
   source_name: 'Erasmus Life page on Nyxell', source_url: `${NYX}/event/${id}-${slug}`,
-  series_key: 'erasmus-life-alboroto', series_label: 'Erasmus Life at Alboroto', photo_key: 'vegueta',
+  // No photo: we have none of Alboroto at night, and a sunny street would not match a club night. The card shows an emoji instead.
+  series_key: 'erasmus-life-alboroto', series_label: 'Erasmus Life at Alboroto', photo_key: null,
 }));
 
 // ---------- Auditorio Alfredo Kraus (venue; tickets on janto) ----------
@@ -97,7 +98,8 @@ const mercado = {
   note_es: 'Abre el 4 de diciembre. Consulta el programa municipal para horarios y fecha de cierre.',
   source_name: 'City of Las Palmas de GC press release, 15 Oct 2026',
   source_url: 'https://www.laspalmasgc.es/es/ayuntamiento/prensa-y-comunicacion/notas-de-prensa/nota-de-prensa/Abierta-la-inscripcion-para-optar-a-un-punto-de-venta-de-bebida-o-de-comida-en-el-mercado-navideno/',
-  photo_key: 'santacatalina', visit: true,
+  // No photo: none of ours shows the Christmas market (the Santa Catalina one is a concert stage).
+  photo_key: null, visit: true,
 };
 
 const molina = {
@@ -111,7 +113,7 @@ const molina = {
   official_url: 'https://www.lpacultura.com/events', ticket_platform: null, ticket_url: null,
   price_short: 'Free entry',
   price_en: 'Free entry (listed as “Gratuito” by LPA Cultura).', price_es: 'Entrada gratuita (según LPA Cultura).',
-  source_name: 'LPA Cultura events agenda', source_url: 'https://www.lpacultura.com/events', photo_key: 'colon',
+  source_name: 'LPA Cultura events agenda', source_url: 'https://www.lpacultura.com/events', photo_key: null, // the Casa de Colón photo is a different building
 };
 
 export const REAL_EVENTS = [...alboroto, mercado, molina, gospel, ...conpop, cristina];
