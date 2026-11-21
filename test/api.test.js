@@ -928,3 +928,11 @@ test('real-size pictures upload for plans and listings, not only tiny ones', asy
   const r = await org.post('/activities', { title: 'x'.repeat(80 * 1024) });
   assert.equal(r.status, 413);
 });
+
+test('event photos match what happens: club nights and the Christmas market have no unrelated photo', async () => {
+  const rows = db.prepare("SELECT ext_id, photo_key FROM events WHERE ext_id LIKE 'nyxell-%' OR ext_id = 'lpgc-mercado-navidad-2026'").all();
+  assert.ok(rows.length >= 2);
+  for (const r of rows) assert.equal(r.photo_key, null, r.ext_id);
+  const concert = db.prepare("SELECT photo_key FROM events WHERE ext_id = 'aak-TNOGC1226'").get();
+  assert.equal(concert.photo_key, 'auditorio'); // the venue itself
+});
