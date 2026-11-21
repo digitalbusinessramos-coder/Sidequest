@@ -17,7 +17,9 @@ export function createApp(db) {
     res.set('X-Frame-Options', 'SAMEORIGIN');
     next();
   });
-  app.use('/api/me/photo', express.json({ limit: '900kb' })); // resized pictures only
+  // Resized pictures only (the server still rejects anything over 600 KB once decoded). Every picture upload route
+  // needs this larger limit: before, only the profile photo had it, so plan and listing photos over ~37 KB failed.
+  app.use(['/api/me/photo', /^\/api\/activities\/\d+\/photo$/, /^\/api\/market\/\d+\/photos?$/], express.json({ limit: '900kb' }));
   app.use('/api', express.json({ limit: '50kb' }));
   // CSRF protection: state-changing API calls must be JSON (cross-site forms cannot send that without CORS preflight).
   app.use('/api', (req, _res, next) => {
@@ -65,6 +67,7 @@ export function createApp(db) {
   // eslint-disable-next-line no-unused-vars
   app.use((err, _req, res, _next) => {
     if (err instanceof HttpError) return res.status(err.status).json({ error: err.code, message: err.message });
+    if (err?.type === 'entity.too.large') return res.status(413).json({ error: 'too_large', message: 'That picture is too large. Please choose a smaller one.' });
     if (err?.type === 'entity.parse.failed') return res.status(400).json({ error: 'invalid', message: 'Invalid JSON.' });
     console.error(err);
     res.status(500).json({ error: 'server', message: 'Something went wrong on our side. Please try again.' });
