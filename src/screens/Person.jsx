@@ -3,6 +3,7 @@ import { t, tx } from '../i18n.js';
 import { Avatar, EmailBadge, ErrorState, Icon, Loading, ReportSheet, SampleBadge, Sheet, TopBar, useApp } from '../components.jsx';
 import { areaName, useApi } from '../util.js';
 import { InviteSheet } from './Buddies.jsx';
+import { ConnectActions } from './Connect.jsx';
 import { FlagList, langName, stayText } from './ProfileBits.jsx';
 import { categoryLabel } from '../../shared/catalog.js';
 
@@ -34,7 +35,11 @@ export default function Person({ id }) {
           </div>
         </div>
         {p.intro && <p>{p.intro}</p>}
-        <button className="btn btn-primary" style={{ alignSelf: 'flex-start' }} onClick={() => setInviting(true)}><Icon name="plus" size={16} />{tx('Invite to a plan')}</button>
+        <div className="row wrap" style={{ gap: 8 }}>
+          <ConnectActions person={p} connection={data.connection} onChange={() => reload(true)} />
+          {data.connection?.status !== 'pending' || data.connection?.direction !== 'incoming'
+            ? <button className={`btn ${data.connection?.status === 'accepted' ? 'btn-secondary' : 'btn-primary'}`} onClick={() => setInviting(true)}><Icon name="plus" size={16} />{tx('Invite to a plan')}</button> : null}
+        </div>
         <div className="card card-pad facts-list">
           {p.languages.length > 0 && <><Icon name="globe" /><div>{p.languages.map(langName).join(', ')}</div></>}
           {p.flags?.length > 0 && <><Icon name="flag" /><div><FlagList flags={p.flags} /></div></>}

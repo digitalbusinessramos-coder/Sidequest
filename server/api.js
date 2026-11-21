@@ -31,7 +31,7 @@ const languageList = (v) => list(v, null, 12).map((x) => LANGUAGES.find((l) => l
 // Flags for the bio: two-letter region codes (countries and territories, e.g. IC for the Canary Islands). Purely decorative.
 const flagList = (v) => list(v, null, 8).map((x) => x.toUpperCase()).filter((x) => /^[A-Z]{2}$/.test(x));
 const REVISION = (process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT || 'local').slice(0, 7);
-const RELEASE = 'pre-launch-6b';
+const RELEASE = 'pre-launch-7-connect';
 const TIME_MODES = ['exact', 'window', 'tbd'];
 const DAY_MODES = ['day', 'weekend', 'week', 'flex'];
 // Accounts used for testing are kept out of campaign numbers and never get emails: addresses with "+test" or on test domains.
@@ -142,7 +142,8 @@ export function createApi(db) {
     // Also as a pop-up on the person's devices, if they turned notifications on. Never from someone they blocked.
     if (actorId && blockedSet(uid).has(actorId)) return;
     const title = aid ? db.prepare('SELECT title FROM activities WHERE id = ?').get(aid)?.title || '' : '';
-    push.send(uid, kind, { name: actorId ? nameOf(actorId) : '', plan: title, url: aid && kind !== 'cancelled' ? `/#/activity/${aid}` : '/#/plans' });
+    const url = kind.startsWith('connect_') ? `/#/person/${actorId}` : aid && kind !== 'cancelled' ? `/#/activity/${aid}` : '/#/plans';
+    push.send(uid, kind, { name: actorId ? nameOf(actorId) : '', plan: title, url });
   };
   const notifyMembers = (aid, statuses, kind, actorId, detail = '') => {
     const ph = statuses.map(() => '?').join(',');
@@ -363,7 +364,7 @@ export function createApi(db) {
         visible: !!p.visible, nearby_enabled: !!p.nearby_enabled, show_sample: !!p.show_sample, onboarded: !!p.onboarded, team: isAdmin(req), push_devices: push.count(req.user.id),
         city: city && { slug: city.slug, name: city.name, timezone: city.timezone },
       },
-      counts: { toReview, invites, notifications: unreadNotifs, chats: unreadChats },
+      counts: { toReview, invites, notifications: unreadNotifs, chats: unreadChats, dms: unreadDms(req.user.id), connect_requests: incomingCount(req.user.id) },
     });
   });
 
@@ -459,6 +460,7 @@ export function createApi(db) {
       db.prepare('DELETE FROM listing_saves WHERE user_id = ?').run(uid);
       db.prepare('UPDATE feedback SET user_id = NULL WHERE user_id = ?').run(uid);
       db.prepare('DELETE FROM blocks WHERE blocker_id = ? OR blocked_id = ?').run(uid, uid);
+      db.prepare('DELETE FROM connections WHERE requester_id = ? OR target_id = ?').run(uid, uid);
       db.prepare('DELETE FROM sessions WHERE user_id = ?').run(uid);
       db.prepare('DELETE FROM push_subscriptions WHERE user_id = ?').run(uid);
       // Keep an anonymous row only so cancelled activities still reference an organiser; all personal data is removed.
@@ -505,7 +507,7 @@ export function createApi(db) {
     if (blockedSet(req.user.id).has(id)) fail(404, 'not_found', 'Profile not available.');
     const p = profileOf(id);
     if (!p || p.first_name === 'Deleted user') fail(404, 'not_found', 'Profile not available.');
-    res.json({ profile: publicProfile(p), blocked_by_me: false });
+    res.json({ profile: publicProfile(p), blocked_by_me: false, connection: connectionView(connBetween(req.user.id, id), req.user.id) });
   });
 
   r.get('/me/blocks', auth, (req, res) => {
@@ -519,6 +521,8 @@ export function createApi(db) {
     if (!profileOf(id)) fail(404, 'not_found', 'User not found.');
     tx(db, () => {
       db.prepare('INSERT OR IGNORE INTO blocks (blocker_id, blocked_id) VALUES (?, ?)').run(req.user.id, id);
+      // Blocking ends a connection and its private chat.
+      db.prepare('DELETE FROM connections WHERE (requester_id = ? AND target_id = ?) OR (requester_id = ? AND target_id = ?)').run(req.user.id, id, id, req.user.id);
       // Withdraw any open requests/invites between the two people in each other's activities.
       db.prepare(`UPDATE memberships SET status='withdrawn', updated_at=? WHERE status IN ('pending','invited') AND (
         (user_id = ? AND activity_id IN (SELECT id FROM activities WHERE organiser_id = ?)) OR
@@ -533,7 +537,7 @@ export function createApi(db) {
   });
 
   r.post('/reports', auth, (req, res) => {
-    const type = ['user', 'activity', 'message', 'recommendation', 'event_message', 'listing', 'listing_message'].includes(req.body.target_type) ? req.body.target_type : fail(400, 'invalid', 'Unknown report type.');
+    const type = ['user', 'activity', 'message', 'recommendation', 'event_message', 'listing', 'listing_message', 'direct_message'].includes(req.body.target_type) ? req.body.target_type : fail(400, 'invalid', 'Unknown report type.');
     const reason = REPORT_REASONS.includes(req.body.reason) ? req.body.reason : fail(400, 'invalid', 'Please choose a reason.');
     const { lastInsertRowid } = db.prepare('INSERT INTO reports (reporter_id, target_type, target_id, reason, details) VALUES (?,?,?,?,?)')
       .run(req.user.id, type, Number(req.body.target_id) || 0, reason, str(req.body.details, 1000, 'Details'));
@@ -594,6 +598,8 @@ export function createApi(db) {
     if (type === 'event_message') { const m = db.prepare('SELECT body, user_id, event_id FROM event_messages WHERE id = ?').get(id); return m && { label: m.body.slice(0, 200), link: `#/event/${m.event_id}/chat`, author: person(m.user_id) }; }
     if (type === 'recommendation') { const x = db.prepare('SELECT title, user_id FROM recommendations WHERE id = ?').get(id); return x && { label: x.title, link: '#/guide', author: person(x.user_id) }; }
     if (type === 'listing') { const x = db.prepare('SELECT title, user_id FROM listings WHERE id = ?').get(id); return x && { label: x.title, link: `#/market/${id}`, author: person(x.user_id) }; }
+    // A reported private message is shown to the team (the reporter chose to share it); the rest of the chat is not.
+    if (type === 'direct_message') { const x = db.prepare('SELECT body, sender_id FROM direct_messages WHERE id = ?').get(id); return x && { label: x.body.slice(0, 200), link: `#/person/${x.sender_id}`, author: person(x.sender_id) }; }
     if (type === 'listing_message') { const x = db.prepare('SELECT body, sender_id, listing_id FROM listing_messages WHERE id = ?').get(id); return x && { label: x.body.slice(0, 200), link: `#/market/${x.listing_id}`, author: person(x.sender_id) }; }
     return null;
   }
@@ -1082,6 +1088,108 @@ export function createApi(db) {
       if (o.user_id === req.user.id || blockedSet(o.user_id).has(req.user.id)) continue;
       push.sendChat(o.user_id, `a${a.id}`, { name: nameOf(req.user.id), plan: a.title, url: `/#/activity/${a.id}/chat`, tag: `chat-${a.id}` });
     }
+    res.status(201).json({ id: Number(lastInsertRowid) });
+  });
+
+  // ---------- connections and private chat ----------
+  // A "Connect" request is accepted or declined by the other person. A private chat exists only between connected people.
+  // The requester is never told about a decline: the request simply stays "sent".
+  const connBetween = (a, b) => db.prepare('SELECT * FROM connections WHERE (requester_id = ? AND target_id = ?) OR (requester_id = ? AND target_id = ?)').get(a, b, b, a);
+  const connectionView = (c, uid) => {
+    if (!c) return null;
+    const incoming = c.target_id === uid;
+    if (c.status === 'declined') return incoming ? null : { id: c.id, status: 'pending', direction: 'outgoing' };
+    return { id: c.id, status: c.status, direction: incoming ? 'incoming' : 'outgoing', note: incoming && c.status === 'pending' ? c.note : undefined };
+  };
+  const unreadDm = (cid, uid) => {
+    const last = db.prepare('SELECT last_read_id FROM dm_reads WHERE connection_id = ? AND user_id = ?').get(cid, uid)?.last_read_id || 0;
+    return db.prepare('SELECT COUNT(*) AS n FROM direct_messages WHERE connection_id = ? AND id > ? AND sender_id != ?').get(cid, last, uid).n;
+  };
+  const myConnections = (uid) => db.prepare("SELECT * FROM connections WHERE status = 'accepted' AND (requester_id = ? OR target_id = ?)").all(uid, uid)
+    .filter((c) => !blockedSet(uid).has(c.requester_id === uid ? c.target_id : c.requester_id));
+  const unreadDms = (uid) => myConnections(uid).reduce((n, c) => n + unreadDm(c.id, uid), 0);
+  const incomingCount = (uid) => {
+    const bl = blockedSet(uid);
+    return db.prepare("SELECT requester_id FROM connections WHERE target_id = ? AND status = 'pending'").all(uid).filter((c) => !bl.has(c.requester_id)).length;
+  };
+  const connectLimit = rateLimiter(20, 24 * 3600e3);
+  const myConn = (req) => {
+    const c = db.prepare('SELECT * FROM connections WHERE id = ?').get(Number(req.params.id));
+    if (!c || (c.requester_id !== req.user.id && c.target_id !== req.user.id)) fail(404, 'not_found', 'Not found.');
+    const other = c.requester_id === req.user.id ? c.target_id : c.requester_id;
+    if (blockedSet(req.user.id).has(other)) fail(404, 'not_found', 'Not found.');
+    return { c, other };
+  };
+
+  r.post('/users/:id/connect', auth, (req, res) => {
+    requireAccount(req);
+    const id = Number(req.params.id);
+    if (id === req.user.id) fail(400, 'invalid', 'You cannot connect with yourself.');
+    if (blockedSet(req.user.id).has(id)) fail(404, 'not_found', 'This person is not available.');
+    const tp = profileOf(id);
+    if (!tp || !tp.visible || !tp.onboarded || tp.is_guest || tp.is_demo || tp.first_name === 'Deleted user') fail(403, 'not_eligible', 'You can’t connect with this person right now.');
+    const existing = connBetween(req.user.id, id);
+    if (existing) {
+      // They already asked me: connecting means accepting.
+      if (existing.target_id === req.user.id && existing.status === 'pending') {
+        db.prepare("UPDATE connections SET status = 'accepted', responded_at = ? WHERE id = ?").run(now(), existing.id);
+        notify(id, 'connect_accepted', null, req.user.id);
+      }
+      return res.json({ connection: connectionView(connBetween(req.user.id, id), req.user.id) });
+    }
+    if (!connectLimit(String(req.user.id))) fail(429, 'rate', 'You sent a lot of requests today. Please try again tomorrow.');
+    const note = str(req.body?.note, 200, 'Message');
+    db.prepare('INSERT INTO connections (requester_id, target_id, note) VALUES (?,?,?)').run(req.user.id, id, note);
+    notify(id, 'connect_request', null, req.user.id);
+    res.status(201).json({ connection: connectionView(connBetween(req.user.id, id), req.user.id) });
+  });
+  r.post('/connections/:id/:action(accept|decline)', auth, (req, res) => {
+    const { c } = myConn(req);
+    if (c.target_id !== req.user.id || c.status !== 'pending') fail(409, 'state', 'This request is no longer open.');
+    const accept = req.params.action === 'accept';
+    db.prepare('UPDATE connections SET status = ?, responded_at = ? WHERE id = ?').run(accept ? 'accepted' : 'declined', now(), c.id);
+    db.prepare("UPDATE notifications SET read_at = ? WHERE user_id = ? AND kind = 'connect_request' AND actor_id = ? AND read_at IS NULL").run(now(), req.user.id, c.requester_id);
+    if (accept) notify(c.requester_id, 'connect_accepted', null, req.user.id);
+    res.json({ connection: connectionView(db.prepare('SELECT * FROM connections WHERE id = ?').get(c.id), req.user.id) });
+  });
+  // Withdraw a request, or remove a connection (its chat goes too). The other person is not told.
+  r.delete('/connections/:id', auth, (req, res) => {
+    const { c } = myConn(req);
+    if (c.status === 'declined' && c.target_id === req.user.id) fail(404, 'not_found', 'Not found.');
+    db.prepare('DELETE FROM connections WHERE id = ?').run(c.id);
+    res.json({ ok: true });
+  });
+  r.get('/connections', auth, (req, res) => {
+    const uid = req.user.id;
+    const bl = blockedSet(uid);
+    const person = (id) => personSummary(profileOf(id));
+    const incoming = db.prepare("SELECT * FROM connections WHERE target_id = ? AND status = 'pending' ORDER BY id DESC").all(uid)
+      .filter((c) => !bl.has(c.requester_id)).map((c) => ({ id: c.id, person: person(c.requester_id), note: c.note, created_at: c.created_at }));
+    const outgoing = db.prepare("SELECT * FROM connections WHERE requester_id = ? AND status IN ('pending','declined') ORDER BY id DESC").all(uid)
+      .filter((c) => !bl.has(c.target_id)).map((c) => ({ id: c.id, person: person(c.target_id), created_at: c.created_at }));
+    const connected = myConnections(uid).map((c) => {
+      const other = c.requester_id === uid ? c.target_id : c.requester_id;
+      const last = db.prepare('SELECT body, sender_id, created_at FROM direct_messages WHERE connection_id = ? ORDER BY id DESC LIMIT 1').get(c.id);
+      return { id: c.id, person: person(other), unread: unreadDm(c.id, uid), last: last ? { body: last.body.slice(0, 80), mine: last.sender_id === uid, created_at: last.created_at } : null, since: c.responded_at };
+    }).sort((a, b) => (b.last?.created_at || b.since || '').localeCompare(a.last?.created_at || a.since || ''));
+    res.json({ incoming, outgoing, connected });
+  });
+  r.get('/connections/:id/messages', auth, (req, res) => {
+    const { c, other } = myConn(req);
+    if (c.status !== 'accepted') fail(403, 'not_connected', 'You can message each other once the request is accepted.');
+    const after = Number(req.query.after) || 0;
+    const rows = db.prepare('SELECT * FROM direct_messages WHERE connection_id = ? AND id > ? ORDER BY id LIMIT 200').all(c.id, after);
+    const maxId = rows.length ? rows[rows.length - 1].id : after;
+    if (maxId) db.prepare('INSERT INTO dm_reads (connection_id, user_id, last_read_id) VALUES (?,?,?) ON CONFLICT(connection_id, user_id) DO UPDATE SET last_read_id = MAX(last_read_id, excluded.last_read_id)').run(c.id, req.user.id, maxId);
+    res.json({ other: personSummary(profileOf(other)), messages: rows.map((m) => ({ id: m.id, body: m.body, mine: m.sender_id === req.user.id, created_at: m.created_at })) });
+  });
+  r.post('/connections/:id/messages', auth, (req, res) => {
+    if (!msgLimit(String(req.user.id))) fail(429, 'rate', 'You are sending messages too quickly.');
+    const { c, other } = myConn(req);
+    if (c.status !== 'accepted') fail(403, 'not_connected', 'You can message each other once the request is accepted.');
+    const body = str(req.body.body, 1000, 'Message', { required: true });
+    const { lastInsertRowid } = db.prepare('INSERT INTO direct_messages (connection_id, sender_id, body) VALUES (?,?,?)').run(c.id, req.user.id, body);
+    push.sendChat(other, `dm${c.id}`, { kind: 'dm', name: nameOf(req.user.id), url: `/#/dm/${c.id}`, tag: `dm-${c.id}` });
     res.status(201).json({ id: Number(lastInsertRowid) });
   });
 

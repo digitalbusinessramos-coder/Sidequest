@@ -660,3 +660,6 @@ fieldset.plain > legend { margin-bottom: 6px; padding: 0; }
 .crop-frame.round { max-width: 320px; margin: 0 auto; }
 .crop-frame.round::after { content: ''; position: absolute; inset: 0; border-radius: 50%; box-shadow: 0 0 0 9999px rgba(0,0,0,.5); pointer-events: none; }
 .sheet:has(.ios-arrow) { padding-bottom: 92px; }
+.dm-row { text-decoration: none; color: inherit; gap: 10px; }
+.dm-row .dm-last { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.connect-ask { flex-basis: 100%; }

@@ -877,3 +877,39 @@ test('day not fixed yet: this weekend, this week or flexible; exact time needs a
   assert.equal(w.status, 201);
   assert.equal((await org.get(`/activities/${w.body.id}`)).body.activity.time_window, 'evening');
 });
+
+test('connect: request, accept, private chat only when connected; decline stays quiet; block ends it', async () => {
+  const a = await user('Cora'); const b = await user('Dev'); const c = await user('Eli');
+  assert.equal((await a.get(`/users/${b.id}`)).body.connection, null);
+  const req1 = await a.post(`/users/${b.id}/connect`, { note: 'Hi! We met at the surf plan.' });
+  assert.equal(req1.status, 201);
+  const cid = req1.body.connection.id;
+  assert.equal((await a.get(`/connections/${cid}/messages`)).status, 403, 'no chat before acceptance');
+  assert.equal((await a.post(`/connections/${cid}/messages`, { body: 'hey' })).status, 403);
+  const inB = (await b.get('/connections')).body.incoming;
+  assert.equal(inB[0].person.id, a.id); assert.equal(inB[0].note, 'Hi! We met at the surf plan.');
+  assert.equal((await b.get('/me')).body.counts.connect_requests, 1);
+  assert.equal((await b.get(`/users/${a.id}`)).body.connection.direction, 'incoming');
+  assert.equal((await a.post(`/connections/${cid}/accept`)).status, 409, 'only the receiver can accept');
+  assert.equal((await b.post(`/connections/${cid}/accept`)).body.connection.status, 'accepted');
+  assert.ok((await a.get('/notifications')).body.notifications.some((n) => n.kind === 'connect_accepted' && n.actor.id === b.id));
+  assert.equal((await a.post(`/connections/${cid}/messages`, { body: 'Coffee tomorrow?' })).status, 201);
+  assert.equal((await b.get('/me')).body.counts.dms, 1);
+  const msgs = (await b.get(`/connections/${cid}/messages`)).body.messages;
+  assert.equal(msgs[0].body, 'Coffee tomorrow?'); assert.equal(msgs[0].mine, false);
+  assert.equal((await b.get('/me')).body.counts.dms, 0, 'reading clears unread');
+  assert.equal((await c.get(`/connections/${cid}/messages`)).status, 404, 'others cannot read');
+  // decline: requester still sees "sent"
+  const r2 = await c.post(`/users/${b.id}/connect`, {});
+  await b.post(`/connections/${r2.body.connection.id}/decline`);
+  assert.equal((await c.get(`/users/${b.id}`)).body.connection.status, 'pending', 'a decline is not announced');
+  assert.equal((await b.get(`/users/${c.id}`)).body.connection, null);
+  // both asked each other: the second request accepts
+  const d = await user('Fay');
+  await d.post(`/users/${c.id}/connect`, {});
+  assert.equal((await c.post(`/users/${d.id}/connect`, {})).body.connection.status, 'accepted');
+  // block ends the connection and the chat
+  await b.post(`/users/${a.id}/block`, {});
+  assert.equal((await a.get(`/connections/${cid}/messages`)).status, 404);
+  assert.equal((await a.get('/connections')).body.connected.length, 0);
+});

@@ -5,6 +5,7 @@ import { ROLE_LABEL } from './Person.jsx';
 import { fmtPlanWhen, useApi } from '../util.js';
 import { categoryLabel } from '../../shared/catalog.js';
 import { FlagList, langName, stayText } from './ProfileBits.jsx';
+import { Connections } from './Connect.jsx';
 
 /**
  * Invite one person to one of my upcoming plans, or start a new plan for them.
@@ -79,7 +80,9 @@ export default function Buddies() {
   return (
     <div className="page">
       <div className="stack-sm"><h1>{t('buddies.title')}</h1>
-        <p className="small muted">{tx('Find other students in Las Palmas and invite them to a plan. They decide whether to join.')}</p></div>
+        <p className="small muted">{tx('Find other students in Las Palmas, connect, and invite them to a plan.')}</p></div>
+
+      <Connections />
 
       {inv.data?.invitations.length > 0 && (
         <section className="stack" aria-labelledby="inv-h">

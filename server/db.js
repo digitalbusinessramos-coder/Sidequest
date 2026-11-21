@@ -57,6 +57,27 @@ function migrate(db) {
   db.exec(`CREATE TABLE IF NOT EXISTS listing_photos (id INTEGER PRIMARY KEY, listing_id INTEGER NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
     sort INTEGER NOT NULL DEFAULT 0, mime TEXT NOT NULL, data BLOB NOT NULL, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')))`);
   db.exec('CREATE INDEX IF NOT EXISTS idx_listing_photos ON listing_photos(listing_id, sort)');
+  // Connections between students: a request, accepted or declined by the other person. Private chat only once accepted.
+  db.exec(`CREATE TABLE IF NOT EXISTS connections (
+    id INTEGER PRIMARY KEY,
+    requester_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    target_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    status TEXT NOT NULL DEFAULT 'pending', -- pending | accepted | declined
+    note TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    responded_at TEXT,
+    UNIQUE (requester_id, target_id)
+  )`);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_conn_target ON connections(target_id, status)');
+  db.exec(`CREATE TABLE IF NOT EXISTS direct_messages (
+    id INTEGER PRIMARY KEY,
+    connection_id INTEGER NOT NULL REFERENCES connections(id) ON DELETE CASCADE,
+    sender_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    body TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+  )`);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_dm_conn ON direct_messages(connection_id, id)');
+  db.exec('CREATE TABLE IF NOT EXISTS dm_reads (connection_id INTEGER NOT NULL, user_id INTEGER NOT NULL, last_read_id INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (connection_id, user_id))');
   // The day can be left open: 'day' (a chosen day), 'weekend', 'week' or 'flex' (in the next two weeks).
   if (!cols('activities').includes('day_mode')) db.exec("ALTER TABLE activities ADD COLUMN day_mode TEXT NOT NULL DEFAULT 'day'");
   // Plans without a photo show an emoji the creator picked ('' = the category's emoji).
