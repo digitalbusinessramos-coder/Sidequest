@@ -193,7 +193,7 @@ export default function App() {
         <main id="main" key={lang}>{screen}</main>
       </div>
       <nav className="tabbar" aria-label="Main">
-        <a className="side-logo" href="#/explore"><img src="/brand/erasquest-logo-480.png" srcSet="/brand/erasquest-logo-480.png 1x, /brand/erasquest-logo-960.png 2x" alt={`${getAppName()} · Las Palmas`} width="200" height="63" /></a>
+        <a className="side-logo" href="#/explore"><img src="/brand/erasquest-logo-480.png" srcSet="/brand/erasquest-logo-480.png 1x, /brand/erasquest-logo-960.png 2x" alt={`${getAppName()} · Las Palmas`} width="200" height="51" /></a>
         <ul>
           {TABS.map(([key, icon, label]) => (
             <li key={key}>
