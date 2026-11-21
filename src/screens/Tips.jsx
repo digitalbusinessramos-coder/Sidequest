@@ -14,7 +14,7 @@ function planHref(r, templates) {
   return `#/create?${q}`;
 }
 
-const REC_ICON = { food: 'food', nightlife: 'nightout', beach: 'beach', culture: 'museum', study: 'study', practical: 'info' };
+const REC_ICON = { food: 'food', nightlife: 'nightout', beach: 'beach', culture: 'museum', study: 'study', practical: 'info', services: 'pin' };
 
 /** Student recommendations: anyone can post a tip, like it, and save it for later. */
 export default function Tips() {

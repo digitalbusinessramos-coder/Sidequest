@@ -19,6 +19,7 @@ const NOTE_TEXT = {
   market_message: ['{name} sent you a message about “{title}”.', 'shopping'],
   connect_request: ['{name} wants to connect with you.', 'buddies'],
   connect_accepted: ['{name} accepted your request to connect. You can message each other now.', 'buddies'],
+  answer: ['{name} answered your question “{title}”.', 'chat'],
 };
 
 /** In-app notifications. Shown in the person's language because the server stores only the kind of event. */
@@ -36,6 +37,7 @@ function Updates() {
     if (!n.read) api.post('/notifications/read', { ids: [n.id] }).then(() => reloadMe()).catch(() => {});
     if (n.activity) location.hash = `#/activity/${n.activity.id}`;
     else if (n.listing) location.hash = `#/market/${n.listing.id}`;
+    else if (n.question) location.hash = `#/ask/${n.question.id}`;
     else if (n.actor && n.kind.startsWith('connect_')) location.hash = `#/person/${n.actor.id}`;
   };
   return (
@@ -58,7 +60,7 @@ function Updates() {
             <button key={n.id} className={`note ${n.read ? '' : 'unread'}`} onClick={() => open(n)}>
               <Icon name={icon} size={18} />
               <span style={{ flex: 1 }}>
-                {tx(text, { name: n.actor?.first_name || tx('Someone'), title: n.activity?.title || n.listing?.title || '' })}
+                {tx(text, { name: n.actor?.first_name || tx('Someone'), title: n.activity?.title || n.listing?.title || n.question?.title || '' })}
                 {n.kind === 'cancelled' && n.detail && <> {tx('Reason: {reason}', { reason: n.detail })}</>}
                 <span className="tiny muted" style={{ display: 'block' }}>{fmtWhen(n.created_at, city.timezone)}</span>
               </span>

@@ -24,6 +24,7 @@ import ResetPassword from './screens/Reset.jsx';
 import Tour from './screens/Tour.jsx';
 import { InstallButton } from './screens/Install.jsx';
 import { DmChat } from './screens/Connect.jsx';
+import { QuestionDetail } from './screens/Ask.jsx';
 import { registerServiceWorker, syncPush } from './push.js';
 import { FeedbackSheet } from './screens/Market.jsx';
 
@@ -50,7 +51,7 @@ const TABS = [
   ['guide', 'guide', 'nav.guide'],
   ['profile', 'profile', 'nav.profile'],
 ];
-const TAB_OF = { activity: 'explore', event: 'explore', events: 'explore', create: 'explore', person: 'buddies', dm: 'buddies' };
+const TAB_OF = { activity: 'explore', event: 'explore', events: 'explore', create: 'explore', person: 'buddies', dm: 'buddies', ask: 'guide' };
 
 /**
  * A tagged link (…/?src=instagram, or #/explore?src=poster) tells the team which post or poster brought someone in.
@@ -164,6 +165,7 @@ export default function App() {
   else if (p0 === 'create') screen = <ActivityForm query={route.query} />;
   else if (p0 === 'person') screen = <Person id={p1} />;
   else if (p0 === 'dm') screen = <DmChat id={p1} />;
+  else if (p0 === 'ask') screen = <QuestionDetail id={p1} />;
   else if (p0 === 'example') screen = <ExamplePlan />;
   else if (p0 === 'help') screen = <Help />;
   else if (p0 === 'team') screen = <Team />;

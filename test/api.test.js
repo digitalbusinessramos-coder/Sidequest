@@ -824,6 +824,50 @@ test('profile visibility: short card for students with an account, never guests;
   assert.equal((await b.get(`/users/${a.id}`)).status, 200);
 });
 
+test('ask students: questions and answers, helpful votes, update to the asker, guests read only, blocks and test accounts hidden', async () => {
+  const asker = await user('Ines'); const helper = await user('Joan'); const other = await user('Kai');
+  assert.equal((await asker.post('/questions', { category: 'services', body: 'hi' })).status, 400, 'too short');
+  assert.equal((await asker.post('/questions', { category: 'nope', body: 'Where is a good hairdresser?' })).status, 400);
+  const q = (await asker.post('/questions', { category: 'services', body: 'Where is a good hairdresser near Santa Catalina?' })).body.id;
+  let list = (await helper.get('/questions?filter=unanswered')).body.questions;
+  assert.ok(list.some((x) => x.id === q && x.answers === 0));
+  const a1 = (await helper.post(`/questions/${q}/answers`, { body: 'Try the one on Calle Ripoche, friendly and cheap.' })).body.id;
+  const a2 = (await other.post(`/questions/${q}/answers`, { body: 'I liked the place by the market.' })).body.id;
+  assert.ok(a1 && a2);
+  assert.ok(!(await helper.get('/questions?filter=unanswered')).body.questions.some((x) => x.id === q));
+  // The asker gets one unread update, which opening the question marks as read.
+  let notes = (await asker.get('/notifications')).body.notifications.filter((n) => n.kind === 'answer');
+  assert.equal(notes.length, 1); assert.equal(notes[0].question.id, q);
+  // Helpful votes: not on your own answer; the most helpful answer comes first.
+  assert.equal((await helper.put(`/answers/${a1}/helpful`)).status, 400);
+  await asker.put(`/answers/${a2}/helpful`); await helper.put(`/answers/${a2}/helpful`);
+  let d = (await asker.get(`/questions/${q}`)).body;
+  assert.equal(d.answers[0].id, a2); assert.equal(d.answers[0].helpful, 2);
+  assert.equal((await asker.get('/notifications')).body.notifications.filter((n) => n.kind === 'answer' && !n.read).length, 0);
+  // Guests can read but not ask, answer or vote.
+  const g = client(); await g.post('/auth/guest');
+  assert.equal((await g.get(`/questions/${q}`)).status, 200);
+  assert.equal((await g.post('/questions', { category: 'services', body: 'Guest question here?' })).status, 401);
+  assert.equal((await g.post(`/questions/${q}/answers`, { body: 'x' })).status, 401);
+  assert.equal((await g.put(`/answers/${a1}/helpful`)).status, 401);
+  // Blocking hides each other's questions and answers.
+  await asker.post(`/users/${other.id}/block`);
+  d = (await asker.get(`/questions/${q}`)).body;
+  assert.ok(!d.answers.some((x) => x.id === a2));
+  assert.equal((await other.get(`/questions/${q}`)).status, 404);
+  // Test accounts are hidden from real students.
+  const t = client(); await t.post('/auth/signup', { email: `qa-ask${Date.now()}@example.com`, password: 'password123' });
+  await t.put('/me/profile', { first_name: 'Qa', city: 'las-palmas' });
+  const tq = (await t.post('/questions', { category: 'food', body: 'Test question, please ignore' })).body.id;
+  assert.ok(!(await helper.get('/questions')).body.questions.some((x) => x.id === tq));
+  assert.ok((await t.get('/questions')).body.questions.some((x) => x.id === tq), 'they still see their own');
+  // Only the author can delete; reports work.
+  assert.equal((await helper.del(`/questions/${q}`)).status, 403);
+  assert.equal((await helper.post('/reports', { target_type: 'question', target_id: q, reason: 'Spam or advertising' })).status, 201);
+  assert.equal((await asker.del(`/questions/${q}`)).status, 200);
+  assert.equal((await helper.get(`/questions/${q}`)).status, 404);
+});
+
 test('link tags: ?src= counted per tag for the team, first tag per person, test accounts and bad tags left out', async () => {
   process.env.ADMIN_TOKEN = 'team-code-for-tests-123';
   const team = await user('Lead'); await team.post('/team/unlock', { code: process.env.ADMIN_TOKEN });

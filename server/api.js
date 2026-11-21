@@ -31,7 +31,7 @@ const languageList = (v) => list(v, null, 12).map((x) => LANGUAGES.find((l) => l
 // Flags for the bio: two-letter region codes (countries and territories, e.g. IC for the Canary Islands). Purely decorative.
 const flagList = (v) => list(v, null, 8).map((x) => x.toUpperCase()).filter((x) => /^[A-Z]{2}$/.test(x));
 const REVISION = (process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT || 'local').slice(0, 7);
-const RELEASE = 'pre-launch-9-profile-privacy';
+const RELEASE = 'pre-launch-10-ask';
 const TIME_MODES = ['exact', 'window', 'tbd'];
 const DAY_MODES = ['day', 'weekend', 'week', 'flex'];
 // Accounts used for testing are kept out of campaign numbers and never get emails: addresses with "+test" or on test domains.
@@ -467,6 +467,9 @@ export function createApi(db) {
       db.prepare('DELETE FROM connections WHERE requester_id = ? OR target_id = ?').run(uid, uid);
       db.prepare('DELETE FROM sessions WHERE user_id = ?').run(uid);
       db.prepare('DELETE FROM user_sources WHERE user_id = ?').run(uid);
+      db.prepare('DELETE FROM answer_votes WHERE user_id = ?').run(uid);
+      db.prepare('DELETE FROM answers WHERE user_id = ?').run(uid);
+      db.prepare('DELETE FROM questions WHERE user_id = ?').run(uid);
       db.prepare('DELETE FROM push_subscriptions WHERE user_id = ?').run(uid);
       // Keep an anonymous row only so cancelled activities still reference an organiser; all personal data is removed.
       db.prepare("UPDATE profiles SET first_name='Deleted user', intro='', photo_v=0, area=NULL, university=NULL, show_university=0, exchange_start=NULL, exchange_end=NULL, languages='[]', interests='[]', visible=0 WHERE user_id = ?").run(uid);
@@ -557,7 +560,7 @@ export function createApi(db) {
   });
 
   r.post('/reports', auth, (req, res) => {
-    const type = ['user', 'activity', 'message', 'recommendation', 'event_message', 'listing', 'listing_message', 'direct_message'].includes(req.body.target_type) ? req.body.target_type : fail(400, 'invalid', 'Unknown report type.');
+    const type = ['user', 'activity', 'message', 'recommendation', 'event_message', 'listing', 'listing_message', 'direct_message', 'question', 'answer'].includes(req.body.target_type) ? req.body.target_type : fail(400, 'invalid', 'Unknown report type.');
     const reason = REPORT_REASONS.includes(req.body.reason) ? req.body.reason : fail(400, 'invalid', 'Please choose a reason.');
     const { lastInsertRowid } = db.prepare('INSERT INTO reports (reporter_id, target_type, target_id, reason, details) VALUES (?,?,?,?,?)')
       .run(req.user.id, type, Number(req.body.target_id) || 0, reason, str(req.body.details, 1000, 'Details'));
@@ -626,6 +629,8 @@ export function createApi(db) {
     if (type === 'listing') { const x = db.prepare('SELECT title, user_id FROM listings WHERE id = ?').get(id); return x && { label: x.title, link: `#/market/${id}`, author: person(x.user_id) }; }
     // A reported private message is shown to the team (the reporter chose to share it); the rest of the chat is not.
     if (type === 'direct_message') { const x = db.prepare('SELECT body, sender_id FROM direct_messages WHERE id = ?').get(id); return x && { label: x.body.slice(0, 200), link: `#/person/${x.sender_id}`, author: person(x.sender_id) }; }
+    if (type === 'question') { const x = db.prepare('SELECT body, user_id FROM questions WHERE id = ?').get(id); return x && { label: x.body.slice(0, 200), link: `#/ask/${id}`, author: person(x.user_id) }; }
+    if (type === 'answer') { const x = db.prepare('SELECT body, user_id, question_id FROM answers WHERE id = ?').get(id); return x && { label: x.body.slice(0, 200), link: `#/ask/${x.question_id}`, author: person(x.user_id) }; }
     if (type === 'listing_message') { const x = db.prepare('SELECT body, sender_id, listing_id FROM listing_messages WHERE id = ?').get(id); return x && { label: x.body.slice(0, 200), link: `#/market/${x.listing_id}`, author: person(x.sender_id) }; }
     return null;
   }
@@ -1462,13 +1467,14 @@ export function createApi(db) {
 
   r.get('/notifications', auth, (req, res) => {
     const blocked = blockedSet(req.user.id);
-    const rows = db.prepare(`SELECT n.*, a.title, a.status AS astatus, l.title AS ltitle FROM notifications n LEFT JOIN activities a ON a.id = n.activity_id
-      LEFT JOIN listings l ON l.id = n.listing_id WHERE n.user_id = ? ORDER BY n.id DESC LIMIT 50`).all(req.user.id);
+    const rows = db.prepare(`SELECT n.*, a.title, a.status AS astatus, l.title AS ltitle, q.body AS qbody FROM notifications n LEFT JOIN activities a ON a.id = n.activity_id
+      LEFT JOIN listings l ON l.id = n.listing_id LEFT JOIN questions q ON q.id = n.question_id WHERE n.user_id = ? ORDER BY n.id DESC LIMIT 50`).all(req.user.id);
     res.json({
       notifications: rows.filter((n) => !blocked.has(n.actor_id)).map((n) => ({
         id: n.id, kind: n.kind, detail: n.detail, read: !!n.read_at, created_at: n.created_at,
         activity: n.activity_id ? { id: n.activity_id, title: n.title, status: n.astatus } : null,
         listing: n.listing_id ? { id: n.listing_id, title: n.ltitle } : null,
+        question: n.question_id && n.qbody ? { id: n.question_id, title: n.qbody.length > 60 ? `${n.qbody.slice(0, 57)}…` : n.qbody } : null,
         actor: n.actor_id ? { id: n.actor_id, first_name: nameOf(n.actor_id) } : null,
       })),
       // Unread chat messages, one line per plan (not one per message).
@@ -1576,6 +1582,94 @@ export function createApi(db) {
       res.json({ ok: true });
     });
   }
+
+  // ---------- ask students: questions about the city and answers from other students ----------
+  const askLimit = rateLimiter(10, 24 * 3600e3);
+  const answerLimit = rateLimiter(60, 24 * 3600e3);
+  const getQuestion = (id) => db.prepare('SELECT * FROM questions WHERE id = ?').get(Number(id)) || fail(404, 'not_found', 'This question no longer exists.');
+  const needAccount = (req) => { if (req.user.is_guest) fail(401, 'account_needed', 'Create a free account to ask or answer. It takes a few seconds.'); };
+  // Hidden from each other: blocked people; test accounts are hidden from everyone else (they still see their own).
+  const askHidden = (uid) => { const h = blockedSet(uid); for (const t of hideTests(uid)) h.add(t); return h; };
+  const answerView = (x, uid) => ({
+    id: x.id, body: x.body, created_at: x.created_at, author: personSummary(profileOf(x.user_id)), mine: x.user_id === uid,
+    helpful: db.prepare('SELECT COUNT(*) AS n FROM answer_votes WHERE answer_id = ?').get(x.id).n,
+    voted: !!db.prepare('SELECT 1 FROM answer_votes WHERE answer_id = ? AND user_id = ?').get(x.id, uid),
+  });
+  const questionView = (q, uid, hidden) => {
+    const answers = db.prepare('SELECT * FROM answers WHERE question_id = ? ORDER BY id').all(q.id).filter((a) => !hidden.has(a.user_id));
+    return { id: q.id, category: q.category, body: q.body, created_at: q.created_at, author: personSummary(profileOf(q.user_id)), mine: q.user_id === uid,
+      answers: answers.length, last_answer_at: answers.length ? answers[answers.length - 1].created_at : null };
+  };
+  r.get('/questions', auth, (req, res) => {
+    const uid = req.user.id;
+    const city = cityBySlug(req.query.city) || cityById(profileOf(uid).city_id);
+    const hidden = askHidden(uid);
+    let out = db.prepare('SELECT * FROM questions WHERE city_id = ? ORDER BY id DESC LIMIT 300').all(city.id)
+      .filter((q) => !hidden.has(q.user_id)).map((q) => questionView(q, uid, hidden));
+    if (req.query.category) out = out.filter((q) => q.category === req.query.category);
+    if (req.query.filter === 'unanswered') out = out.filter((q) => q.answers === 0);
+    if (req.query.filter === 'mine') out = out.filter((q) => q.mine);
+    res.json({ questions: out });
+  });
+  r.get('/questions/:id', auth, (req, res) => {
+    const uid = req.user.id;
+    const q = getQuestion(req.params.id);
+    const hidden = askHidden(uid);
+    if (hidden.has(q.user_id)) fail(404, 'not_found', 'This question no longer exists.');
+    const answers = db.prepare('SELECT * FROM answers WHERE question_id = ? ORDER BY id').all(q.id).filter((a) => !hidden.has(a.user_id)).map((a) => answerView(a, uid))
+      .sort((a, b) => b.helpful - a.helpful || a.id - b.id);
+    if (q.user_id === uid) db.prepare('UPDATE notifications SET read_at = ? WHERE user_id = ? AND question_id = ? AND read_at IS NULL').run(now(), uid, q.id);
+    res.json({ question: questionView(q, uid, hidden), answers });
+  });
+  r.post('/questions', auth, (req, res) => {
+    needAccount(req);
+    const b = req.body || {};
+    const category = REC_KEYS.includes(b.category) ? b.category : fail(400, 'invalid', 'Please choose a category.');
+    const body = str(b.body, 300, 'Question', { required: true });
+    if (body.length < 8) fail(400, 'invalid', 'Please write your question in a few more words.');
+    if (!askLimit(String(req.user.id))) fail(429, 'rate', 'You asked a lot of questions today. Please try again tomorrow.');
+    const { lastInsertRowid } = db.prepare('INSERT INTO questions (city_id, user_id, category, body) VALUES (?,?,?,?)').run(profileOf(req.user.id).city_id, req.user.id, category, body);
+    res.status(201).json({ id: Number(lastInsertRowid) });
+  });
+  r.delete('/questions/:id', auth, (req, res) => {
+    const q = getQuestion(req.params.id);
+    if (q.user_id !== req.user.id) fail(403, 'forbidden', 'You can only delete your own questions.');
+    db.prepare('DELETE FROM questions WHERE id = ?').run(q.id);
+    res.json({ ok: true });
+  });
+  r.post('/questions/:id/answers', auth, (req, res) => {
+    needAccount(req);
+    const q = getQuestion(req.params.id);
+    if (askHidden(req.user.id).has(q.user_id)) fail(404, 'not_found', 'This question no longer exists.');
+    const body = str(req.body?.body, 500, 'Answer', { required: true });
+    if (!answerLimit(String(req.user.id))) fail(429, 'rate', 'You answered a lot today. Please try again tomorrow.');
+    const { lastInsertRowid } = db.prepare('INSERT INTO answers (question_id, user_id, body) VALUES (?,?,?)').run(q.id, req.user.id, body);
+    // Tell the person who asked (one unread update per question, and a pop-up if they turned them on).
+    if (q.user_id !== req.user.id && !blockedSet(q.user_id).has(req.user.id)) {
+      if (!db.prepare("SELECT 1 FROM notifications WHERE user_id = ? AND question_id = ? AND kind = 'answer' AND read_at IS NULL").get(q.user_id, q.id)) {
+        db.prepare("INSERT INTO notifications (user_id, kind, question_id, actor_id) VALUES (?, 'answer', ?, ?)").run(q.user_id, q.id, req.user.id);
+      }
+      push.sendChat(q.user_id, `q${q.id}`, { kind: 'answer', name: nameOf(req.user.id), plan: q.body, url: `/#/ask/${q.id}`, tag: `answer-${q.id}` });
+    }
+    res.status(201).json({ id: Number(lastInsertRowid) });
+  });
+  r.delete('/answers/:id', auth, (req, res) => {
+    const a = db.prepare('SELECT * FROM answers WHERE id = ?').get(Number(req.params.id)) || fail(404, 'not_found', 'Not found.');
+    if (a.user_id !== req.user.id) fail(403, 'forbidden', 'You can only delete your own answers.');
+    db.prepare('DELETE FROM answers WHERE id = ?').run(a.id);
+    res.json({ ok: true });
+  });
+  r.put('/answers/:id/helpful', auth, (req, res) => {
+    needAccount(req);
+    const a = db.prepare('SELECT * FROM answers WHERE id = ?').get(Number(req.params.id)) || fail(404, 'not_found', 'Not found.');
+    if (a.user_id === req.user.id) fail(400, 'invalid', 'You can’t mark your own answer as helpful.');
+    db.prepare('INSERT OR IGNORE INTO answer_votes (answer_id, user_id) VALUES (?, ?)').run(a.id, req.user.id);
+    res.json({ ok: true });
+  });
+  r.delete('/answers/:id/helpful', auth, (req, res) => {
+    db.prepare('DELETE FROM answer_votes WHERE answer_id = ? AND user_id = ?').run(Number(req.params.id), req.user.id);
+    res.json({ ok: true });
+  });
 
   // ---------- event group chat (everyone who marked the event) ----------
   const eventFor = (id) => db.prepare('SELECT * FROM events WHERE id = ?').get(Number(id)) || fail(404, 'not_found', 'Event not found.');

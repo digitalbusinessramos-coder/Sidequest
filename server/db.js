@@ -25,7 +25,15 @@ function migrate(db) {
   if (!cols('profiles').includes('show_area')) db.exec('ALTER TABLE profiles ADD COLUMN show_area INTEGER NOT NULL DEFAULT 0');
   if (!cols('profiles').includes('photo_v')) db.exec('ALTER TABLE profiles ADD COLUMN photo_v INTEGER NOT NULL DEFAULT 0');
   if (!cols('activities').includes('join_mode')) db.exec("ALTER TABLE activities ADD COLUMN join_mode TEXT NOT NULL DEFAULT 'request'");
+  // "Ask students": questions about the city (e.g. a good hairdresser) and other students' answers.
+  db.exec(`CREATE TABLE IF NOT EXISTS questions (id INTEGER PRIMARY KEY, city_id INTEGER NOT NULL, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    category TEXT NOT NULL, body TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')))`);
+  db.exec(`CREATE TABLE IF NOT EXISTS answers (id INTEGER PRIMARY KEY, question_id INTEGER NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, body TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')))`);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_answers_q ON answers(question_id, id)');
+  db.exec('CREATE TABLE IF NOT EXISTS answer_votes (answer_id INTEGER NOT NULL REFERENCES answers(id) ON DELETE CASCADE, user_id INTEGER NOT NULL, PRIMARY KEY (answer_id, user_id))');
   if (!cols('notifications').includes('listing_id')) db.exec('ALTER TABLE notifications ADD COLUMN listing_id INTEGER REFERENCES listings(id) ON DELETE CASCADE');
+  if (!cols('notifications').includes('question_id')) db.exec('ALTER TABLE notifications ADD COLUMN question_id INTEGER REFERENCES questions(id) ON DELETE CASCADE');
   if (!cols('users').includes('is_guest')) db.exec('ALTER TABLE users ADD COLUMN is_guest INTEGER NOT NULL DEFAULT 0');
   if (!cols('events').includes('photo_key')) db.exec('ALTER TABLE events ADD COLUMN photo_key TEXT');
   db.exec('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)');
