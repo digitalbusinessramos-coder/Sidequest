@@ -771,3 +771,22 @@ test('R3 updates: unread chat grouped per plan; extra listing photos up to 4', a
   assert.equal(v.photos.length, 4); assert.equal(v.photos[0].id, 'main');
   assert.equal((await guest.post(`/market/${l}/photos`, { data: jpg })).status, 403);
 });
+
+test('team visitors and profiles: counted once per person per day, tests left out, team only', async () => {
+  process.env.ADMIN_TOKEN = 'team-code-for-tests-123';
+  const a = await user('Visa'); const team = await user('Lead');
+  await team.post('/team/unlock', { code: process.env.ADMIN_TOKEN });
+  const before = (await team.get('/team/numbers')).body.visitors;
+  await a.post('/visit'); await a.post('/visit');
+  const g = client(); await g.post('/auth/guest'); await g.post('/visit');
+  const t = client(); await t.post('/auth/signup', { email: `qa-v${Date.now()}@example.com`, password: 'password123' }); await t.post('/visit');
+  const v = (await team.get('/team/numbers')).body.visitors;
+  assert.equal(v.today - before.today, 2, 'one account + one guest; the test account is not counted');
+  assert.equal(v.daily[0].opens - before.daily[0].opens, 3);
+  const profiles = (await team.get('/team/profiles')).body.profiles;
+  const pa = profiles.find((p) => p.id === a.id);
+  assert.ok(pa && pa.last_visit && !('email' in pa));
+  assert.ok(!profiles.some((p) => p.first_name === 'Guest'));
+  assert.equal((await a.get('/team/profiles')).status, 403);
+  delete process.env.ADMIN_TOKEN;
+});

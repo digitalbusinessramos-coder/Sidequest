@@ -82,6 +82,7 @@ export default function Help() {
           <button className="btn btn-secondary btn-sm" style={{ alignSelf: 'flex-start' }} onClick={openFeedback}>{tx('Send feedback')}</button>
         </section>
 
+        <p className="tiny muted">{tx('To know how many people use it, the project team sees how many people open the app each day. There are no outside trackers or advertising cookies.')}</p>
         <p className="tiny muted">{tx('{app} is an independent student project developed for the Digital Business course at ULPGC.', { app: getAppName() })}</p>
       </div>
     </>

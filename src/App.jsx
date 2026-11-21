@@ -85,6 +85,7 @@ export default function App() {
       if (!u && m.demoMode && store('sq_wants_login') !== '1') {
         try { await api.post('/auth/guest', {}); u = await reloadMe(); } catch { /* fall back to the welcome screen */ }
       }
+      if (u) api.post('/visit', {}).catch(() => {}); // one count per app open, for the team's visitor numbers
       // No popup on arrival: Explore opens directly. “How it works” is one screen under Help.
     } catch (e) { setBootError(e); }
   }, [reloadMe]);

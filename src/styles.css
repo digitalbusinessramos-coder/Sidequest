@@ -613,3 +613,7 @@ fieldset.plain > legend { margin-bottom: 6px; padding: 0; }
 .carousel-count { position: absolute; right: 12px; bottom: 12px; background: rgba(4,24,54,.75); color: #fff; font-size: .8rem; font-weight: 600; padding: 3px 9px; border-radius: 999px; }
 .thumb-wrap { position: relative; display: inline-block; }
 .thumb-x { position: absolute; top: -6px; right: -6px; width: 24px; height: 24px; border-radius: 999px; border: 0; background: #041836; color: #fff; display: grid; place-items: center; cursor: pointer; }
+.visits-table { width: 100%; border-collapse: collapse; font-size: .88rem; background: var(--paper); border-radius: 14px; overflow: hidden; }
+.visits-table th, .visits-table td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); font-weight: 500; }
+.visits-table thead th { font-weight: 650; color: var(--ink-2); }
+.visits-table .bar { display: inline-block; height: 8px; border-radius: 4px; background: var(--blue, #1a2fd0); vertical-align: middle; margin-right: 6px; }
