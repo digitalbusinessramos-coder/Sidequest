@@ -72,7 +72,7 @@ function localIn(days, hhmm = '18:00') {
 async function makeActivity(org, over = {}) {
   const r = await org.post('/activities', {
     title: 'Museum visit', category: 'museum', starts_local: localIn(2), duration_min: 120, meeting_area: 'Triana / Vegueta',
-    meeting_point: 'Cathedral steps', cost_eur: 0, max_participants: 3, languages: ['English'], ...over,
+    meeting_point: 'Cathedral steps', cost_eur: 0, max_participants: 3, languages: ['English'], join_mode: 'request', ...over,
   });
   assert.equal(r.status, 201, JSON.stringify(r.body));
   return r.body.id;
@@ -387,6 +387,20 @@ test('open plans: people join directly up to capacity, organiser is told, reques
   assert.equal((await c.get(`/activities/${req}`)).body.activity.join_mode, 'request');
 });
 
+test('join directly is the default for new plans; hosts can still choose ask-to-join, and edits keep the setting', async () => {
+  const org = await user('Dina'); const a = await user('Eli');
+  const id = (await org.post('/activities', { title: 'Default plan', day: dayIn(2), time_mode: 'tbd', meeting_area: 'Triana' })).body.id;
+  const plan = (await org.get(`/activities/${id}`)).body.activity;
+  assert.equal(plan.join_mode, 'open');
+  assert.equal((await a.post(`/activities/${id}/requests`, {})).body.status, 'accepted');
+  const ask = await makeActivity(org, { join_mode: 'request' });
+  // Editing without sending a join choice keeps ask-to-join plans as they were.
+  const before = (await org.get(`/activities/${ask}`)).body.activity;
+  assert.equal((await org.put(`/activities/${ask}`, { title: 'Renamed', category: before.category, day: before.day, time_mode: 'tbd', meeting_area: before.meeting_area })).status, 200);
+  assert.equal((await org.get(`/activities/${ask}`)).body.activity.join_mode, 'request');
+  assert.equal((await a.post(`/activities/${ask}/requests`, {})).body.status, 'pending');
+});
+
 test('recommendations: post, like once, save privately, delete only your own, hidden when blocked', async () => {
   const a = await user('Rita'); const b = await user('Sam');
   const bad = await a.post('/recommendations', { category: 'food', title: 'X', url: 'javascript:alert(1)' });
@@ -677,7 +691,7 @@ test('R1 capacity: optional; uncapped plans are never full; two requests for the
   const lv = (await org.get(`/activities/${last}`)).body.activity;
   assert.equal(lv.going, 2); assert.equal(lv.state, 'full'); assert.equal(lv.spots_left, 0);
   // Request mode: two pending requests, only one can be accepted for the final place.
-  const req = (await org.post('/activities', { title: 'Ask, one place', day: dayIn(2), time_mode: 'tbd', meeting_area: 'Triana', max_participants: 2 })).body.id;
+  const req = (await org.post('/activities', { title: 'Ask, one place', day: dayIn(2), time_mode: 'tbd', meeting_area: 'Triana', max_participants: 2, join_mode: 'request' })).body.id;
   await u1.post(`/activities/${req}/requests`); await u2.post(`/activities/${req}/requests`);
   const acc = await Promise.all([org.post(`/activities/${req}/members/${u1.id}/accept`), org.post(`/activities/${req}/members/${u2.id}/accept`)]);
   assert.deepEqual(acc.map((x) => x.status).sort(), [200, 409]);

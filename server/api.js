@@ -945,7 +945,8 @@ export function createApi(db) {
       meeting_point: str(b.meeting_point, 200, 'Meeting point'),
       cost_eur: Math.round(cost * 100) / 100, cost_mode: costMode, max_participants: max, capped: capped ? 1 : 0,
       beginner_friendly: b.beginner_friendly ? 1 : 0,
-      join_mode: b.join_mode === 'open' ? 'open' : 'request',
+      // New plans default to "join directly". Editing without a choice keeps the plan's current setting.
+      join_mode: ['open', 'request'].includes(b.join_mode) ? b.join_mode : (existing?.join_mode === 'request' ? 'request' : 'open'),
       emoji: PLAN_EMOJIS.includes(b.emoji) ? b.emoji : '',
     };
   }
