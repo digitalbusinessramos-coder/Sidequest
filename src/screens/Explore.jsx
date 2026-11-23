@@ -5,7 +5,8 @@ import { NotifyNudge } from './Notify.jsx';
 import { ActivityCard, ChoiceChips, Empty, ErrorState, EventCard, Icon, Loading, PeopleStrip, PhotoHero, Sheet, useApp } from '../components.jsx';
 
 const MapView = lazy(() => import('../MapView.jsx'));
-const HERO = ['canteras', 'vegueta', 'cathedral', 'auditorio', 'roque', 'dunes'];
+// The Explore banner always shows Las Canteras: the app is about plans in Las Palmas, so no photos from elsewhere on the island here.
+const HERO_KEY = 'canteras';
 import { areaName, collapseSeries, fmtPlaces, fmtPlanWhen, useApi } from '../util.js';
 
 const WHEN = ['any', 'weekend', 'today', 'tomorrow', 'week'];
@@ -70,7 +71,7 @@ export default function Explore() {
     if (showTips) for (const r of tips.data?.recommendations || []) if (r.approx) out.push({ key: `t${r.id}`, kind: 'tip', lat: r.approx.lat, lng: r.approx.lng, title: r.title, sub: tx('Tip from {name} · {n} likes', { name: r.author.first_name, n: r.likes }), href: '#/guide', category: 'other' });
     return out;
   }, [sorted, evs.data, tips.data, showEvents, showTips]);
-  const heroKey = HERO[new Date().getDate() % HERO.length];
+  const heroKey = HERO_KEY;
   const people = useApi('/people');
 
   return (
