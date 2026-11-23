@@ -421,6 +421,9 @@ test('profile pictures: only real images, visible to logged-in people, not to so
   const cookie = login.headers.get('set-cookie').split(';')[0];
   const ok = await get(cookie);
   assert.equal(ok.status, 200); assert.equal(ok.headers.get('content-type'), 'image/jpeg');
+  // Guessing the address by number does not work: the picture needs the key the app hands out with the name.
+  assert.equal((await fetch(base + `/users/${a.id}/photo?v=1`, { headers: { cookie } })).status, 404);
+  assert.equal((await fetch(base + `/users/${a.id}/photo?v=1&k=wrong`, { headers: { cookie } })).status, 404);
   await a.post(`/users/${b.id}/block`);
   assert.equal((await get(cookie)).status, 404);
   assert.equal((await a.del('/me/photo')).status, 200);
@@ -896,7 +899,8 @@ test('pop-up notifications: subscribe, sent for plan updates and chat (throttled
   const key = (await org.get('/push/key')).body.key;
   assert.match(key, /^[\w-]{80,}$/, 'server made its own public key');
   assert.equal((await org.post('/push/subscribe', { endpoint: 'not-a-url', keys: { p256dh: 'x', auth: 'y' } })).status, 400);
-  const sub = (tag) => ({ endpoint: `https://push.example.test/${tag}-${Date.now()}`, keys: { p256dh: 'B'.repeat(87), auth: 'A'.repeat(22) } });
+  assert.equal((await org.post('/push/subscribe', { endpoint: 'https://internal.example.test/hook-123456', keys: { p256dh: 'B'.repeat(87), auth: 'A'.repeat(22) } })).status, 400, 'only real push services');
+  const sub = (tag) => ({ endpoint: `https://fcm.googleapis.com/fcm/send/${tag}-${Date.now()}`, keys: { p256dh: 'B'.repeat(87), auth: 'A'.repeat(22) } });
   const s1 = sub('pia');
   assert.equal((await org.post('/push/subscribe', s1)).body.devices, 1);
   assert.equal((await org.get('/me')).body.user.push_devices, 1);
@@ -945,8 +949,8 @@ test('plans without a photo keep the emoji the creator picked; unknown emoji are
 
 test('reminder pop-up about an hour before a plan, sent once to everyone going', async () => {
   const org = await user('Rhea'); const pal = await user('Sami');
-  await org.post('/push/subscribe', { endpoint: `https://push.example.test/rhea-${Date.now()}`, keys: { p256dh: 'B'.repeat(87), auth: 'A'.repeat(22) } });
-  await pal.post('/push/subscribe', { endpoint: `https://push.example.test/sami-${Date.now()}`, keys: { p256dh: 'B'.repeat(87), auth: 'A'.repeat(22) } });
+  await org.post('/push/subscribe', { endpoint: `https://fcm.googleapis.com/fcm/send/rhea-${Date.now()}`, keys: { p256dh: 'B'.repeat(87), auth: 'A'.repeat(22) } });
+  await pal.post('/push/subscribe', { endpoint: `https://fcm.googleapis.com/fcm/send/sami-${Date.now()}`, keys: { p256dh: 'B'.repeat(87), auth: 'A'.repeat(22) } });
   const id = await makeActivity(org, { title: 'Soon walk', join_mode: 'open' });
   db.prepare('UPDATE activities SET starts_at = ?, time_mode = ? WHERE id = ?').run(new Date(Date.now() + 60 * 60e3).toISOString(), 'exact', id);
   await pal.post(`/activities/${id}/requests`, {});
@@ -1034,4 +1038,41 @@ test('event photos match what happens: club nights and the Christmas market have
   for (const r of rows) assert.equal(r.photo_key, null, r.ext_id);
   const concert = db.prepare("SELECT photo_key FROM events WHERE ext_id = 'aak-TNOGC1226'").get();
   assert.equal(concert.photo_key, 'auditorio'); // the venue itself
+});
+
+test('security: headers, login limit per account, admin script token, guests never see who is looking for company', async () => {
+  const res = await fetch(base + '/meta');
+  assert.match(res.headers.get('content-security-policy'), /script-src 'self'/);
+  assert.match(res.headers.get('content-security-policy'), /frame-ancestors 'self'/);
+  assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
+  assert.match(res.headers.get('permissions-policy'), /camera=\(\)/);
+  assert.equal(res.headers.get('x-powered-by'), null);
+  // Cross-site forms cannot change anything (requests must be JSON).
+  const form = await fetch(base + '/auth/login', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'email=a&password=b' });
+  assert.equal(form.status, 415);
+
+  const v = await user('Lock');
+  const c = client();
+  for (let i = 0; i < 10; i++) assert.equal((await c.post('/auth/login', { email: v.email, password: 'wrong-guess' })).status, 401);
+  assert.equal((await c.post('/auth/login', { email: v.email, password: 'password123' })).status, 429, 'blocked after 10 tries on one account');
+
+  process.env.ADMIN_TOKEN = 'team-code-for-tests-123';
+  const tok = (t) => fetch(base + '/admin/feedback', { headers: t ? { 'x-admin-token': t } : {} });
+  assert.equal((await tok()).status, 403);
+  assert.equal((await tok('team-code-for-tests-124')).status, 403);
+  assert.equal((await tok('team-code-for-tests-123')).status, 200);
+  process.env.ADMIN_TOKEN = 'short';
+  assert.equal((await tok('short')).status, 403, 'too short codes never work');
+  delete process.env.ADMIN_TOKEN;
+
+  const ev = db.prepare("SELECT id FROM events WHERE status = 'active' AND starts_at > ? ORDER BY starts_at LIMIT 1").get(new Date().toISOString());
+  if (ev) {
+    const s1 = await user('Seek');
+    await s1.put('/me/privacy', { visible: true });
+    assert.equal((await s1.put(`/events/${ev.id}/interest`, { group_pref: 'either' })).status, 200);
+    const g = client(); assert.equal((await g.post('/auth/guest')).status, 201);
+    assert.equal((await g.put(`/events/${ev.id}/interest`, { group_pref: 'either' })).status, 200);
+    assert.equal((await g.get(`/events/${ev.id}`)).body.event.seekers, null);
+    assert.equal((await g.post(`/events/${ev.id}/invite`, { userId: s1.id })).status, 401);
+  }
 });

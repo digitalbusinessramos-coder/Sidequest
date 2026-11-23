@@ -54,14 +54,32 @@ export function sessionUser(db, req) {
   return { id: row.id, email: row.email, is_demo: !!row.is_demo, is_guest: !!row.is_guest };
 }
 
-/** Tiny in-memory rate limiter: at most `limit` hits per `windowMs` per key. */
+/** Tiny in-memory rate limiter: at most `limit` hits per `windowMs` per key. Old keys are dropped so memory stays small. */
 export function rateLimiter(limit, windowMs) {
   const hits = new Map();
+  let lastSweep = Date.now();
   return (key) => {
     const now = Date.now();
+    if (now - lastSweep > windowMs) {
+      for (const [k, arr] of hits) if (!arr.length || now - arr[arr.length - 1] >= windowMs) hits.delete(k);
+      lastSweep = now;
+    }
     const arr = (hits.get(key) || []).filter((t) => now - t < windowMs);
     arr.push(now);
     hits.set(key, arr);
     return arr.length <= limit;
   };
+}
+
+/**
+ * Suspicious activity goes to the server log (Railway > Deployments > Logs), one line each, starting with [security].
+ * Never passwords, tokens or message text; email addresses are shortened (ma***@gmail.com).
+ */
+export const maskEmail = (e) => {
+  const [u, d] = String(e || '').split('@');
+  return d ? `${u.slice(0, 2)}***@${d}` : '';
+};
+export function securityLog(event, details = {}) {
+  if (process.env.NODE_ENV === 'test') return;
+  console.warn(`[security] ${new Date().toISOString()} ${event} ${JSON.stringify(details)}`);
 }
