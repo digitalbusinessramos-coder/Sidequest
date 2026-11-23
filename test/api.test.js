@@ -999,6 +999,53 @@ test('day not fixed yet: this weekend, this week or flexible; exact time needs a
   assert.equal((await org.get(`/activities/${w.body.id}`)).body.activity.time_window, 'evening');
 });
 
+test('day to be agreed: the stored start is a placeholder, never a real start or date', async () => {
+  const org = await user('Fifi'); const pal = await user('Gus'); const late = await user('Hal');
+  await org.post('/push/subscribe', { endpoint: `https://fcm.googleapis.com/fcm/send/fifi-${Date.now()}`, keys: { p256dh: 'B'.repeat(87), auth: 'A'.repeat(22) } });
+  const body = { title: 'Flexible tapas', category: 'food', meeting_area: 'Triana', join_mode: 'request', day_mode: 'flex', time_mode: 'tbd' };
+  const id = (await org.post('/activities', body)).body.id;
+  await pal.post(`/activities/${id}/requests`, {});
+  await org.post(`/activities/${id}/members/${pal.id}/accept`);
+  // As if it had been created two days ago: the placeholder start (12:00 that day) is now in the past, the window is still open.
+  const twoDaysAgo = new Date(Date.now() - 2 * 864e5).toISOString();
+  db.prepare('UPDATE activities SET starts_at = ? WHERE id = ?').run(twoDaysAgo, id);
+  await late.post(`/activities/${id}/requests`, {});
+  assert.equal((await org.get('/me')).body.counts.toReview >= 1, true, 'a request on a flexible plan still needs a review');
+
+  // Explore "today" / "tomorrow" still find it: it could happen any day of its window.
+  for (const when of ['today', 'tomorrow', 'week']) {
+    const list = (await pal.get(`/activities?city=las-palmas&when=${when}`)).body.activities;
+    assert.ok(list.some((x) => x.id === id), `listed for ${when}`);
+  }
+
+  // Saving it unchanged re-saves the window from today, but nobody is told "the organiser changed the time".
+  assert.equal((await org.put(`/activities/${id}`, body)).status, 200);
+  const sys = (await org.get(`/activities/${id}/messages`)).body.messages.filter((m) => m.kind === 'system' && /changed the time/.test(m.body));
+  assert.equal(sys.length, 0);
+
+  // No "starting soon" reminder, even if the placeholder lands in the reminder window.
+  db.prepare('UPDATE activities SET starts_at = ? WHERE id = ?').run(new Date(Date.now() + 60 * 60e3).toISOString(), id);
+  await org.post('/push/_remind', {});
+  assert.equal((await org.get('/push/_sent')).body.sent.filter((x) => x.kind === 'reminder' && x.payload.url.endsWith(`/${id}`)).length, 0);
+
+  // Share preview: no invented date.
+  const html = await (await fetch(`${base.replace(/\/api$/, '')}/p/${id}`)).text();
+  assert.match(html, /Day and time to be agreed/);
+});
+
+test('shared plan-time rules: calendar only gets plans with a real day', async () => {
+  const { calendarPlacement, hasExactTime, effectiveStart } = await import('../shared/plan-time.js');
+  assert.equal(calendarPlacement({ day_mode: 'flex', time_mode: 'tbd' }), 'skip');
+  assert.equal(calendarPlacement({ day_mode: 'weekend', time_mode: 'window' }), 'skip');
+  assert.equal(calendarPlacement({ day_mode: 'week', time_mode: 'tbd' }), 'skip');
+  assert.equal(calendarPlacement({ day_mode: 'day', time_mode: 'tbd' }), 'allday');
+  assert.equal(calendarPlacement({ day_mode: 'day', time_mode: 'window' }), 'timed');
+  assert.equal(calendarPlacement({ time_mode: 'exact' }), 'timed', 'older plans');
+  assert.equal(hasExactTime({ day_mode: 'flex', time_mode: 'exact' }), false);
+  assert.equal(effectiveStart({ day_mode: 'flex', time_mode: 'tbd', starts_at: 'A', ends_at: 'B' }), 'B');
+  assert.equal(effectiveStart({ day_mode: 'day', time_mode: 'exact', starts_at: 'A', ends_at: 'B' }), 'A');
+});
+
 test('connect: request, accept, private chat only when connected; decline stays quiet; block ends it', async () => {
   const a = await user('Cora'); const b = await user('Dev'); const c = await user('Eli');
   assert.equal((await a.get(`/users/${b.id}`)).body.connection, null);

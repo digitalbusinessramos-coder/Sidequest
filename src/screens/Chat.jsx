@@ -2,7 +2,7 @@ import { t, tx } from '../i18n.js';
 import { useEffect, useRef, useState } from 'react';
 import { ErrorState, Icon, Loading, ReportSheet, TopBar, useApp } from '../components.jsx';
 import { api as rawApi } from '../api.js';
-import { fmtWhen, useApi } from '../util.js';
+import { fmtPlanWhen, fmtWhen, useApi } from '../util.js';
 
 const QUICK = ["I’m at the meeting point 👋", "Running about 5 minutes late", "Could we meet somewhere else?", "See you there!"];
 
@@ -65,7 +65,7 @@ export default function Chat({ id }) {
       </TopBar>
       {a && (
         <a href={`#/activity/${id}`} className="meetup" style={{ margin: '10px 12px 0', textDecoration: 'none', color: 'inherit', display: 'block', padding: '10px 12px' }}>
-          <div className="row small" style={{ gap: 6 }}><Icon name="pin" size={16} /><strong>{fmtWhen(a.starts_at, a.timezone)}</strong> · {a.meeting_point || a.meeting_area}</div>
+          <div className="row small" style={{ gap: 6 }}><Icon name="pin" size={16} /><strong>{fmtPlanWhen(a)}</strong> · {a.meeting_point || a.meeting_area}</div>
           {!a.meeting_point && <div className="tiny muted">{tx("No exact meeting point yet. Agree on a public place here.")}</div>}
           {a.state === 'cancelled' && <div className="tiny" style={{ color: 'var(--coral-ink)', fontWeight: 700 }}>{tx("Cancelled")}</div>}
         </a>
