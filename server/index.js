@@ -7,6 +7,13 @@ import { createApi, HttpError } from './api.js';
 import { seed } from './seed.js';
 import { config } from './config.js';
 
+export const CSP = [
+  "default-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' https://fonts.gstatic.com", "img-src 'self' data: blob: https://tile.openstreetmap.org",
+  'frame-src https://www.google.com https://maps.google.com', "connect-src 'self'", "worker-src 'self'", "manifest-src 'self'",
+  "object-src 'none'", "base-uri 'self'", "form-action 'self'", "frame-ancestors 'self'",
+].join('; ');
+
 export function createApp(db) {
   const app = express();
   app.set('trust proxy', 1);
@@ -15,6 +22,13 @@ export function createApp(db) {
     res.set('X-Content-Type-Options', 'nosniff');
     res.set('Referrer-Policy', 'same-origin');
     res.set('X-Frame-Options', 'SAMEORIGIN');
+    // Only the app's own code may run. Outside sources are limited to what the app really uses:
+    // Google Fonts, OpenStreetMap map tiles and the Google Maps embed on plan and event pages.
+    res.set('Content-Security-Policy', CSP);
+    res.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()');
+    res.set('Cross-Origin-Opener-Policy', 'same-origin');
+    // Browsers remember to use HTTPS only (the live site always runs on HTTPS).
+    if (config.secureCookies) res.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     next();
   });
   // Resized pictures only (the server still rejects anything over 600 KB once decoded). Every picture upload route
@@ -55,6 +69,8 @@ export function createApp(db) {
       desc = `${when} · ${a.meeting_area} · Join on ${config.appName}`;
     }
     res.set('Cache-Control', 'no-cache');
+    // This tiny preview page forwards with one inline line (and a meta refresh as backup).
+    res.set('Content-Security-Policy', CSP.replace("script-src 'self'", "script-src 'unsafe-inline'"));
     res.type('html').send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)}</title><meta name="description" content="${esc(desc)}">
 <meta property="og:type" content="website"><meta property="og:site_name" content="${esc(config.appName)}"><meta property="og:title" content="${esc(title)}">

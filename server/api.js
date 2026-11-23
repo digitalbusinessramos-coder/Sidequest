@@ -4,7 +4,7 @@ import { sendEmail, emailConfigured } from './email.js';
 import { tx } from './db.js';
 import { createPush } from './push.js';
 import { config } from './config.js';
-import { hashPassword, verifyPassword, createSession, destroySession, sessionUser, rateLimiter } from './auth.js';
+import { hashPassword, verifyPassword, createSession, destroySession, sessionUser, rateLimiter, securityLog, maskEmail } from './auth.js';
 import { localToUtcIso, utcToLocalInput, slotOf } from './time.js';
 import { CATEGORIES, TEMPLATES, LANGUAGES, STAY_KINDS, BUDGETS, REPORT_REASONS, REC_CATEGORIES, MARKET_KINDS, MARKET_CATEGORIES, FEEDBACK_KINDS, PLAN_EMOJIS, categoryPhrase, slotLabel } from '../shared/catalog.js';
 
@@ -52,11 +52,14 @@ const AREA_ALIASES = [
   { words: ['schamann', 'escaleritas'], key: 'schamann' },
   { words: ['siete palmas', 'tamaraceite'], key: 'sietepalmas' },
 ];
+// Push services of Chrome/Edge/Android (Google), Firefox (Mozilla), Safari/iPhone (Apple) and Windows (Microsoft).
+const PUSH_HOSTS = ['fcm.googleapis.com', 'android.googleapis.com', 'push.services.mozilla.com', 'push.apple.com', 'notify.windows.com'];
 const SLOT_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].flatMap((d) => ['morning', 'afternoon', 'evening'].map((p) => `${d}_${p}`));
 
 export function createApi(db) {
   const r = express.Router();
   const push = createPush(db);
+  db.exec('CREATE TABLE IF NOT EXISTS plan_reminders (activity_id INTEGER NOT NULL, user_id INTEGER NOT NULL, sent_at TEXT NOT NULL, PRIMARY KEY (activity_id, user_id))');
   // Express 4 does not forward errors from async handlers, so wrap every handler.
   for (const m of ['get', 'post', 'put', 'delete']) {
     const orig = r[m].bind(r);
@@ -67,6 +70,7 @@ export function createApi(db) {
   const authLimit = rateLimiter(Number(process.env.AUTH_RATE_LIMIT || 100), 10 * 60e3); // per IP; generous because classmates may share one campus IP
   const msgLimit = rateLimiter(30, 60e3);
   const verifyLimit = rateLimiter(5, 60 * 60e3);
+  const loginAccountLimit = rateLimiter(10, 15 * 60e3);
   const guestLimit = rateLimiter(Number(process.env.GUEST_RATE_LIMIT || 60), 60 * 60e3);
 
   // ---------- email verification ----------
@@ -97,9 +101,19 @@ export function createApi(db) {
       .all(uid, uid).map((x) => x.id)
   );
 
+  // Profile pictures are only served with a key that the app hands out together with the person's name, so nobody can
+  // collect everyone's pictures by trying numbers (also not people who chose "Only people in my plans can see me").
+  const photoSecret = (() => {
+    const row = db.prepare("SELECT value FROM settings WHERE key = 'photo_secret'").get();
+    if (row) return row.value;
+    const v = crypto.randomBytes(32).toString('hex');
+    db.prepare("INSERT INTO settings (key, value) VALUES ('photo_secret', ?)").run(v);
+    return v;
+  })();
+  const photoKey = (uid, v) => crypto.createHmac('sha256', photoSecret).update(`${uid}:${v}`).digest('base64url').slice(0, 22);
   const personSummary = (p) => p && ({
     id: p.user_id, first_name: p.first_name || 'Someone', is_demo: !!p.is_demo, is_guest: !!p.is_guest, avatar_hue: p.avatar_hue,
-    photo: p.photo_v ? `/api/users/${p.user_id}/photo?v=${p.photo_v}` : null,
+    photo: p.photo_v ? `/api/users/${p.user_id}/photo?v=${p.photo_v}&k=${photoKey(p.user_id, p.photo_v)}` : null,
     languages: J(p.languages), role: p.role,
   });
 
@@ -220,7 +234,7 @@ export function createApi(db) {
 
   // ---------- auth ----------
   r.post('/auth/signup', async (req, res) => {
-    if (!authLimit(req.ip)) fail(429, 'rate', 'Too many attempts. Please wait a few minutes.');
+    if (!authLimit(req.ip)) { securityLog('signup_rate_limited', { ip: req.ip }); fail(429, 'rate', 'Too many attempts. Please wait a few minutes.'); }
     const email = str(req.body.email, 200, 'Email', { required: true }).toLowerCase();
     const password = String(req.body.password || '');
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) fail(400, 'invalid', 'Please enter a valid email address.');
@@ -239,10 +253,15 @@ export function createApi(db) {
   });
 
   r.post('/auth/login', (req, res) => {
-    if (!authLimit(req.ip)) fail(429, 'rate', 'Too many attempts. Please wait a few minutes.');
+    if (!authLimit(req.ip)) { securityLog('login_rate_limited_ip', { ip: req.ip }); fail(429, 'rate', 'Too many attempts. Please wait a few minutes.'); }
     const email = str(req.body.email, 200, 'Email').toLowerCase();
+    // Also per account: at most 10 tries in 15 minutes, whatever network they come from (stops password guessing on one person).
+    if (!loginAccountLimit(email)) { securityLog('login_rate_limited_account', { ip: req.ip, email: maskEmail(email) }); fail(429, 'rate', 'Too many attempts. Please wait a few minutes.'); }
     const u = db.prepare('SELECT * FROM users WHERE email = ? AND is_demo = 0').get(email);
-    if (!u || !verifyPassword(req.body.password || '', u.password_hash)) fail(401, 'credentials', 'Email or password is not correct.');
+    if (!u || !verifyPassword(req.body.password || '', u.password_hash)) {
+      securityLog('login_failed', { ip: req.ip, email: maskEmail(email), known_account: !!u });
+      fail(401, 'credentials', 'Email or password is not correct.');
+    }
     createSession(db, res, u.id);
     res.json({ ok: true });
   });
@@ -260,7 +279,7 @@ export function createApi(db) {
   r.post('/auth/guest', (req, res) => {
     if (!config.demoMode) fail(403, 'demo_off', 'Guest access is switched off.');
     if (req.user) return res.json({ ok: true, existing: true });
-    if (!guestLimit(req.ip)) fail(429, 'rate', 'Too many guest visits from this network. Please wait a little or create an account.');
+    if (!guestLimit(req.ip)) { securityLog('guest_rate_limited', { ip: req.ip }); fail(429, 'rate', 'Too many guest visits from this network. Please wait a little or create an account.'); }
     const city = cityBySlug();
     const uid = tx(db, () => {
       const { lastInsertRowid } = db.prepare('INSERT INTO users (email, password_hash, is_guest) VALUES (?, ?, 1)')
@@ -314,7 +333,7 @@ export function createApi(db) {
   // Password recovery. The answer never reveals whether an account exists. The link holds no plan information.
   const resetLimit = rateLimiter(5, 60 * 60e3);
   r.post('/auth/password/forgot', async (req, res) => {
-    if (!resetLimit(req.ip)) fail(429, 'rate', 'Too many attempts. Please wait a few minutes.');
+    if (!resetLimit(req.ip)) { securityLog('password_reset_rate_limited', { ip: req.ip }); fail(429, 'rate', 'Too many attempts. Please wait a few minutes.'); }
     const email = str(req.body.email, 200, 'Email', { required: true }).toLowerCase();
     if (!emailConfigured()) return res.json({ ok: true, sent: false });
     const u = db.prepare("SELECT id FROM users WHERE email = ? AND is_demo = 0 AND is_guest = 0 AND password_hash NOT IN ('deleted')").get(email);
@@ -331,7 +350,7 @@ export function createApi(db) {
   });
   r.post('/auth/password/reset', (req, res) => {
     const row = db.prepare('SELECT * FROM password_tokens WHERE token_hash = ?').get(sha(String(req.body.token || '')));
-    if (!row || row.expires_at < now()) fail(400, 'invalid', 'This link is invalid or has expired. Ask for a new one from Log in.');
+    if (!row || row.expires_at < now()) { securityLog('password_reset_bad_token', { ip: req.ip }); fail(400, 'invalid', 'This link is invalid or has expired. Ask for a new one from Log in.'); }
     const password = String(req.body.password || '');
     if (password.length < 8) fail(400, 'invalid', 'Password must be at least 8 characters.');
     db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(password), row.user_id);
@@ -339,6 +358,7 @@ export function createApi(db) {
     db.prepare('UPDATE users SET email_verified_at = COALESCE(email_verified_at, ?) WHERE id = ?').run(now(), row.user_id);
     db.prepare('DELETE FROM password_tokens WHERE user_id = ?').run(row.user_id);
     db.prepare('DELETE FROM sessions WHERE user_id = ?').run(row.user_id);
+    securityLog('password_reset_done', { user: row.user_id, ip: req.ip });
     createSession(db, res, row.user_id);
     res.json({ ok: true });
   });
@@ -471,8 +491,15 @@ export function createApi(db) {
       db.prepare('DELETE FROM answers WHERE user_id = ?').run(uid);
       db.prepare('DELETE FROM questions WHERE user_id = ?').run(uid);
       db.prepare('DELETE FROM push_subscriptions WHERE user_id = ?').run(uid);
+      db.prepare('DELETE FROM notifications WHERE user_id = ?').run(uid);
+      db.prepare('UPDATE notifications SET actor_id = NULL WHERE actor_id = ?').run(uid);
+      db.prepare('DELETE FROM email_tokens WHERE user_id = ?').run(uid);
+      db.prepare('DELETE FROM password_tokens WHERE user_id = ?').run(uid);
+      db.prepare('DELETE FROM chat_reads WHERE user_id = ?').run(uid);
+      db.prepare('DELETE FROM dm_reads WHERE user_id = ?').run(uid);
+      db.prepare('DELETE FROM plan_reminders WHERE user_id = ?').run(uid);
       // Keep an anonymous row only so cancelled activities still reference an organiser; all personal data is removed.
-      db.prepare("UPDATE profiles SET first_name='Deleted user', intro='', photo_v=0, area=NULL, university=NULL, show_university=0, exchange_start=NULL, exchange_end=NULL, languages='[]', interests='[]', visible=0 WHERE user_id = ?").run(uid);
+      db.prepare("UPDATE profiles SET first_name='Deleted user', intro='', photo_v=0, area=NULL, meet_area=NULL, university=NULL, show_university=0, show_intro=0, show_area=0, exchange_start=NULL, exchange_end=NULL, stay=NULL, flags='[]', languages='[]', interests='[]', visible=0 WHERE user_id = ?").run(uid);
       db.prepare("UPDATE users SET email = ?, password_hash = 'deleted' WHERE id = ?").run(`deleted-${uid}@deleted.invalid`, uid);
     });
   }
@@ -608,12 +635,13 @@ export function createApi(db) {
   r.get('/team/me', auth, (req, res) => res.json({ admin: isAdmin(req), code_configured: !!process.env.ADMIN_TOKEN, alert_email: !!process.env.TEAM_ALERT_EMAIL, email_service: emailConfigured() }));
   r.post('/team/unlock', auth, (req, res) => {
     if (req.user.is_guest) fail(401, 'account_needed', 'Log in with your own account first.');
-    if (!unlockLimit(`${req.user.id}|${req.ip}`)) fail(429, 'rate', 'Too many attempts. Please wait an hour.');
+    if (!unlockLimit(`${req.user.id}|${req.ip}`)) { securityLog('team_unlock_rate_limited', { user: req.user.id, ip: req.ip }); fail(429, 'rate', 'Too many attempts. Please wait an hour.'); }
     const code = String(req.body.code || '');
     const want = process.env.ADMIN_TOKEN || '';
     const a = crypto.createHash('sha256').update(code).digest(); const b = crypto.createHash('sha256').update(want).digest();
-    if (!want || want.length < 12 || !crypto.timingSafeEqual(a, b)) fail(403, 'forbidden', 'That access code is not correct.');
+    if (!want || want.length < 12 || !crypto.timingSafeEqual(a, b)) { securityLog('team_unlock_failed', { user: req.user.id, ip: req.ip }); fail(403, 'forbidden', 'That access code is not correct.'); }
     db.prepare('UPDATE users SET is_admin = 1 WHERE id = ?').run(req.user.id);
+    securityLog('team_unlock_ok', { user: req.user.id, ip: req.ip });
     res.json({ ok: true, admin: true });
   });
   r.post('/team/leave', auth, (req, res) => { db.prepare('UPDATE users SET is_admin = 0 WHERE id = ?').run(req.user.id); res.json({ ok: true }); });
@@ -717,9 +745,20 @@ export function createApi(db) {
     })) });
   });
 
-  // Older script access with the x-admin-token header (kept for the team's scripts).
+  // Older script access with the x-admin-token header (kept for the team's scripts). Same rules as the team code:
+  // at least 12 characters, compared in constant time, at most 5 wrong tries per hour and network, every miss logged.
+  const scriptLimit = rateLimiter(5, 60 * 60e3);
+  const requireScriptToken = (req) => {
+    const want = process.env.ADMIN_TOKEN || '';
+    const got = String(req.get('x-admin-token') || '');
+    const ok = want.length >= 12 && crypto.timingSafeEqual(crypto.createHash('sha256').update(got).digest(), crypto.createHash('sha256').update(want).digest());
+    if (ok) return;
+    securityLog('admin_token_failed', { ip: req.ip, path: req.path });
+    if (!scriptLimit(req.ip)) fail(429, 'rate', 'Too many attempts. Please wait an hour.');
+    fail(403, 'forbidden', 'Forbidden.');
+  };
   r.get('/admin/reports', (req, res) => {
-    if (!process.env.ADMIN_TOKEN || req.get('x-admin-token') !== process.env.ADMIN_TOKEN) fail(403, 'forbidden', 'Forbidden.');
+    requireScriptToken(req);
     res.json({ reports: db.prepare('SELECT * FROM reports ORDER BY id DESC LIMIT 200').all() });
   });
 
@@ -1243,6 +1282,10 @@ export function createApi(db) {
     const p256dh = String(b.keys?.p256dh || '');
     const authKey = String(b.keys?.auth || '');
     if (!/^https:\/\/[^\s]{10,}$/.test(endpoint) || endpoint.length > 1000 || !/^[\w-]{20,200}$/.test(p256dh) || !/^[\w-]{8,100}$/.test(authKey)) fail(400, 'invalid', 'This browser sent an invalid subscription.');
+    // The server sends pop-ups to this address, so only the browsers' real push services are accepted (never other servers).
+    let host = '';
+    try { host = new URL(endpoint).hostname.toLowerCase(); } catch { /* checked below */ }
+    if (!PUSH_HOSTS.some((h) => host === h || host.endsWith(`.${h}`))) { securityLog('push_endpoint_rejected', { user: req.user.id, host }); fail(400, 'invalid', 'This browser sent an invalid subscription.'); }
     if (db.prepare('SELECT COUNT(*) AS n FROM push_subscriptions WHERE user_id = ?').get(req.user.id).n >= 10) {
       db.prepare('DELETE FROM push_subscriptions WHERE id = (SELECT id FROM push_subscriptions WHERE user_id = ? ORDER BY id LIMIT 1)').run(req.user.id);
     }
@@ -1338,7 +1381,8 @@ export function createApi(db) {
     const mine = db.prepare('SELECT * FROM event_interests WHERE event_id = ? AND user_id = ?').get(e.id, uid);
     v.my_interest = mine && { group_pref: mine.group_pref, languages: J(mine.languages), meeting_option: mine.meeting_option, note: mine.note };
     // Only people who have opted in themselves can see the list of others looking for company.
-    v.seekers = mine ? _seekers.filter((s) => s.user_id !== uid).map((s) => {
+    // Profiles are for students with an account (same rule as Buddies): guests see how many, not who.
+    v.seekers = mine && !req.user.is_guest ? _seekers.filter((s) => s.user_id !== uid).map((s) => {
       const p = profileOf(s.user_id);
       const shared = J(p.languages).filter((l) => myLangs.includes(l));
       const reasons = [];
@@ -1375,6 +1419,7 @@ export function createApi(db) {
 
   // Invite someone who is also looking for company. Creates (or reuses) my "going together" group for the event.
   r.post('/events/:id/invite', auth, (req, res) => {
+    requireAccount(req);
     const uid = req.user.id;
     const out = tx(db, () => {
       const e = db.prepare('SELECT * FROM events WHERE id = ?').get(Number(req.params.id)) || fail(404, 'not_found', 'Event not found.');
@@ -1523,6 +1568,12 @@ export function createApi(db) {
   r.get('/users/:id/photo', auth, (req, res) => {
     const id = Number(req.params.id);
     if (blockedSet(req.user.id).has(id)) fail(404, 'not_found', 'Not found.');
+    if (id !== req.user.id) {
+      const v = profileOf(id)?.photo_v;
+      const k = String(req.query.k || '');
+      const want = v ? photoKey(id, v) : '';
+      if (!want || k.length !== want.length || !crypto.timingSafeEqual(Buffer.from(k), Buffer.from(want))) fail(404, 'not_found', 'Not found.');
+    }
     const ph = db.prepare('SELECT mime, data FROM photos WHERE user_id = ?').get(id) || fail(404, 'not_found', 'Not found.');
     res.set('Content-Type', ph.mime);
     res.set('Cache-Control', 'private, max-age=86400');
@@ -1710,7 +1761,7 @@ export function createApi(db) {
     res.status(201).json({ ok: true, saved: true, id: Number(lastInsertRowid) });
   });
   r.get('/admin/feedback', (req, res) => {
-    if (!process.env.ADMIN_TOKEN || req.get('x-admin-token') !== process.env.ADMIN_TOKEN) fail(403, 'forbidden', 'Forbidden.');
+    requireScriptToken(req);
     res.json({ feedback: db.prepare('SELECT id, kind, body, screen, created_at FROM feedback ORDER BY id DESC LIMIT 500').all() });
   });
 
@@ -1935,11 +1986,12 @@ export function createApi(db) {
       try { eraseUser(g.id); db.prepare('UPDATE users SET is_guest = 0 WHERE id = ?').run(g.id); } catch (e) { console.error('guest cleanup', e.message); }
     }
   };
-  cleanupGuests();
-  setInterval(cleanupGuests, 6 * 3600e3).unref();
+  // Expired logins are removed too, so old session rows don't pile up in the database.
+  const cleanup = () => { cleanupGuests(); db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(now()); db.prepare('DELETE FROM password_tokens WHERE expires_at < ?').run(now()); };
+  cleanup();
+  setInterval(cleanup, 6 * 3600e3).unref();
 
   // About an hour before a plan with an exact time, everyone going gets a reminder pop-up (once).
-  db.exec('CREATE TABLE IF NOT EXISTS plan_reminders (activity_id INTEGER NOT NULL, user_id INTEGER NOT NULL, sent_at TEXT NOT NULL, PRIMARY KEY (activity_id, user_id))');
   const sendReminders = () => {
     const from = new Date(Date.now() + 40 * 60e3).toISOString();
     const to = new Date(Date.now() + 75 * 60e3).toISOString();
