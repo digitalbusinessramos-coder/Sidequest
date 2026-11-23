@@ -4,6 +4,7 @@ import { ActivityCard, Empty, ErrorState, Icon, Loading, Stamp, useApp } from '.
 import { locale } from '../i18n.js';
 import { NotifyNudge } from './Notify.jsx';
 import { fmtPlanWhen, fmtWhen, useApi } from '../util.js';
+import { calendarPlacement } from '../../shared/plan-time.js';
 
 const NOTE_TEXT = {
   request_received: ['{name} asked to join “{title}”.', 'group'],
@@ -93,23 +94,29 @@ const addDays = (day, n) => { const d = new Date(`${day}T12:00:00Z`); d.setUTCDa
 const mondayOf = (day) => { const wd = (new Date(`${day}T12:00:00Z`).getUTCDay() + 6) % 7; return addDays(day, -wd); };
 const KIND_LABEL = { organising: 'Organising', confirmed: 'Going', waiting: 'Waiting', invited: 'Invited', event: 'Event' };
 
-function Calendar({ data, tz }) {
+function Calendar({ data, tz, onList }) {
   const today = localParts(new Date().toISOString(), tz).day;
   const [week, setWeek] = useState(mondayOf(today));
   const [day, setDay] = useState(today);
   const items = useMemo(() => {
     const out = [];
-    // Flexible plans sit in their time window (or at midday, labelled “time to be agreed”); never an invented exact time.
+    // Only plans with a real day go in the calendar. A part of the day sits in its window; a day with the time still to be
+    // agreed is listed for that day without a time. Plans whose day isn't fixed yet stay out (they are in the list view).
     for (const k of ['organising', 'confirmed', 'waiting', 'invited']) for (const a of data[k]) {
+      const place = calendarPlacement(a);
+      if (place === 'skip') continue;
       const dur = Math.max(45, Math.min(12 * 60, Math.round((new Date(a.ends_at).getTime() - new Date(a.starts_at).getTime()) / 60e3)));
-      out.push({ kind: k, id: a.id, title: a.title, category: a.category, starts_at: a.starts_at, duration: a.time_mode === 'tbd' ? 60 : dur, flexible: a.time_mode !== 'exact', label: a.time_mode === 'exact' ? null : fmtPlanWhen(a), href: `#/activity/${a.id}`, where: a.meeting_area });
+      out.push({ kind: k, id: a.id, title: a.title, category: a.category, starts_at: a.starts_at, duration: dur, allday: place === 'allday', flexible: a.time_mode !== 'exact', label: a.time_mode === 'exact' ? null : fmtPlanWhen(a), href: `#/activity/${a.id}`, where: a.meeting_area });
     }
     for (const e of data.events || []) out.push({ kind: 'event', id: `e${e.id}`, title: e.title, category: e.category, starts_at: e.starts_at, duration: e.duration_min, href: `#/event/${e.id}`, where: e.venue });
     return out.map((x) => ({ ...x, ...localParts(x.starts_at, tz) })).sort((a, b) => a.starts_at.localeCompare(b.starts_at));
   }, [data, tz]);
+  const undated = useMemo(() => ['organising', 'confirmed', 'waiting', 'invited'].reduce((n, k) => n + data[k].filter((a) => calendarPlacement(a) === 'skip').length, 0), [data]);
   const days = Array.from({ length: 7 }, (_, i) => addDays(week, i));
   const fmt = (d, o) => new Intl.DateTimeFormat(locale(), { timeZone: 'UTC', ...o }).format(new Date(`${d}T12:00:00Z`));
-  const todays = items.filter((x) => x.day === day);
+  const dayItems = items.filter((x) => x.day === day);
+  const todays = dayItems.filter((x) => !x.allday);
+  const anytime = dayItems.filter((x) => x.allday);
   const startH = Math.min(8, ...todays.map((x) => Math.floor(x.mins / 60)));
   const endH = Math.min(24, Math.max(22, ...todays.map((x) => Math.ceil((x.mins + x.duration) / 60))));
   // Side-by-side columns for overlapping plans.
@@ -144,9 +151,24 @@ function Calendar({ data, tz }) {
         })}
       </div>
       <h3 className="small">{fmt(day, { weekday: 'long', day: 'numeric', month: 'long' })}</h3>
-      {todays.length === 0 ? (
+      {anytime.length > 0 && (
+        <div className="stack-sm" aria-label={tx('Time to be agreed')}>
+          {anytime.map((x) => (
+            <a key={x.id} href={x.href} className={`tt-item tt-allday k-${x.kind}`}>
+              <span className="row" style={{ gap: 6, alignItems: 'flex-start' }}>
+                <Stamp category={x.category} size="sm" />
+                <span style={{ minWidth: 0 }}>
+                  <strong className="tt-title">{x.title}</strong>
+                  <span className="tiny" style={{ display: 'block' }}>{tx('Time to be agreed')} · {tx(KIND_LABEL[x.kind])}</span>
+                </span>
+              </span>
+            </a>
+          ))}
+        </div>
+      )}
+      {dayItems.length === 0 ? (
         <p className="small muted card card-pad">{tx('Nothing planned this day.')} <a href="#/explore">{tx('Find something to do')}</a></p>
-      ) : (
+      ) : todays.length === 0 ? null : (
         <div className="timetable card" style={{ height: (endH - startH) * HOUR_PX }}>
           {Array.from({ length: endH - startH }, (_, i) => (
             <div key={i} className="tt-hour" style={{ top: i * HOUR_PX }}><span>{String(startH + i).padStart(2, '0')}:00</span></div>
@@ -167,6 +189,12 @@ function Calendar({ data, tz }) {
             );
           })}
         </div>
+      )}
+      {undated > 0 && (
+        <p className="small muted card card-pad">
+          {tx(undated === 1 ? '1 plan has its day still to be agreed, so it isn’t in the calendar.' : '{n} plans have their day still to be agreed, so they aren’t in the calendar.', { n: undated })}{' '}
+          <button type="button" className="link-btn" onClick={onList}>{tx(undated === 1 ? 'See it in the list' : 'See them in the list')}</button>
+        </p>
       )}
       <div className="row wrap tiny muted" style={{ gap: 10 }}>
         {Object.entries(KIND_LABEL).map(([k, l]) => <span key={k} className="row" style={{ gap: 4 }}><i className={`legend k-${k}`} />{tx(l)}</span>)}
@@ -198,7 +226,7 @@ export default function Plans() {
           <button className={view === 'list' ? 'on' : ''} aria-pressed={view === 'list'} onClick={() => pickView('list')}><Icon name="list" size={16} />{tx('List')}</button>
           <button className={view === 'calendar' ? 'on' : ''} aria-pressed={view === 'calendar'} onClick={() => pickView('calendar')}><Icon name="calendar" size={16} />{tx('Calendar')}</button>
         </div>
-        {view === 'calendar' ? <Calendar data={data} tz={city.timezone} /> : <>
+        {view === 'calendar' ? <Calendar data={data} tz={city.timezone} onList={() => pickView('list')} /> : <>
         {data.events?.length > 0 && (
           <section className="stack-sm" aria-labelledby="pl-events">
             <h2 id="pl-events">{tx('Events you’re going to')} <span className="muted small">({data.events.length})</span></h2>

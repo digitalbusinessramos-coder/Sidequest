@@ -7,6 +7,7 @@ import { config } from './config.js';
 import { stripImageMetadata } from './images.js';
 import { hashPassword, verifyPassword, needsRehash, burnPasswordCheck, createSession, destroySession, sessionUser, rateLimiter, takeRetryAfter, securityLog, maskEmail } from './auth.js';
 import { localToUtcIso, utcToLocalInput, slotOf } from './time.js';
+import { hasFixedDay } from '../shared/plan-time.js';
 import { CATEGORIES, TEMPLATES, LANGUAGES, STAY_KINDS, BUDGETS, REPORT_REASONS, REC_CATEGORIES, MARKET_KINDS, MARKET_CATEGORIES, FEEDBACK_KINDS, PLAN_EMOJIS, categoryPhrase, slotLabel } from '../shared/catalog.js';
 
 export class HttpError extends Error {
@@ -39,6 +40,9 @@ const REVISION = (process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT |
 const RELEASE = 'pre-launch-11-potato-logo';
 const TIME_MODES = ['exact', 'window', 'tbd'];
 const DAY_MODES = ['day', 'weekend', 'week', 'flex'];
+// "Hasn't started yet" in SQL. Only an exact time is a real start; a plan whose day or time is still to be agreed stores a
+// placeholder starts_at (see shared/plan-time.js), so it counts as upcoming until its listing window ends.
+const upcomingSql = (t) => `(CASE WHEN COALESCE(${t}.day_mode, 'day') = 'day' AND COALESCE(${t}.time_mode, 'exact') = 'exact' THEN ${t}.starts_at ELSE COALESCE(${t}.ends_at, ${t}.starts_at) END) > ?`;
 // Accounts used for testing are kept out of campaign numbers and never get emails: addresses with "+test" or on test domains.
 const TEST_DOMAINS = (process.env.TEST_EMAIL_DOMAINS || 'example.com,example.org,test.invalid').split(',').map((d) => d.trim().toLowerCase()).filter(Boolean);
 const isTestEmail = (email) => /\+test[^@]*@/i.test(email) || TEST_DOMAINS.includes(email.split('@')[1]);
@@ -410,13 +414,13 @@ export function createApi(db) {
     const p = profileOf(req.user.id);
     const city = cityById(p.city_id);
     const toReview = db.prepare(`SELECT COUNT(*) AS n FROM memberships m JOIN activities a ON a.id = m.activity_id
-      WHERE a.organiser_id = ? AND m.status = 'pending' AND a.status = 'active' AND a.starts_at > ?`).get(req.user.id, now()).n;
+      WHERE a.organiser_id = ? AND m.status = 'pending' AND a.status = 'active' AND ${upcomingSql('a')}`).get(req.user.id, now()).n;
     const unreadNotifs = db.prepare('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND read_at IS NULL').get(req.user.id).n;
     const chatActs = db.prepare(`SELECT id FROM activities WHERE status = 'active' AND (organiser_id = ? OR id IN
       (SELECT activity_id FROM memberships WHERE user_id = ? AND status = 'accepted'))`).all(req.user.id, req.user.id);
     const unreadChats = chatActs.reduce((n, a) => n + unreadChat(a.id, req.user.id), 0);
     const invites = db.prepare(`SELECT COUNT(*) AS n FROM memberships m JOIN activities a ON a.id = m.activity_id
-      WHERE m.user_id = ? AND m.status = 'invited' AND a.status = 'active' AND a.starts_at > ?`).get(req.user.id, now()).n;
+      WHERE m.user_id = ? AND m.status = 'invited' AND a.status = 'active' AND ${upcomingSql('a')}`).get(req.user.id, now()).n;
     res.json({
       user: {
         id: req.user.id, email: req.user.is_guest ? null : req.user.email, is_demo: req.user.is_demo, is_guest: req.user.is_guest, email_verified: !!p.email_verified_at, email_service: emailConfigured(), lang: p.lang,
@@ -569,7 +573,7 @@ export function createApi(db) {
       .filter((p) => !blocked.has(p.user_id) && !p.is_demo && !tests.has(p.user_id))
       .map((p) => {
         const interests = J(p.interests);
-        const plans = db.prepare(`SELECT COUNT(*) AS n FROM activities WHERE organiser_id = ? AND status = 'active' AND starts_at > ?`).get(p.user_id, now()).n;
+        const plans = db.prepare(`SELECT COUNT(*) AS n FROM activities WHERE organiser_id = ? AND status = 'active' AND ${upcomingSql('activities')}`).get(p.user_id, now()).n;
         return { ...personSummary(p), intro: p.show_intro ? p.intro : '', interests, area: p.show_area ? p.meet_area || areaName(p.area) : null, stay: p.stay || null, flags: J(p.flags || '[]'),
           shared: interests.filter((i) => mine.has(i)), open_plans: plans };
       })
@@ -736,7 +740,7 @@ export function createApi(db) {
       accounts: n(`SELECT COUNT(*) AS n FROM users u WHERE ${real}`),
       accounts_7d: n(`SELECT COUNT(*) AS n FROM users u WHERE ${real} AND u.created_at > ?`, since(7)),
       plans: n(`SELECT COUNT(*) AS n FROM activities a JOIN users u ON u.id = a.organiser_id WHERE a.is_sample = 0 AND ${real}`),
-      plans_upcoming: n(`SELECT COUNT(*) AS n FROM activities a JOIN users u ON u.id = a.organiser_id WHERE a.is_sample = 0 AND a.status = 'active' AND a.starts_at > ? AND ${real}`, now()),
+      plans_upcoming: n(`SELECT COUNT(*) AS n FROM activities a JOIN users u ON u.id = a.organiser_id WHERE a.is_sample = 0 AND a.status = 'active' AND ${upcomingSql('a')} AND ${real}`, now()),
       joins: n(`SELECT COUNT(*) AS n FROM memberships m JOIN activities a ON a.id = m.activity_id JOIN users u ON u.id = m.user_id WHERE m.status = 'accepted' AND a.is_sample = 0 AND ${real}`),
       reports_open: n("SELECT COUNT(*) AS n FROM reports WHERE status = 'open'"),
       feedback_open: n("SELECT COUNT(*) AS n FROM feedback WHERE status = 'open'"),
@@ -818,6 +822,17 @@ export function createApi(db) {
     const day = utcToLocalInput(a.starts_at, tz).slice(0, 10);
     const today = utcToLocalInput(now(), tz).slice(0, 10);
     const addDays = (n) => utcToLocalInput(new Date(Date.now() + n * 864e5).toISOString(), tz).slice(0, 10);
+    if (!hasFixedDay(a)) {
+      // Day still to be agreed: it could be any day in its listing window, so it matches any filter that overlaps it.
+      const first = day < today ? today : day;
+      const last = utcToLocalInput(a.ends_at || a.starts_at, tz).slice(0, 10);
+      const isWeekend = (d) => [0, 6].includes(new Date(`${d}T12:00:00Z`).getUTCDay());
+      if (when === 'today') return first <= today && today <= last;
+      if (when === 'tomorrow') return first <= addDays(1) && addDays(1) <= last;
+      if (when === 'week') return first <= addDays(7);
+      if (when === 'weekend') { for (let i = 0; i <= 7; i++) { const d = addDays(i); if (d >= first && d <= last && isWeekend(d)) return true; } return false; }
+      return true;
+    }
     if (when === 'today') return day === today;
     if (when === 'tomorrow') return day === addDays(1);
     if (when === 'week') return day <= addDays(7);
@@ -993,7 +1008,9 @@ export function createApi(db) {
         d.template, d.category, d.title, d.description, d.starts_at, d.ends_at, d.time_mode, d.time_window, d.duration_min, d.duration_choice,
         d.meeting_area, d.meeting_point, d.cost_eur, d.cost_mode, d.max_participants, d.capped, d.beginner_friendly, d.join_mode, d.emoji, d.day_mode, now(), a.id);
       const changes = [];
-      if (d.starts_at !== a.starts_at || d.time_mode !== (a.time_mode || 'exact') || d.day_mode !== (a.day_mode || 'day')) changes.push('time');
+      // A plan whose day isn't fixed re-saves its listing window from today, which is not a change anyone needs to hear about.
+      const startMoved = d.day_mode === 'day' ? d.starts_at !== a.starts_at : false;
+      if (startMoved || d.time_mode !== (a.time_mode || 'exact') || (d.time_window || null) !== (a.time_window || null) || d.day_mode !== (a.day_mode || 'day')) changes.push('time');
       if (d.meeting_point !== a.meeting_point || d.meeting_area !== a.meeting_area) changes.push('meeting point');
       if (changes.length) {
         systemMsg(a.id, `The organiser changed the ${changes.join(' and ')}. Check the meet-up card.`);
@@ -1394,7 +1411,7 @@ export function createApi(db) {
       approx: e.lat != null ? { lat: e.lat, lng: e.lng, area: e.venue } : approxSpot(city, e.venue),
       chat_count: db.prepare('SELECT COUNT(*) AS n FROM event_messages WHERE event_id = ?').get(e.id).n,
       tickets_count: db.prepare("SELECT COUNT(*) AS n FROM listings WHERE event_id = ? AND kind = 'ticket' AND status != 'sold'").get(e.id).n,
-      groups_count: db.prepare("SELECT COUNT(*) AS n FROM activities WHERE event_id = ? AND status = 'active' AND is_sample = 0 AND starts_at > ?").get(e.id, now()).n,
+      groups_count: db.prepare(`SELECT COUNT(*) AS n FROM activities WHERE event_id = ? AND status = 'active' AND is_sample = 0 AND ${upcomingSql('activities')}`).get(e.id, now()).n,
       i_am_seeking: seekers.some((s) => s.user_id === uid) || !!db.prepare('SELECT 1 FROM event_interests WHERE event_id=? AND user_id=?').get(e.id, uid),
       _seekers: seekers,
     };
@@ -2031,7 +2048,7 @@ export function createApi(db) {
     const from = new Date(Date.now() + 40 * 60e3).toISOString();
     const to = new Date(Date.now() + 75 * 60e3).toISOString();
     const acts = db.prepare(`SELECT a.*, c.timezone FROM activities a JOIN cities c ON c.id = a.city_id
-      WHERE a.status = 'active' AND a.is_sample = 0 AND COALESCE(a.time_mode, 'exact') = 'exact' AND a.starts_at > ? AND a.starts_at <= ?`).all(from, to);
+      WHERE a.status = 'active' AND a.is_sample = 0 AND COALESCE(a.day_mode, 'day') = 'day' AND COALESCE(a.time_mode, 'exact') = 'exact' AND a.starts_at > ? AND a.starts_at <= ?`).all(from, to);
     let n = 0;
     for (const a of acts) {
       const time = new Intl.DateTimeFormat('en-GB', { timeZone: a.timezone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(a.starts_at));

@@ -52,7 +52,7 @@ export function createApp(db) {
   // Share links for Instagram and WhatsApp: a preview card (title, day, public area only), then the plan opens in the app.
   app.get('/p/:id', (req, res) => {
     const id = Number(req.params.id);
-    const a = Number.isInteger(id) ? db.prepare(`SELECT a.id, a.title, a.starts_at, a.time_mode, a.time_window, a.meeting_area, a.status, a.is_sample, c.timezone
+    const a = Number.isInteger(id) ? db.prepare(`SELECT a.id, a.title, a.starts_at, a.time_mode, a.time_window, a.day_mode, a.meeting_area, a.status, a.is_sample, c.timezone
       FROM activities a JOIN cities c ON c.id = a.city_id WHERE a.id = ?`).get(id) : null;
     const esc = (x) => String(x).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
     const base = `${req.protocol}://${req.get('host')}`;
@@ -65,7 +65,10 @@ export function createApp(db) {
     if (a && a.status === 'active' && !a.is_sample) {
       const d = new Date(a.starts_at);
       const day = new Intl.DateTimeFormat('en-GB', { timeZone: a.timezone, weekday: 'short', day: 'numeric', month: 'short' }).format(d);
-      const when = a.time_mode === 'window' ? `${day}, ${a.time_window}` : a.time_mode === 'tbd' ? `${day}, time to be agreed`
+      // A plan whose day isn't fixed has no real date: its stored start is only the listing window (see shared/plan-time.js).
+      const span = { weekend: 'This weekend', week: 'This week', flex: 'Day to be agreed' }[a.day_mode];
+      const when = span ? (a.time_mode === 'window' ? `${span}, ${a.time_window}` : a.day_mode === 'flex' ? 'Day and time to be agreed' : `${span}, time to be agreed`)
+        : a.time_mode === 'window' ? `${day}, ${a.time_window}` : a.time_mode === 'tbd' ? `${day}, time to be agreed`
         : `${day}, ${new Intl.DateTimeFormat('en-GB', { timeZone: a.timezone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(d)}`;
       title = a.title;
       desc = `${when} · ${a.meeting_area} · Join on ${config.appName}`;
