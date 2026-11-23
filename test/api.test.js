@@ -1075,4 +1075,17 @@ test('security: headers, login limit per account, admin script token, guests nev
     assert.equal((await g.get(`/events/${ev.id}`)).body.event.seekers, null);
     assert.equal((await g.post(`/events/${ev.id}/invite`, { userId: s1.id })).status, 401);
   }
+  // Guests can look, but posting needs an account: no anonymous listings, tips or chat messages.
+  const g2 = client(); assert.equal((await g2.post('/auth/guest')).status, 201);
+  assert.equal((await g2.post('/market', { kind: 'free', title: 'Free sofa' })).status, 401);
+  assert.equal((await g2.post('/recommendations', { category: 'food', title: 'Great tapas' })).status, 401);
+  assert.equal((await g2.get('/market?city=las-palmas')).status, 200);
+  const seller = await user('Sella');
+  const lid = (await seller.post('/market', { kind: 'free', title: 'Free lamp' })).body.id;
+  assert.equal((await g2.post(`/market/${lid}/messages`, { body: 'Still there?' })).status, 401);
+  if (ev) {
+    assert.equal((await g2.put(`/events/${ev.id}/interest`, { group_pref: 'either' })).status, 200);
+    assert.equal((await g2.get(`/events/${ev.id}/messages`)).status, 200, 'guests can still read the event chat');
+    assert.equal((await g2.post(`/events/${ev.id}/messages`, { body: 'Hi all' })).status, 401);
+  }
 });

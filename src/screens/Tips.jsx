@@ -18,7 +18,7 @@ const REC_ICON = { food: 'food', nightlife: 'nightout', beach: 'beach', culture:
 
 /** Student recommendations: anyone can post a tip, like it, and save it for later. */
 export default function Tips() {
-  const { api, city, meta, toast } = useApp();
+  const { api, city, meta, toast, me, openAccount } = useApp();
   const [cat, setCat] = useState('');
   const [sort, setSort] = useState('top');
   const [saved, setSaved] = useState(false);
@@ -44,7 +44,7 @@ export default function Tips() {
     <section className="stack" aria-labelledby="tips-h" data-tour="tips">
       <div className="section-title">
         <h2 id="tips-h" className="row"><Icon name="star" />{tx('Tips from students')}</h2>
-        <button className="btn btn-primary btn-sm" onClick={() => setAdding(true)}><Icon name="plus" size={16} />{tx('Add a tip')}</button>
+        <button className="btn btn-primary btn-sm" onClick={() => (me.is_guest ? openAccount('signup', { reason: tx('Create a free account to share a tip.') }) : setAdding(true))}><Icon name="plus" size={16} />{tx('Add a tip')}</button>
       </div>
       <p className="small muted">{tx('Places and tips shared by students. Like the ones you agree with and save the ones you want to try.')}</p>
       <div className="chip-scroll">

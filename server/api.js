@@ -1606,6 +1606,7 @@ export function createApi(db) {
     res.json({ recommendations: out });
   });
   r.post('/recommendations', auth, (req, res) => {
+    requireAccount(req); // guests can read tips, sharing one needs an account (like Ask students)
     const b = req.body;
     const p = profileOf(req.user.id);
     const url = str(b.url, 300, 'Link');
@@ -1740,6 +1741,7 @@ export function createApi(db) {
     });
   });
   r.post('/events/:id/messages', auth, (req, res) => {
+    requireAccount(req);
     if (!msgLimit(String(req.user.id))) fail(429, 'rate', 'You are sending messages too quickly.');
     const e = eventFor(req.params.id);
     if (!inEvent(e.id, req.user.id)) fail(403, 'forbidden', 'Join the event group first to write in this chat.');
@@ -1844,6 +1846,7 @@ export function createApi(db) {
     res.json({ listing: v });
   });
   r.post('/market', auth, (req, res) => {
+    requireAccount(req); // no anonymous listings: guests can look, selling and messaging need an account
     const d = readListing(req.body);
     const p = profileOf(req.user.id);
     const { lastInsertRowid } = db.prepare(`INSERT INTO listings (city_id, user_id, kind, category, title, description, price_eur, face_value_eur, event_id, area, is_sample)
@@ -1955,6 +1958,7 @@ export function createApi(db) {
     });
   });
   r.post('/market/:id/messages', auth, (req, res) => {
+    requireAccount(req);
     if (!msgLimit(String(req.user.id))) fail(429, 'rate', 'You are sending messages too quickly.');
     const uid = req.user.id;
     const l = getListing(req.params.id);
