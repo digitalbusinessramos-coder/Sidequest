@@ -8,7 +8,7 @@ import { Icon, Sheet, useApp } from '../components.jsx';
  * Email confirmation happens in the background and never blocks this.
  */
 export function AccountSheet({ onClose, initial = 'signup', reason, onDone }) {
-  const { api, reloadMe, toast } = useApp();
+  const { api, reloadMe, toast, meta } = useApp();
   const [mode, setMode] = useState(initial);
   const [f, setF] = useState({ first_name: '', email: '', password: '' });
   const [err, setErr] = useState('');
@@ -28,8 +28,8 @@ export function AccountSheet({ onClose, initial = 'signup', reason, onDone }) {
   const sendReset = async () => {
     setBusy(true); setErr('');
     try {
-      const r = await api.post('/auth/password/forgot', { email: f.email });
-      setForgot(r.sent === false ? tx('Password reset by email is not switched on yet. Please contact the project team through Feedback.') : tx('If an account uses this address, we sent a link to choose a new password. It works for 1 hour.'));
+      await api.post('/auth/password/forgot', { email: f.email });
+      setForgot(!meta.passwordReset ? tx('Password reset by email is not switched on yet. Please contact the project team through Feedback.') : tx('If an account uses this address, we sent a link to choose a new password. It works for 1 hour.'));
     } catch (x) { setErr(tx(x.message)); } finally { setBusy(false); }
   };
   return (

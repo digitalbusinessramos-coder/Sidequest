@@ -4,12 +4,17 @@ import { sendEmail, emailConfigured } from './email.js';
 import { tx } from './db.js';
 import { createPush } from './push.js';
 import { config } from './config.js';
-import { hashPassword, verifyPassword, createSession, destroySession, sessionUser, rateLimiter, securityLog, maskEmail } from './auth.js';
+import { stripImageMetadata } from './images.js';
+import { hashPassword, verifyPassword, needsRehash, burnPasswordCheck, createSession, destroySession, sessionUser, rateLimiter, takeRetryAfter, securityLog, maskEmail } from './auth.js';
 import { localToUtcIso, utcToLocalInput, slotOf } from './time.js';
 import { CATEGORIES, TEMPLATES, LANGUAGES, STAY_KINDS, BUDGETS, REPORT_REASONS, REC_CATEGORIES, MARKET_KINDS, MARKET_CATEGORIES, FEEDBACK_KINDS, PLAN_EMOJIS, categoryPhrase, slotLabel } from '../shared/catalog.js';
 
 export class HttpError extends Error {
-  constructor(status, code, message) { super(message); this.status = status; this.code = code; }
+  constructor(status, code, message) {
+    super(message); this.status = status; this.code = code;
+    // Every "too many" answer says when to try again (Retry-After header), from the limit that was hit.
+    if (status === 429) this.retryAfter = takeRetryAfter();
+  }
 }
 const fail = (status, code, message) => { throw new HttpError(status, code, message); };
 
@@ -71,6 +76,16 @@ export function createApi(db) {
   const msgLimit = rateLimiter(30, 60e3);
   const verifyLimit = rateLimiter(5, 60 * 60e3);
   const loginAccountLimit = rateLimiter(10, 15 * 60e3);
+  const signupLimit = rateLimiter(Number(process.env.SIGNUP_RATE_LIMIT || 20), 60 * 60e3); // new accounts per network per hour
+  const forgotEmailLimit = rateLimiter(3, 60 * 60e3); // reset emails per address per hour
+  const resetIpLimit = rateLimiter(10, 60 * 60e3); // tries with a reset link per network per hour
+  const reportLimit = rateLimiter(20, 60 * 60e3); const reportIpLimit = rateLimiter(60, 60 * 60e3);
+  const feedbackIpLimit = rateLimiter(30, 60 * 60e3);
+  const photoLimit = rateLimiter(30, 60 * 60e3); const photoIpLimit = rateLimiter(100, 60 * 60e3);
+  const guestWriteLimit = rateLimiter(60, 60 * 60e3); const guestWriteIpLimit = rateLimiter(300, 60 * 60e3);
+  const photoRate = (req) => {
+    if (!photoLimit(`u${req.user.id}`) || !photoIpLimit(req.ip)) { securityLog('photo_rate_limited', { user: req.user.id, ip: req.ip }); fail(429, 'rate', 'You uploaded a lot of pictures. Please wait a little.'); }
+  };
   const guestLimit = rateLimiter(Number(process.env.GUEST_RATE_LIMIT || 60), 60 * 60e3);
 
   // ---------- email verification ----------
@@ -91,6 +106,15 @@ export function createApi(db) {
   }
 
   // ---------- helpers ----------
+  function readJpeg(req) {
+    const m = /^data:(image\/jpeg);base64,([A-Za-z0-9+/=]+)$/.exec(String(req.body?.data || ''));
+    if (!m) fail(400, 'invalid', 'Please choose a JPEG, PNG or WebP picture.');
+    const buf = Buffer.from(m[2], 'base64');
+    if (buf.length > 600 * 1024) fail(413, 'too_large', 'That picture is too large. Please choose a smaller one.');
+    if (!(buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff)) fail(400, 'invalid', 'That file does not look like a picture.');
+    // Camera details and GPS position are removed before the picture is stored.
+    return { mime: m[1], buf: stripImageMetadata(buf, m[1]) || fail(400, 'invalid', 'That file does not look like a picture.') };
+  }
   const cityById = (id) => db.prepare('SELECT * FROM cities WHERE id = ?').get(id);
   const cityBySlug = (slug) => db.prepare('SELECT * FROM cities WHERE slug = ?').get(slug || config.defaultCity);
   const profileOf = (uid) => db.prepare('SELECT p.*, u.is_demo, u.is_guest, u.email_verified_at FROM profiles p JOIN users u ON u.id = p.user_id WHERE p.user_id = ?').get(uid);
@@ -220,13 +244,22 @@ export function createApi(db) {
 
   // ---------- auth middleware ----------
   r.use((req, _res, next) => { req.user = sessionUser(db, req); next(); });
+  // Guests (no email, one click) get a cap on everything that changes data: per guest and per network.
+  r.use((req, _res, next) => {
+    if (!req.user?.is_guest || ['GET', 'HEAD', 'OPTIONS'].includes(req.method) || req.path === '/auth/logout') return next();
+    if (!guestWriteLimit(`g${req.user.id}`) || !guestWriteIpLimit(req.ip)) {
+      securityLog('guest_write_rate_limited', { user: req.user.id, ip: req.ip });
+      return next(new HttpError(429, 'rate', 'Too many changes in a short time. Please wait a little or create a free account.'));
+    }
+    next();
+  });
   const auth = (req, _res, next) => (req.user ? next() : next(new HttpError(401, 'auth', 'Please log in first.')));
 
   // ---------- meta ----------
   r.get('/meta', (_req, res) => {
     const cities = db.prepare('SELECT slug, name, country, timezone, areas FROM cities').all().map((c) => ({ ...c, areas: J(c.areas) }));
     const personas = []; // signing in as an example person is switched off for launch
-    res.json({ appName: config.appName, demoMode: config.demoMode, revision: REVISION, cities, personas, categories: CATEGORIES, recCategories: REC_CATEGORIES, marketKinds: MARKET_KINDS, marketCategories: MARKET_CATEGORIES, feedbackKinds: FEEDBACK_KINDS, templates: TEMPLATES, languages: LANGUAGES, budgets: BUDGETS.map(({ key, label }) => ({ key, label })), reportReasons: REPORT_REASONS });
+    res.json({ appName: config.appName, demoMode: config.demoMode, passwordReset: emailConfigured(), cities, personas, categories: CATEGORIES, recCategories: REC_CATEGORIES, marketKinds: MARKET_KINDS, marketCategories: MARKET_CATEGORIES, feedbackKinds: FEEDBACK_KINDS, templates: TEMPLATES, languages: LANGUAGES, budgets: BUDGETS.map(({ key, label }) => ({ key, label })), reportReasons: REPORT_REASONS });
   });
 
   // Which code is running (the git commit Railway deployed), for deployment reports.
@@ -234,7 +267,7 @@ export function createApi(db) {
 
   // ---------- auth ----------
   r.post('/auth/signup', async (req, res) => {
-    if (!authLimit(req.ip)) { securityLog('signup_rate_limited', { ip: req.ip }); fail(429, 'rate', 'Too many attempts. Please wait a few minutes.'); }
+    if (!authLimit(req.ip) || !signupLimit(req.ip)) { securityLog('signup_rate_limited', { ip: req.ip }); fail(429, 'rate', 'Too many attempts. Please wait a few minutes.'); }
     const email = str(req.body.email, 200, 'Email', { required: true }).toLowerCase();
     const password = String(req.body.password || '');
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) fail(400, 'invalid', 'Please enter a valid email address.');
@@ -247,7 +280,7 @@ export function createApi(db) {
       db.prepare('INSERT INTO profiles (user_id, city_id, avatar_hue) VALUES (?, ?, ?)').run(lastInsertRowid, city.id, Math.floor(Math.random() * 360));
       return Number(lastInsertRowid);
     });
-    createSession(db, res, uid);
+    createSession(db, res, uid, req);
     const mail = await startVerification(req, uid, email);
     res.status(201).json({ ok: true, verification_sent: mail.sent });
   });
@@ -258,11 +291,13 @@ export function createApi(db) {
     // Also per account: at most 10 tries in 15 minutes, whatever network they come from (stops password guessing on one person).
     if (!loginAccountLimit(email)) { securityLog('login_rate_limited_account', { ip: req.ip, email: maskEmail(email) }); fail(429, 'rate', 'Too many attempts. Please wait a few minutes.'); }
     const u = db.prepare('SELECT * FROM users WHERE email = ? AND is_demo = 0').get(email);
-    if (!u || !verifyPassword(req.body.password || '', u.password_hash)) {
+    // No account: the same password check still runs, so the answer takes as long either way.
+    if (!(u ? verifyPassword(req.body.password || '', u.password_hash) : burnPasswordCheck(req.body.password || ''))) {
       securityLog('login_failed', { ip: req.ip, email: maskEmail(email), known_account: !!u });
       fail(401, 'credentials', 'Email or password is not correct.');
     }
-    createSession(db, res, u.id);
+    if (needsRehash(u.password_hash)) db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(String(req.body.password)), u.id);
+    createSession(db, res, u.id, req);
     res.json({ ok: true });
   });
 
@@ -307,6 +342,7 @@ export function createApi(db) {
     db.prepare('UPDATE users SET email = ?, password_hash = ?, is_guest = 0 WHERE id = ?').run(email, hashPassword(password), req.user.id);
     if (first) db.prepare('UPDATE profiles SET first_name = ? WHERE user_id = ?').run(first, req.user.id);
     db.prepare('UPDATE profiles SET visible = 1 WHERE user_id = ?').run(req.user.id);
+    createSession(db, res, req.user.id, req); // new login token once the guest account becomes a real one
     const mail = await startVerification(req, req.user.id, email);
     res.json({ ok: true, verification_sent: mail.sent });
   });
@@ -335,20 +371,23 @@ export function createApi(db) {
   r.post('/auth/password/forgot', async (req, res) => {
     if (!resetLimit(req.ip)) { securityLog('password_reset_rate_limited', { ip: req.ip }); fail(429, 'rate', 'Too many attempts. Please wait a few minutes.'); }
     const email = str(req.body.email, 200, 'Email', { required: true }).toLowerCase();
-    if (!emailConfigured()) return res.json({ ok: true, sent: false });
+    // Always the same answer, sent straight away: it never shows whether an account exists. Whether reset emails are
+    // switched on at all is in /api/meta (passwordReset), the same for every address.
+    if (!emailConfigured() || !forgotEmailLimit(email)) return res.json({ ok: true });
     const u = db.prepare("SELECT id FROM users WHERE email = ? AND is_demo = 0 AND is_guest = 0 AND password_hash NOT IN ('deleted')").get(email);
     if (u) {
       const token = crypto.randomBytes(24).toString('base64url');
       db.prepare('DELETE FROM password_tokens WHERE user_id = ?').run(u.id);
       db.prepare('INSERT INTO password_tokens (token_hash, user_id, expires_at) VALUES (?,?,?)').run(sha(token), u.id, new Date(Date.now() + 3600e3).toISOString());
-      await sendEmail({
+      sendEmail({
         to: email, subject: `Choose a new password for ${config.appName}`,
         text: `Hi!\n\nSomeone asked to reset the password of your ${config.appName} account. To choose a new one, open this link within 1 hour:\n${origin(req)}/#/reset?token=${token}\n\nIf this wasn't you, ignore this email. Your password stays the same.`,
       }).catch((e) => console.error(e));
     }
-    res.json({ ok: true, sent: true });
+    res.json({ ok: true });
   });
   r.post('/auth/password/reset', (req, res) => {
+    if (!resetIpLimit(req.ip)) { securityLog('password_reset_rate_limited', { ip: req.ip }); fail(429, 'rate', 'Too many attempts. Please wait a few minutes.'); }
     const row = db.prepare('SELECT * FROM password_tokens WHERE token_hash = ?').get(sha(String(req.body.token || '')));
     if (!row || row.expires_at < now()) { securityLog('password_reset_bad_token', { ip: req.ip }); fail(400, 'invalid', 'This link is invalid or has expired. Ask for a new one from Log in.'); }
     const password = String(req.body.password || '');
@@ -359,7 +398,7 @@ export function createApi(db) {
     db.prepare('DELETE FROM password_tokens WHERE user_id = ?').run(row.user_id);
     db.prepare('DELETE FROM sessions WHERE user_id = ?').run(row.user_id);
     securityLog('password_reset_done', { user: row.user_id, ip: req.ip });
-    createSession(db, res, row.user_id);
+    createSession(db, res, row.user_id, req);
     res.json({ ok: true });
   });
 
@@ -587,6 +626,7 @@ export function createApi(db) {
   });
 
   r.post('/reports', auth, (req, res) => {
+    if (!reportLimit(`u${req.user.id}`) || !reportIpLimit(req.ip)) { securityLog('report_rate_limited', { user: req.user.id, ip: req.ip }); fail(429, 'rate', 'You sent a lot of reports. Please wait a little.'); }
     const type = ['user', 'activity', 'message', 'recommendation', 'event_message', 'listing', 'listing_message', 'direct_message', 'question', 'answer'].includes(req.body.target_type) ? req.body.target_type : fail(400, 'invalid', 'Unknown report type.');
     const reason = REPORT_REASONS.includes(req.body.reason) ? req.body.reason : fail(400, 'invalid', 'Please choose a reason.');
     const { lastInsertRowid } = db.prepare('INSERT INTO reports (reporter_id, target_type, target_id, reason, details) VALUES (?,?,?,?,?)')
@@ -978,11 +1018,9 @@ export function createApi(db) {
   // Optional plan picture (resized in the browser). Only logged-in people see it.
   r.put('/activities/:id/photo', auth, (req, res) => {
     const a = ownActivity(req);
-    const m = /^data:(image\/jpeg);base64,([A-Za-z0-9+/=]+)$/.exec(String(req.body?.data || ''));
-    if (!m) fail(400, 'invalid', 'Please choose a JPEG, PNG or WebP picture.');
-    const buf = Buffer.from(m[2], 'base64');
-    if (buf.length > 600 * 1024) fail(413, 'too_large', 'That picture is too large. Please choose a smaller one.');
-    if (!(buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff)) fail(400, 'invalid', 'That file does not look like a picture.');
+    photoRate(req);
+    const { mime, buf } = readJpeg(req);
+    const m = [null, mime];
     db.prepare('UPDATE activities SET photo_mime = ?, photo = ?, photo_v = photo_v + 1 WHERE id = ?').run(m[1], buf, a.id);
     res.json({ ok: true });
   });
@@ -1549,13 +1587,15 @@ export function createApi(db) {
   // ---------- profile pictures ----------
   const PHOTO_TYPES = { 'image/jpeg': [0xff, 0xd8, 0xff], 'image/png': [0x89, 0x50, 0x4e, 0x47], 'image/webp': [0x52, 0x49, 0x46, 0x46] };
   r.put('/me/photo', auth, (req, res) => {
+    photoRate(req);
     const m = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(req.body?.data || ''));
     if (!m) fail(400, 'invalid', 'Please choose a JPEG, PNG or WebP picture.');
     const buf = Buffer.from(m[2], 'base64');
     if (buf.length > 600 * 1024) fail(413, 'too_large', 'That picture is too large. Please choose a smaller one.');
     if (!PHOTO_TYPES[m[1]].every((b, i) => buf[i] === b)) fail(400, 'invalid', 'That file does not look like a picture.');
+    const clean = stripImageMetadata(buf, m[1]) || fail(400, 'invalid', 'That file does not look like a picture.');
     db.prepare(`INSERT INTO photos (user_id, mime, data, updated_at) VALUES (?,?,?,?)
-      ON CONFLICT(user_id) DO UPDATE SET mime=excluded.mime, data=excluded.data, updated_at=excluded.updated_at`).run(req.user.id, m[1], buf, now());
+      ON CONFLICT(user_id) DO UPDATE SET mime=excluded.mime, data=excluded.data, updated_at=excluded.updated_at`).run(req.user.id, m[1], clean, now());
     db.prepare('UPDATE profiles SET photo_v = photo_v + 1 WHERE user_id = ?').run(req.user.id);
     res.json({ ok: true });
   });
@@ -1754,7 +1794,7 @@ export function createApi(db) {
   // ---------- feedback ----------
   const feedbackLimit = rateLimiter(10, 60 * 60e3);
   r.post('/feedback', auth, (req, res) => {
-    if (!feedbackLimit(String(req.user.id))) fail(429, 'rate', 'Thanks! You have sent a lot of feedback this hour. Please try again later.');
+    if (!feedbackLimit(String(req.user.id)) || !feedbackIpLimit(req.ip)) fail(429, 'rate', 'Thanks! You have sent a lot of feedback this hour. Please try again later.');
     const kind = FEEDBACK_KINDS.some((k) => k.key === req.body.kind) ? req.body.kind : 'other';
     const reply = str(req.body.reply_email, 200, 'Email') || null;
     if (reply && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(reply)) fail(400, 'invalid', 'Please enter a valid email address, or leave it empty.');
@@ -1873,24 +1913,15 @@ export function createApi(db) {
   });
   r.put('/market/:id/photo', auth, (req, res) => {
     const l = ownListing(req);
-    const m = /^data:(image\/jpeg);base64,([A-Za-z0-9+/=]+)$/.exec(String(req.body?.data || ''));
-    if (!m) fail(400, 'invalid', 'Please choose a JPEG, PNG or WebP picture.');
-    const buf = Buffer.from(m[2], 'base64');
-    if (buf.length > 600 * 1024) fail(413, 'too_large', 'That picture is too large. Please choose a smaller one.');
-    if (!(buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff)) fail(400, 'invalid', 'That file does not look like a picture.');
+    photoRate(req);
+    const { mime, buf } = readJpeg(req);
+    const m = [null, mime];
     db.prepare('UPDATE listings SET photo_mime = ?, photo = ?, updated_at = ? WHERE id = ?').run(m[1], buf, now(), l.id);
     res.json({ ok: true });
   });
-  const readJpeg = (req) => {
-    const m = /^data:(image\/jpeg);base64,([A-Za-z0-9+/=]+)$/.exec(String(req.body?.data || ''));
-    if (!m) fail(400, 'invalid', 'Please choose a JPEG, PNG or WebP picture.');
-    const buf = Buffer.from(m[2], 'base64');
-    if (buf.length > 600 * 1024) fail(413, 'too_large', 'That picture is too large. Please choose a smaller one.');
-    if (!(buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff)) fail(400, 'invalid', 'That file does not look like a picture.');
-    return { mime: m[1], buf };
-  };
   r.post('/market/:id/photos', auth, (req, res) => {
     const l = ownListing(req);
+    photoRate(req);
     const { mime, buf } = readJpeg(req);
     const id = tx(db, () => {
       const count = (l.photo_mime ? 1 : 0) + db.prepare('SELECT COUNT(*) AS n FROM listing_photos WHERE listing_id = ?').get(l.id).n;
