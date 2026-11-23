@@ -6,7 +6,7 @@ import { fmtWhen } from '../util.js';
 
 /** Group chat for everyone who joined an event's group ("I'm going / looking for company"). */
 export default function EventChat({ id }) {
-  const { api, toast, meta, city } = useApp();
+  const { api, toast, meta, city, openAccount } = useApp();
   const [info, setInfo] = useState(null);
   const [msgs, setMsgs] = useState([]);
   const [err, setErr] = useState(null);
@@ -44,7 +44,7 @@ export default function EventChat({ id }) {
     e.preventDefault();
     if (!text.trim()) return;
     setBusy(true);
-    try { await api.post(`/events/${id}/messages`, { body: text }); setText(''); await load(); } catch (x) { toast(x.message, true); } finally { setBusy(false); }
+    try { await api.post(`/events/${id}/messages`, { body: text }); setText(''); await load(); } catch (x) { if (x.code === 'account_needed') { openAccount('signup', { reason: tx(x.message) }); return; } toast(x.message, true); } finally { setBusy(false); }
   };
 
   if (err && !info) {

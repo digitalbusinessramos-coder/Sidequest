@@ -27,6 +27,8 @@ export function createApp(db) {
     res.set('Content-Security-Policy', CSP);
     res.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()');
     res.set('Cross-Origin-Opener-Policy', 'same-origin');
+    // Other websites cannot embed our files (pictures, scripts) in their pages.
+    res.set('Cross-Origin-Resource-Policy', 'same-origin');
     // Browsers remember to use HTTPS only (the live site always runs on HTTPS).
     if (config.secureCookies) res.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     next();
@@ -79,15 +81,35 @@ export function createApp(db) {
 <link rel="icon" href="/favicon.ico"></head><body><p><a href="${target}">${esc(title)}</a></p><script>location.replace(${JSON.stringify(target)})</script></body></html>`);
   });
 
+  // How to report a security problem (RFC 9116). SECURITY_CONTACT can be set on the host, e.g. mailto:team@example.org.
+  app.get('/.well-known/security.txt', (req, res) => {
+    const base = process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
+    const contact = /^(mailto:|https:\/\/)\S+$/.test(process.env.SECURITY_CONTACT || '') ? process.env.SECURITY_CONTACT : `${base}/#/help`;
+    const expires = new Date(Date.now() + 180 * 864e5).toISOString().slice(0, 10);
+    res.type('text/plain').send(`Contact: ${contact}\nExpires: ${expires}T00:00:00.000Z\nPreferred-Languages: en, es, de\nCanonical: ${base}/.well-known/security.txt\n`);
+  });
+
   const dist = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist');
   if (fs.existsSync(dist)) {
     app.use(express.static(dist, { index: false, maxAge: '1h' }));
-    app.get('*', (_req, res) => res.sendFile(path.join(dist, 'index.html')));
+    // Only app screens fall back to the app. Anything that looks like a file (/.env, *.map, /server/db.js)
+    // and is not part of the build gets a plain 404, so nobody can mistake the app page for a real file.
+    app.get('*', (req, res) => {
+      const last = req.path.split('/').pop();
+      if (req.path.includes('/.') || last.includes('.') || /^\/(server|data|src|test|scripts|node_modules)(\/|$)/.test(req.path)) {
+        return res.status(404).type('text/plain').send('Not found');
+      }
+      res.sendFile(path.join(dist, 'index.html'));
+    });
   }
+  app.use((_req, res) => res.status(404).type('text/plain').send('Not found'));
 
   // eslint-disable-next-line no-unused-vars
   app.use((err, _req, res, _next) => {
-    if (err instanceof HttpError) return res.status(err.status).json({ error: err.code, message: err.message });
+    if (err instanceof HttpError) {
+      if (err.status === 429) res.set('Retry-After', String(err.retryAfter || 60));
+      return res.status(err.status).json({ error: err.code, message: err.message });
+    }
     if (err?.type === 'entity.too.large') return res.status(413).json({ error: 'too_large', message: 'That picture is too large. Please choose a smaller one.' });
     if (err?.type === 'entity.parse.failed') return res.status(400).json({ error: 'invalid', message: 'Invalid JSON.' });
     console.error(err);

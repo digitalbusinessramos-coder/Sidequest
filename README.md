@@ -90,7 +90,7 @@ Any host that runs a Node server and has a **persistent disk** works. Without a 
 - **Railway**: new project from the repo, add a Volume mounted at `/data`, set `DB_PATH=/data/sidequest.db`, build `npm ci && npm run build`, start `npm start`.
 - **Fly.io / any Docker host**: use the `Dockerfile` and mount a volume at `/data`.
 
-Environment variables: `APP_NAME`, `PORT`, `DB_PATH`, `DEMO_MODE` (`off` hides sample personas/content), `ADMIN_TOKEN`, `NODE_ENV=production` (secure cookies, requires HTTPS), `AUTH_RATE_LIMIT` (sign-in attempts per IP per 10 min, default 100), `GUEST_DAYS` (days before a guest account is erased, default 7), `GUEST_RATE_LIMIT` (new guests per IP per hour, default 60). Guest access is part of demo mode: `DEMO_MODE=off` turns it off.
+Environment variables: `APP_NAME`, `PORT`, `DB_PATH`, `DEMO_MODE` (`on` switches on guest access without an account; off by default in production), `ADMIN_TOKEN`, `NODE_ENV=production` (secure cookies, requires HTTPS), `AUTH_RATE_LIMIT` (sign-in attempts per IP per 10 min, default 100), `GUEST_DAYS` (days before a guest account is erased, default 7), `GUEST_RATE_LIMIT` (new guests per IP per hour, default 60). Guest access is part of demo mode: set `DEMO_MODE=on` on the host to keep it. `SECURITY_CONTACT` (mailto: or https: link for /.well-known/security.txt).
 
 Optional email confirmation: `RESEND_API_KEY`, `EMAIL_FROM` (an address on a domain verified in Resend) and `PUBLIC_URL` (the deployed link, used in the email). Without them the app works normally and the Profile screen says email confirmation is not set up yet.
 

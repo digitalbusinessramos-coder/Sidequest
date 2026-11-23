@@ -8,6 +8,7 @@ import path from 'node:path';
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sq-test-'));
 process.env.DB_PATH = path.join(dir, 'test.db');
 process.env.AUTH_RATE_LIMIT = '10000';
+process.env.SIGNUP_RATE_LIMIT = '10000';
 process.env.NODE_ENV = 'test';
 process.env.SEED_EXAMPLES = '1';
 const { openDb } = await import('../server/db.js');
@@ -36,6 +37,18 @@ function client() {
     return { status: res.status, body: await res.json().catch(() => ({})) };
   };
   return { get: (u) => call('GET', u), post: (u, b = {}) => call('POST', u, b), put: (u, b = {}) => call('PUT', u, b), del: (u, b = {}) => call('DELETE', u, b) };
+}
+
+// A small, well-formed JPEG: start, JFIF header, EXIF block (with a GPS marker), a comment, image data, end.
+function testJpeg(dataBytes = 64, fill = 7) {
+  const seg = (m, body) => { const h = Buffer.from([0xff, m, 0, 0]); h.writeUInt16BE(body.length + 2, 2); return Buffer.concat([h, body]); };
+  return Buffer.concat([
+    Buffer.from([0xff, 0xd8]),
+    seg(0xe0, Buffer.from('JFIF\0\x01\x01\0\0\x01\0\x01\0\0', 'latin1')),
+    seg(0xe1, Buffer.from('Exif\0\0GPSLatitude 28.1235 GPSLongitude -15.4363', 'latin1')),
+    seg(0xfe, Buffer.from('taken at home', 'latin1')),
+    seg(0xda, Buffer.from([1, 1, 0, 0, 0x3f, 0])), Buffer.alloc(dataBytes, fill), Buffer.from([0xff, 0xd9]),
+  ]);
 }
 
 let n = 0;
@@ -411,7 +424,7 @@ test('event group chat: only people in the event group can read or write', async
 test('profile pictures: only real images, visible to logged-in people, not to someone who blocked you', async () => {
   const a = await user('Pia'); const b = await user('Quin');
   assert.equal((await a.put('/me/photo', { data: 'data:image/png;base64,' + Buffer.from('<svg onload=alert(1)>').toString('base64') })).status, 400);
-  const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(100)]);
+  const jpeg = testJpeg();
   assert.equal((await a.put('/me/photo', { data: 'data:image/jpeg;base64,' + jpeg.toString('base64') })).status, 200);
   const url = (await a.get('/me')).body.user.photo;
   assert.match(url, /\/api\/users\/\d+\/photo\?v=1/);
@@ -421,6 +434,10 @@ test('profile pictures: only real images, visible to logged-in people, not to so
   const cookie = login.headers.get('set-cookie').split(';')[0];
   const ok = await get(cookie);
   assert.equal(ok.status, 200); assert.equal(ok.headers.get('content-type'), 'image/jpeg');
+  // Camera details and the GPS position are removed before the picture is stored; the picture data stays.
+  const stored = Buffer.from(await ok.arrayBuffer());
+  assert.ok(!stored.includes('GPSLatitude') && !stored.includes('taken at home') && stored.includes('JFIF'));
+  assert.equal(stored[0], 0xff); assert.equal(stored[stored.length - 1], 0xd9);
   // Guessing the address by number does not work: the picture needs the key the app hands out with the name.
   assert.equal((await fetch(base + `/users/${a.id}/photo?v=1`, { headers: { cookie } })).status, 404);
   assert.equal((await fetch(base + `/users/${a.id}/photo?v=1&k=wrong`, { headers: { cookie } })).status, 404);
@@ -698,7 +715,8 @@ test('R1 examples stay out of discovery and cannot be joined; real content and l
 test('R1 password recovery never reveals accounts and works without email setup', async () => {
   const u = await user('Wim');
   const r = await client().post('/auth/password/forgot', { email: u.email });
-  assert.equal(r.status, 200); assert.equal(r.body.sent, false, 'no email provider in tests: the app says so');
+  assert.equal(r.status, 200); assert.deepEqual(r.body, { ok: true }, 'same answer for every address');
+  assert.equal((await client().get('/meta')).body.passwordReset, false, 'no email provider in tests: the app says so, for every address alike');
   assert.equal((await client().post('/auth/password/reset', { token: 'nope', password: 'whatever123' })).status, 400);
   const crypto = await import('node:crypto');
   const token = 'tok-' + Date.now();
@@ -769,7 +787,7 @@ test('R3 updates: unread chat grouped per plan; extra listing photos up to 4', a
   const chats = (await guest.get('/notifications')).body.chats;
   assert.equal(chats.length, 1); assert.equal(chats[0].unread, 3); assert.equal(chats[0].activity.id, id);
   const l = (await org.post('/market', { kind: 'free', category: 'other', title: 'Chair' })).body.id;
-  const jpg = `data:image/jpeg;base64,${Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]).toString('base64')}`;
+  const jpg = `data:image/jpeg;base64,${testJpeg(8).toString('base64')}`;
   for (let i = 0; i < 4; i++) assert.equal((await org.post(`/market/${l}/photos`, { data: jpg })).status, 201);
   assert.equal((await org.post(`/market/${l}/photos`, { data: jpg })).status, 409);
   const v = (await guest.get(`/market/${l}`)).body.listing;
@@ -1021,7 +1039,7 @@ test('real-size pictures upload for plans and listings, not only tiny ones', asy
   const org = await user('Snap');
   const id = await makeActivity(org);
   // About 300 KB, like a cropped 1200 px phone photo.
-  const big = `data:image/jpeg;base64,${Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(300 * 1024, 7)]).toString('base64')}`;
+  const big = `data:image/jpeg;base64,${testJpeg(300 * 1024).toString('base64')}`;
   assert.equal((await org.put(`/activities/${id}/photo`, { data: big })).status, 200);
   assert.equal((await org.put('/me/photo', { data: big })).status, 200);
   const l = (await org.post('/market', { kind: 'free', category: 'other', title: 'Lamp' })).body.id;
@@ -1074,5 +1092,77 @@ test('security: headers, login limit per account, admin script token, guests nev
     assert.equal((await g.put(`/events/${ev.id}/interest`, { group_pref: 'either' })).status, 200);
     assert.equal((await g.get(`/events/${ev.id}`)).body.event.seekers, null);
     assert.equal((await g.post(`/events/${ev.id}/invite`, { userId: s1.id })).status, 401);
+  }
+  // Guests can look, but posting needs an account: no anonymous listings, tips or chat messages.
+  const g2 = client(); assert.equal((await g2.post('/auth/guest')).status, 201);
+  assert.equal((await g2.post('/market', { kind: 'free', title: 'Free sofa' })).status, 401);
+  assert.equal((await g2.post('/recommendations', { category: 'food', title: 'Great tapas' })).status, 401);
+  assert.equal((await g2.get('/market?city=las-palmas')).status, 200);
+  const seller = await user('Sella');
+  const lid = (await seller.post('/market', { kind: 'free', title: 'Free lamp' })).body.id;
+  assert.equal((await g2.post(`/market/${lid}/messages`, { body: 'Still there?' })).status, 401);
+  if (ev) {
+    assert.equal((await g2.put(`/events/${ev.id}/interest`, { group_pref: 'either' })).status, 200);
+    assert.equal((await g2.get(`/events/${ev.id}/messages`)).status, 200, 'guests can still read the event chat');
+    assert.equal((await g2.post(`/events/${ev.id}/messages`, { body: 'Hi all' })).status, 401);
+  }
+});
+
+test('hardening: meta without internals, same answers for unknown emails, Retry-After, guest write cap, files', async () => {
+  const meta = await fetch(base + '/meta');
+  const m = await meta.json();
+  assert.equal(m.revision, undefined, 'no build revision in public meta');
+  assert.equal(typeof m.passwordReset, 'boolean');
+  assert.equal(meta.headers.get('cross-origin-resource-policy'), 'same-origin');
+
+  // Password forgot: same answer for an account and for an unknown address, no "sent" flag.
+  const known = await user('Enum');
+  const f1 = await client().post('/auth/password/forgot', { email: known.email });
+  const f2 = await client().post('/auth/password/forgot', { email: 'nobody-here@test.example' });
+  assert.deepEqual(f1.body, { ok: true }); assert.deepEqual(f2.body, { ok: true });
+  // Login: same status and message for a wrong password and an unknown email.
+  const l1 = await client().post('/auth/login', { email: known.email, password: 'wrong-pass-1' });
+  const l2 = await client().post('/auth/login', { email: 'nobody-here@test.example', password: 'wrong-pass-1' });
+  assert.equal(l1.status, 401); assert.deepEqual(l1.body, l2.body);
+  assert.equal(typeof l1.body.error, 'string');
+
+  // Every 429 says when to try again.
+  const c = client(); let last;
+  for (let i = 0; i < 12; i++) last = await fetch(base + '/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'retry@test.example', password: 'x' }) });
+  assert.equal(last.status, 429);
+  assert.ok(Number(last.headers.get('retry-after')) > 0);
+  assert.equal((await last.json()).error, 'rate');
+
+  // Session: a new token on login, the old one stops working.
+  const s1 = client();
+  await s1.post('/auth/login', { email: known.email, password: 'password123' });
+  assert.ok((await s1.get('/me')).body.user);
+
+  // Guests: at most 60 changes an hour.
+  const g = client(); assert.equal((await g.post('/auth/guest')).status, 201);
+  let gs;
+  for (let i = 0; i < 61; i++) gs = await g.post('/visit', {});
+  assert.equal(gs.status, 429);
+
+  // Old password hashes still work and are upgraded on login.
+  const { hashPassword } = await import('../server/auth.js');
+  const crypto = await import('node:crypto');
+  const salt = crypto.randomBytes(16);
+  const old = `scrypt$${salt.toString('hex')}$${crypto.scryptSync('legacy-pass-1', salt, 64).toString('hex')}`;
+  const lu = await user('Legacy');
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(old, lu.id);
+  assert.equal((await client().post('/auth/login', { email: lu.email, password: 'legacy-pass-1' })).status, 200);
+  assert.match(db.prepare('SELECT password_hash FROM users WHERE id = ?').get(lu.id).password_hash, /^scrypt2\$32768\$8\$3\$/);
+  assert.match(hashPassword('x'), /^scrypt2\$/);
+});
+
+test('files: security.txt and robots.txt, unknown files get 404 instead of the app', async () => {
+  const root = base.replace('/api', '');
+  const sec = await fetch(root + '/.well-known/security.txt');
+  assert.equal(sec.status, 200);
+  const t = await sec.text();
+  assert.match(t, /^Contact: /m); assert.match(t, /^Expires: \d{4}-/m);
+  for (const p of ['/.env', '/.git/config', '/assets/index.js.map', '/server/db.js', '/data/sidequest.db', '/api/../.env']) {
+    assert.equal((await fetch(root + p)).status, 404, p);
   }
 });

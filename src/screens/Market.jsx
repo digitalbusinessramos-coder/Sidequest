@@ -31,7 +31,8 @@ function ListingCard({ l }) {
 }
 
 export default function Market({ query = {} }) {
-  const { city, meta } = useApp();
+  const { city, meta, me, openAccount } = useApp();
+  const guestGate = (e) => { if (me.is_guest) { e.preventDefault(); openAccount('signup', { reason: tx('Create a free account to sell or give something away.') }); } };
   const [kind, setKind] = useState(query.kind || '');
   const [category, setCategory] = useState('');
   const [q, setQ] = useState('');
@@ -80,13 +81,13 @@ export default function Market({ query = {} }) {
       ) : (
         <div className="listing-grid">{list.map((l) => <ListingCard key={l.id} l={l} />)}</div>
       )}
-      <a href={`#/market/new${query.event ? `?kind=ticket&event=${query.event}` : ''}`} className="btn btn-primary fab"><Icon name="plus" />{tx('Sell or give away')}</a>
+      <a href={`#/market/new${query.event ? `?kind=ticket&event=${query.event}` : ''}`} className="btn btn-primary fab" onClick={guestGate}><Icon name="plus" />{tx('Sell or give away')}</a>
     </div>
   );
 }
 
 export function ListingDetail({ id }) {
-  const { api, toast, meta, city } = useApp();
+  const { api, toast, meta, city, me, openAccount } = useApp();
   const { data, error, loading, reload } = useApi(`/market/${id}`, { poll: 20000 });
   const [report, setReport] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -161,7 +162,7 @@ export function ListingDetail({ id }) {
           </section>
         ) : (
           <div className="sticky-actions"><div className="row">
-            <a className="btn btn-primary" style={{ flex: 1 }} href={`#/market/${l.id}/chat`} aria-disabled={l.status === 'sold'}><Icon name="chat" />{l.kind === 'wanted' ? tx('I have this') : tx('Message the seller')}</a>
+            <a className="btn btn-primary" style={{ flex: 1 }} href={`#/market/${l.id}/chat`} aria-disabled={l.status === 'sold'} onClick={(e) => { if (me.is_guest) { e.preventDefault(); openAccount('signup', { reason: tx('Create a free account to message the seller.') }); } }}><Icon name="chat" />{l.kind === 'wanted' ? tx('I have this') : tx('Message the seller')}</a>
             <button className={`btn ${l.saved ? 'btn-secondary' : 'btn-ghost'}`} aria-pressed={l.saved} onClick={() => act(() => (l.saved ? api.del(`/market/${l.id}/save`) : api.put(`/market/${l.id}/save`, {})))} aria-label={tx(l.saved ? 'Remove from saved' : 'Save')}><Icon name="bookmark" /></button>
           </div></div>
         )}
@@ -199,7 +200,7 @@ function PhotoCarousel({ photos, title }) {
 }
 
 export function ListingForm({ editId, query = {} }) {
-  const { api, meta, city, toast } = useApp();
+  const { api, meta, city, toast, openAccount } = useApp();
   const evs = useApi(`/events?city=${city.slug}`);
   const [v, setV] = useState(editId ? null : { kind: query.kind || 'sell', category: query.kind === 'ticket' ? 'tickets' : 'other', title: '', description: '', price_eur: '', face_value_eur: '', event_id: query.event || '', area: '' });
   const [added, setAdded] = useState([]); // new pictures, as data URLs
@@ -228,7 +229,7 @@ export function ListingForm({ editId, query = {} }) {
       for (const data of added) await api.post(`/market/${id}/photos`, { data });
       toast(editId ? tx('Listing updated.') : tx('Your listing is live.'));
       location.replace(`#/market/${id}`);
-    } catch (x) { setErr(x.message); } finally { setBusy(false); }
+    } catch (x) { if (x.code === 'account_needed') openAccount('signup', { reason: tx('Create a free account to sell or give something away.') }); setErr(x.message); } finally { setBusy(false); }
   };
   const ticket = v.kind === 'ticket';
   return (
@@ -317,7 +318,7 @@ export function ListingForm({ editId, query = {} }) {
 }
 
 export function ListingChat({ id, query = {} }) {
-  const { api, toast, city, meta } = useApp();
+  const { api, toast, city, meta, openAccount } = useApp();
   const [info, setInfo] = useState(null);
   const [msgs, setMsgs] = useState([]);
   const [err, setErr] = useState(null);
@@ -346,7 +347,7 @@ export function ListingChat({ id, query = {} }) {
     e.preventDefault();
     if (!text.trim()) return;
     setBusy(true);
-    try { await api.post(`/market/${id}/messages`, { body: text, buyer: query.buyer ? Number(query.buyer) : undefined }); setText(''); await load(); } catch (x) { toast(x.message, true); } finally { setBusy(false); }
+    try { await api.post(`/market/${id}/messages`, { body: text, buyer: query.buyer ? Number(query.buyer) : undefined }); setText(''); await load(); } catch (x) { if (x.code === 'account_needed') { openAccount('signup', { reason: tx(x.message) }); return; } toast(x.message, true); } finally { setBusy(false); }
   };
   if (err && !info) return <><TopBar title={tx('Messages')} /><div className="page"><ErrorState error={err} /><a className="btn btn-secondary" href={`#/market/${id}`}>{tx('Back to the listing')}</a></div></>;
   const QUICK = ['Is it still available?', 'Could I see it this week?', 'Where could we meet?'];
