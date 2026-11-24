@@ -7,7 +7,7 @@ import { langName } from './ProfileBits.jsx';
 import { InstallSuggestion } from './Install.jsx';
 
 export default function ActivityDetail({ id, query = {} }) {
-  const { api, toast, reloadMe, meta, me, openAccount } = useApp();
+  const { api, toast, reloadMe, meta, me, openAccount, countStep } = useApp();
   const { data, error, loading, reload } = useApi(`/activities/${id}`, { poll: 10000 });
   const [busy, setBusy] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
@@ -187,8 +187,8 @@ export default function ActivityDetail({ id, query = {} }) {
               a.state === 'full'
                 ? <button className="btn btn-secondary btn-block" disabled>{t('status.full')}</button>
                 : a.join_mode === 'open'
-                  ? <button className="btn btn-primary btn-block" onClick={joinOpenPlan} disabled={busy}><Icon name="bolt" />{tx('Join plan')}</button>
-                  : <button className="btn btn-primary btn-block" onClick={() => setJoinOpen(true)} disabled={busy}>{t('act.request')}</button>
+                  ? <button className="btn btn-primary btn-block" onClick={() => { countStep('join_tap'); joinOpenPlan(); }} disabled={busy}><Icon name="bolt" />{tx('Join plan')}</button>
+                  : <button className="btn btn-primary btn-block" onClick={() => { countStep('join_tap'); setJoinOpen(true); }} disabled={busy}>{t('act.request')}</button>
             ) : a.my_status === 'pending' ? (
               <div className="row">
                 <span className="badge badge-pending" style={{ flex: 1, justifyContent: 'center', minHeight: 40 }}><Icon name="check" size={14} />{tx('Request sent')}</span>
