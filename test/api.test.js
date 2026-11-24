@@ -1213,3 +1213,23 @@ test('files: security.txt and robots.txt, unknown files get 404 instead of the a
     assert.equal((await fetch(root + p)).status, 404, p);
   }
 });
+
+test('guest sign-up steps: daily totals only, guests only, account creation counted by the server', async () => {
+  process.env.ADMIN_TOKEN = 'team-code-for-tests-123';
+  const team = await user('Stepper'); await team.post('/team/unlock', { code: process.env.ADMIN_TOKEN });
+  const steps = async () => (await team.get('/team/numbers')).body.guest_steps.last_7_days;
+  const before = await steps();
+  const g = client(); await g.post('/auth/guest');
+  await g.post('/guest-step', { step: 'join_tap' }); await g.post('/guest-step', { step: 'signup_open' });
+  await g.post('/guest-step', { step: 'signup_done' }); await g.post('/guest-step', { step: 'nonsense' }); // ignored
+  await team.post('/guest-step', { step: 'join_tap' }); // accounts are not counted
+  await g.post('/auth/claim', { email: `step${Date.now()}@mail.test`, password: 'password123', first_name: 'Sia' });
+  const t = client(); await t.post('/auth/guest');
+  await t.post('/auth/claim', { email: `qa-step${Date.now()}@example.com`, password: 'password123', first_name: 'Testy' }); // test account: left out
+  const after = await steps();
+  assert.deepEqual([after.join_tap - before.join_tap, after.signup_open - before.signup_open, after.signup_done - before.signup_done], [1, 1, 1]);
+  const cols = db.prepare('PRAGMA table_info(guest_steps)').all().map((c) => c.name);
+  assert.deepEqual(cols, ['day', 'step', 'n'], 'no user id or IP stored');
+  assert.equal((await g.get('/team/numbers')).status, 403);
+  delete process.env.ADMIN_TOKEN;
+});

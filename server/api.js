@@ -348,6 +348,7 @@ export function createApi(db) {
     db.prepare('UPDATE profiles SET visible = 1 WHERE user_id = ?').run(req.user.id);
     createSession(db, res, req.user.id, req); // new login token once the guest account becomes a real one
     const mail = await startVerification(req, req.user.id, email);
+    if (!mail.test) countGuestStep('signup_done');
     res.json({ ok: true, verification_sent: mail.sent });
   });
 
@@ -676,6 +677,16 @@ export function createApi(db) {
     res.json({ ok: true });
   });
 
+  // Guest sign-up steps: only a total per step per day is stored (no user id, no IP). The app sends each step at most once per day.
+  const GUEST_STEPS = ['join_tap', 'signup_open', 'signup_done'];
+  const countGuestStep = (step) => db.prepare('INSERT INTO guest_steps (day, step, n) VALUES (?, ?, 1) ON CONFLICT(day, step) DO UPDATE SET n = n + 1').run(canaryDay(), step);
+  r.post('/guest-step', auth, (req, res) => {
+    const step = String(req.body?.step || '');
+    // 'signup_done' is counted by the server itself when a guest saves their account, so it can't be sent from outside.
+    if (req.user.is_guest && !req.user.is_demo && ['join_tap', 'signup_open'].includes(step)) countGuestStep(step);
+    res.json({ ok: true });
+  });
+
   r.get('/team/me', auth, (req, res) => res.json({ admin: isAdmin(req), code_configured: !!process.env.ADMIN_TOKEN, alert_email: !!process.env.TEAM_ALERT_EMAIL, email_service: emailConfigured() }));
   r.post('/team/unlock', auth, (req, res) => {
     if (req.user.is_guest) fail(401, 'account_needed', 'Log in with your own account first.');
@@ -745,6 +756,11 @@ export function createApi(db) {
       reports_open: n("SELECT COUNT(*) AS n FROM reports WHERE status = 'open'"),
       feedback_open: n("SELECT COUNT(*) AS n FROM feedback WHERE status = 'open'"),
       excluded_test_accounts: n('SELECT COUNT(*) AS n FROM users WHERE is_test = 1'),
+      guest_steps: (() => {
+        const sum = (from) => Object.fromEntries(GUEST_STEPS.map((st) => [st, n('SELECT COALESCE(SUM(n), 0) AS n FROM guest_steps WHERE step = ? AND day >= ?', st, from)]));
+        return { last_7_days: sum(canaryDay(new Date(Date.now() - 6 * 864e5))), last_30_days: sum(canaryDay(new Date(Date.now() - 29 * 864e5))),
+          counting_since: db.prepare('SELECT MIN(day) AS d FROM guest_steps').get().d };
+      })(),
       notifications_on: n(`SELECT COUNT(DISTINCT s.user_id) AS n FROM push_subscriptions s JOIN users u ON u.id = s.user_id WHERE ${real}`),
       visitors: (() => {
         const days = Array.from({ length: 14 }, (_, i) => canaryDay(new Date(Date.now() - i * 864e5)));

@@ -102,6 +102,8 @@ function migrate(db) {
   // Link tags (?src=instagram): which tagged link someone opened the app from, per day, and the first one per person.
   db.exec('CREATE TABLE IF NOT EXISTS visit_sources (day TEXT NOT NULL, user_id INTEGER NOT NULL, src TEXT NOT NULL, PRIMARY KEY (day, user_id, src))');
   db.exec('CREATE TABLE IF NOT EXISTS user_sources (user_id INTEGER PRIMARY KEY, src TEXT NOT NULL, day TEXT NOT NULL)');
+  // Guest sign-up steps for the team (tapped Join, opened sign-up, created account): one total per step per day, no user ids.
+  db.exec('CREATE TABLE IF NOT EXISTS guest_steps (day TEXT NOT NULL, step TEXT NOT NULL, n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (day, step))');
 }
 
 /** Run fn inside an IMMEDIATE transaction (takes the write lock first, so capacity checks cannot race). */

@@ -169,6 +169,14 @@ function Numbers() {
         </table>
       ) : <p className="small muted">{tx('No tagged links opened yet.')}</p>}
       <p className="tiny muted">{tx('Add ?src= and a short name to any link you post, for example {link}. Shared plan links are tagged “share” on their own. Only the tag is counted: no cookies or outside trackers.', { link: `${location.origin}/?src=instagram` })}</p>
+      <h3>{tx('Guests on the way to an account')}</h3>
+      <table className="visits-table">
+        <thead><tr><th scope="col">{tx('Step')}</th><th scope="col">{tx('7 days')}</th><th scope="col">{tx('30 days')}</th></tr></thead>
+        <tbody>{[['join_tap', 'Tapped Join or Ask to join'], ['signup_open', 'Opened the sign-up form'], ['signup_done', 'Created an account']].map(([k, label]) => (
+          <tr key={k}><th scope="row">{tx(label)}</th><td>{data.guest_steps.last_7_days[k]}</td><td>{data.guest_steps.last_30_days[k]}</td></tr>
+        ))}</tbody>
+      </table>
+      <p className="tiny muted">{data.guest_steps.counting_since ? tx('Guests only, each step at most once per day from the same browser. Only a daily total per step is stored: no names, accounts or IPs.') : tx('Counting starts with the next guest who taps Join or opens the sign-up form.')}</p>
       <h3>{tx('Activity')}</h3>
       <div className="card" style={{ padding: 0 }}>
         {rows.map(([k, v]) => <div key={k} className="person-row" style={{ padding: '10px 14px' }}><span style={{ flex: 1 }}>{tx(k)}</span><strong>{v}</strong></div>)}

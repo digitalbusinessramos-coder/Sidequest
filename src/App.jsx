@@ -141,9 +141,17 @@ export default function App() {
   if (!meta || me === undefined) return <div className="page"><Loading /></div>;
 
   const city = meta.cities.find((c) => c.slug === me?.city?.slug) || meta.cities[0];
-  const openAccount = (mode = 'signup', opts = {}) => setAccount({ mode, ...opts });
+  // Guest sign-up steps for the team numbers: each step at most once per day from this browser, only a daily total is kept.
+  const countStep = (step) => {
+    if (!me?.is_guest) return;
+    const key = `sq_step_${step}`; const day = new Date().toISOString().slice(0, 10);
+    if (store(key) === day) return;
+    store(key, day);
+    api.post('/guest-step', { step }).catch(() => {});
+  };
+  const openAccount = (mode = 'signup', opts = {}) => { if (mode === 'signup') countStep('signup_open'); setAccount({ mode, ...opts }); };
   const openFeedback = () => setFeedback(true);
-  const ctx = { meta, me, city, reloadMe, toast, api, counts, lang, changeLanguage, openAccount, openFeedback, openTour };
+  const ctx = { meta, me, city, reloadMe, toast, api, counts, lang, changeLanguage, openAccount, openFeedback, openTour, countStep };
 
   if (route.parts[0] === 'reset') return <AppCtx.Provider value={ctx}><ResetPassword token={route.query.token} />{toastNode}</AppCtx.Provider>;
   if (!me) return <AppCtx.Provider value={ctx}><Welcome key={lang} />{toastNode}</AppCtx.Provider>;
@@ -183,7 +191,7 @@ export default function App() {
       {me.is_demo && <div className="demo-banner">{tx('You are trying the app as {name}, an example student.', { name: me.first_name })}</div>}
       {me.is_guest && (
         <div className="guest-bar">
-          <span><Icon name="eye" size={16} /> <span className="guest-short">{tx('Guest mode')}</span><span className="guest-long">{tx('You’re looking around as a guest. No account needed.')}</span></span>
+          <span><Icon name="eye" size={16} /> <span className="guest-short">{tx('Guest mode')}</span><span className="guest-long">{tx('You’re looking around as a guest. Create a free account to join plans.')}</span></span>
           <button className="btn btn-sm btn-primary" onClick={() => openAccount('signup')}>{tx('Create account')}</button>
           <button className="btn btn-sm btn-ghost" onClick={() => openAccount('login')}>{tx('Log in')}</button>
         </div>
