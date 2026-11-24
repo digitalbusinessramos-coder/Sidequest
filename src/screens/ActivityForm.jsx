@@ -10,7 +10,7 @@ import { PLAN_EMOJIS, PLAN_SUGGESTIONS, planEmoji } from '../../shared/catalog.j
 const empty = () => ({
   title: '', category: 'other', template: 'other', description: '', day: '', day_mode: 'day', time_mode: '', time: '', time_window: '',
   meeting_area: '', meeting_point: '', duration_choice: '', cost_mode: '', cost_eur: '', capped: false, max_participants: '',
-  join_mode: 'request', beginner_friendly: false, emoji: '',
+  join_mode: 'open', beginner_friendly: false, emoji: '',
 });
 
 /** Links from an event, a buddy invitation or a City Guide tip carry a title, area, day or time. The student still checks everything. */
@@ -267,8 +267,8 @@ export default function ActivityForm({ editId, query = {} }) {
             <fieldset className="field plain">
               <legend className="label">{tx('How do people join?')}</legend>
               <div className="choice-cards">
-                {[['request', 'check', 'People ask, you accept', 'You decide who comes. They tap “Ask to join”.'],
-                  ['open', 'bolt', 'Anyone can join directly', 'They tap “Join plan” and are in straight away. You can still remove someone.']].map(([key, icon, title, hint]) => (
+                {[['open', 'bolt', 'Anyone can join directly', 'They tap “Join plan” and are in straight away. You can still remove someone.'],
+                  ['request', 'check', 'People ask, you accept', 'You decide who comes. They tap “Ask to join”.']].map(([key, icon, title, hint]) => (
                   <label key={key} className={`choice-card ${v.join_mode === key ? 'on' : ''}`}>
                     <input type="radio" name="join_mode" value={key} checked={v.join_mode === key} onChange={() => set({ join_mode: key })} />
                     <Icon name={icon} size={20} />
