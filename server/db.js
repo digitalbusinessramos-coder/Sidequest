@@ -103,6 +103,13 @@ function migrate(db) {
   db.exec('CREATE TABLE IF NOT EXISTS visit_sources (day TEXT NOT NULL, user_id INTEGER NOT NULL, src TEXT NOT NULL, PRIMARY KEY (day, user_id, src))');
   db.exec('CREATE TABLE IF NOT EXISTS user_sources (user_id INTEGER PRIMARY KEY, src TEXT NOT NULL, day TEXT NOT NULL)');
   // Guest sign-up steps for the team (tapped Join, opened sign-up, created account): one total per step per day, no user ids.
+  // Date suggestions in the chat of a plan whose day or time is still to be agreed, and who said "works for me".
+  db.exec(`CREATE TABLE IF NOT EXISTS time_suggestions (id INTEGER PRIMARY KEY, activity_id INTEGER NOT NULL REFERENCES activities(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, starts_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open',
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')))`);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_time_sugg_act ON time_suggestions(activity_id, status)');
+  db.exec(`CREATE TABLE IF NOT EXISTS time_votes (suggestion_id INTEGER NOT NULL REFERENCES time_suggestions(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, PRIMARY KEY (suggestion_id, user_id))`);
   db.exec('CREATE TABLE IF NOT EXISTS guest_steps (day TEXT NOT NULL, step TEXT NOT NULL, n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (day, step))');
 }
 

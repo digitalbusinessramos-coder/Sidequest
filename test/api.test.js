@@ -1247,3 +1247,67 @@ test('guest sign-up steps: daily totals only, guests only, account creation coun
   assert.equal((await g.get('/team/numbers')).status, 403);
   delete process.env.ADMIN_TOKEN;
 });
+
+test('plans list: real day first (soonest first), then this weekend / this week, then day to be agreed; newest first in ties', async () => {
+  const org = await user('Lina');
+  const base = { category: 'food', meeting_area: 'Triana', join_mode: 'open' };
+  const later = (await org.post('/activities', { ...base, title: 'Order later', day: dayIn(5), time_mode: 'exact', time: '18:00' })).body.id;
+  const flex1 = (await org.post('/activities', { ...base, title: 'Order flex old', day_mode: 'flex', time_mode: 'tbd' })).body.id;
+  const week = (await org.post('/activities', { ...base, title: 'Order week', day_mode: 'week', time_mode: 'tbd' })).body.id;
+  const soonTbd = (await org.post('/activities', { ...base, title: 'Order soon tbd', day: dayIn(3), time_mode: 'tbd' })).body.id;
+  const soon = (await org.post('/activities', { ...base, title: 'Order soon', day: dayIn(3), time_mode: 'exact', time: '20:00' })).body.id;
+  const flex2 = (await org.post('/activities', { ...base, title: 'Order flex new', day_mode: 'flex', time_mode: 'tbd' })).body.id;
+  const ids = (await org.get('/activities?city=las-palmas&q=Order')).body.activities.map((a) => a.id);
+  assert.deepEqual(ids, [soon, soonTbd, later, week, flex2, flex1]);
+});
+
+test('date suggestions: people in the plan suggest a date, say it works, organiser picks or everyone agrees', async () => {
+  const org = await user('Nora'); const pal = await user('Otto'); const out = await user('Pia');
+  const body = { title: 'Suggest hike', category: 'food', meeting_area: 'Triana', join_mode: 'open', day_mode: 'flex', time_mode: 'tbd' };
+  const id = (await org.post('/activities', body)).body.id;
+  assert.equal((await pal.post(`/activities/${id}/requests`, {})).body.status, 'accepted');
+
+  // Outsiders and guests can't see or add suggestions.
+  assert.equal((await out.get(`/activities/${id}/suggestions`)).status, 403);
+  assert.equal((await out.post(`/activities/${id}/suggestions`, { day: dayIn(4), time: '18:00' })).status, 403);
+  // No past or far-away dates.
+  assert.equal((await pal.post(`/activities/${id}/suggestions`, { day: dayIn(-2), time: '18:00' })).status, 400);
+  assert.equal((await pal.post(`/activities/${id}/suggestions`, { day: dayIn(200), time: '18:00' })).status, 400);
+
+  const s1 = (await pal.post(`/activities/${id}/suggestions`, { day: dayIn(4), time: '18:00' })).body.id;
+  const s2 = (await pal.post(`/activities/${id}/suggestions`, { day: dayIn(5), time: '19:30' })).body.id;
+  let v = (await org.get(`/activities/${id}/suggestions`)).body;
+  assert.equal(v.open, true); assert.equal(v.people, 2); assert.equal(v.can_pick, true);
+  assert.equal(v.suggestions.length, 2);
+  assert.equal(v.suggestions[0].votes, 1); assert.deepEqual(v.suggestions[0].voters, ['Otto']); assert.equal(v.suggestions[0].i_agree, false);
+  assert.equal((await pal.get(`/activities/${id}/suggestions`)).body.can_pick, false);
+  assert.equal((await pal.post(`/activities/${id}/suggestions/${s1}/pick`)).status, 403);
+  const sys = (await org.get(`/activities/${id}/messages`)).body.messages.filter((m) => m.kind === 'system' && /Otto suggested/.test(m.body));
+  assert.equal(sys.length, 2);
+
+  // Everyone (2 of 2) says s2 works: it becomes the plan's date and the plan has an exact time.
+  const r = await org.post(`/activities/${id}/suggestions/${s2}/vote`, { agree: true });
+  assert.equal(r.body.set, true);
+  const a = (await org.get(`/activities/${id}`)).body.activity;
+  assert.equal(a.day_mode, 'day'); assert.equal(a.time_mode, 'exact'); assert.equal(a.starts_local, `${dayIn(5)}T19:30`);
+  v = (await org.get(`/activities/${id}/suggestions`)).body;
+  assert.equal(v.open, false); assert.equal(v.suggestions.length, 0);
+  assert.equal((await pal.post(`/activities/${id}/suggestions`, { day: dayIn(6), time: '18:00' })).status, 409);
+  assert.ok((await pal.get('/notifications')).body.notifications.some((x) => x.kind === 'changed' && x.activity?.id === id));
+
+  // The organiser can pick a suggestion even if not everyone said yes; removing and un-voting work.
+  const id2 = (await org.post('/activities', { ...body, title: 'Suggest beach' })).body.id;
+  await pal.post(`/activities/${id2}/requests`, {});
+  const t1 = (await pal.post(`/activities/${id2}/suggestions`, { day: dayIn(3), time: '10:00' })).body.id;
+  const t2 = (await org.post(`/activities/${id2}/suggestions`, { day: dayIn(3), time: '11:00' })).body.id;
+  assert.equal((await pal.del(`/activities/${id2}/suggestions/${t2}`)).status, 403);
+  assert.equal((await org.del(`/activities/${id2}/suggestions/${t2}`)).status, 200);
+  assert.equal((await pal.post(`/activities/${id2}/suggestions/${t1}/vote`, { agree: false })).status, 200);
+  assert.equal((await org.get(`/activities/${id2}/suggestions`)).body.suggestions[0].votes, 0);
+  assert.equal((await org.post(`/activities/${id2}/suggestions/${t1}/pick`)).status, 200);
+  const b2 = (await pal.get(`/activities/${id2}`)).body.activity;
+  assert.equal(b2.starts_local, `${dayIn(3)}T10:00`); assert.equal(b2.time_mode, 'exact');
+  // Now it sorts with the dated plans.
+  const ids = (await org.get('/activities?city=las-palmas&q=Suggest')).body.activities.map((x) => x.id);
+  assert.deepEqual(ids, [id2, id]);
+});

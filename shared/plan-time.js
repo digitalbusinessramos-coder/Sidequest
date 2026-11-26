@@ -26,3 +26,26 @@ export function calendarPlacement(a) {
  * whose time or day is still open stays upcoming until its listing window ends.
  */
 export const effectiveStart = (a) => (hasExactTime(a) ? a.starts_at : a.ends_at || a.starts_at);
+
+/**
+ * Order of the plans list: 0 = a real day (soonest first), 1 = "This weekend" / "This week", 2 = day to be agreed.
+ * Within a real day, plans with a known time come before "time to be agreed". Ties (and the two open groups) show the
+ * newest plan first, so a plan that was just posted is at the top of its group.
+ */
+export const listGroup = (a) => (hasFixedDay(a) ? 0 : a.day_mode === 'flex' ? 2 : 1);
+
+export function comparePlans(a, b) {
+  const ga = listGroup(a); const gb = listGroup(b);
+  if (ga !== gb) return ga - gb;
+  if (ga === 0) {
+    const da = a.day || String(a.starts_at).slice(0, 10); const db = b.day || String(b.starts_at).slice(0, 10);
+    if (da !== db) return da < db ? -1 : 1;
+    const ta = a.time_mode === 'tbd' ? 1 : 0; const tb = b.time_mode === 'tbd' ? 1 : 0;
+    if (ta !== tb) return ta - tb;
+    if (a.starts_at !== b.starts_at) return a.starts_at < b.starts_at ? -1 : 1;
+  }
+  return b.id - a.id;
+}
+
+/** Members can suggest a date and time while the plan has no exact day and time yet. */
+export const canSuggestTime = (a) => !hasExactTime(a);
