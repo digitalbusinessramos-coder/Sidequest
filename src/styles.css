@@ -664,3 +664,8 @@ fieldset.plain > legend { margin-bottom: 6px; padding: 0; }
 .dm-row { text-decoration: none; color: inherit; gap: 10px; }
 .dm-row .dm-last { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .connect-ask { flex-basis: 100%; }
+
+/* Chats fill the screen between their own top bar and the tab bar, so the logo header would push the message box under the tab bar. */
+.mobile-brand:has(~ .app .chat) { display: none; }
+/* Date suggestions in a plan chat */
+.date-poll .btn-sm { min-height: 36px; }

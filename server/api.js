@@ -7,7 +7,7 @@ import { config } from './config.js';
 import { stripImageMetadata } from './images.js';
 import { hashPassword, verifyPassword, needsRehash, burnPasswordCheck, createSession, destroySession, sessionUser, rateLimiter, takeRetryAfter, securityLog, maskEmail } from './auth.js';
 import { localToUtcIso, utcToLocalInput, slotOf } from './time.js';
-import { hasFixedDay } from '../shared/plan-time.js';
+import { hasFixedDay, comparePlans, canSuggestTime } from '../shared/plan-time.js';
 import { CATEGORIES, TEMPLATES, LANGUAGES, STAY_KINDS, BUDGETS, REPORT_REASONS, REC_CATEGORIES, MARKET_KINDS, MARKET_CATEGORIES, FEEDBACK_KINDS, PLAN_EMOJIS, categoryPhrase, slotLabel } from '../shared/catalog.js';
 
 export class HttpError extends Error {
@@ -37,7 +37,7 @@ const languageList = (v) => list(v, null, 12).map((x) => LANGUAGES.find((l) => l
 // Flags for the bio: two-letter region codes (countries and territories, e.g. IC for the Canary Islands). Purely decorative.
 const flagList = (v) => list(v, null, 8).map((x) => x.toUpperCase()).filter((x) => /^[A-Z]{2}$/.test(x));
 const REVISION = (process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT || 'local').slice(0, 7);
-const RELEASE = 'pre-launch-11-potato-logo';
+const RELEASE = 'live-12-date-suggestions';
 const TIME_MODES = ['exact', 'window', 'tbd'];
 const DAY_MODES = ['day', 'weekend', 'week', 'flex'];
 // "Hasn't started yet" in SQL. Only an exact time is a real start; a plan whose day or time is still to be agreed stores a
@@ -516,6 +516,8 @@ export function createApi(db) {
       for (const m of db.prepare("SELECT activity_id FROM memberships WHERE user_id = ? AND status = 'accepted'").all(uid)) systemMsg(m.activity_id, 'A participant left (account deleted).');
       db.prepare('DELETE FROM memberships WHERE user_id = ?').run(uid);
       db.prepare('DELETE FROM messages WHERE user_id = ?').run(uid);
+      db.prepare('DELETE FROM time_votes WHERE user_id = ?').run(uid);
+      db.prepare("UPDATE time_suggestions SET status = 'removed' WHERE user_id = ? AND status = 'open'").run(uid);
       db.prepare('DELETE FROM wishes WHERE user_id = ?').run(uid);
       db.prepare('DELETE FROM event_interests WHERE user_id = ?').run(uid);
       db.prepare('DELETE FROM event_messages WHERE user_id = ?').run(uid);
@@ -879,7 +881,8 @@ export function createApi(db) {
     const rows = db.prepare(`SELECT * FROM activities WHERE city_id = ? AND status = 'active' AND is_sample = 0
       AND COALESCE(datetime(ends_at), datetime(starts_at, '+' || duration_min || ' minutes')) > datetime('now') ORDER BY starts_at LIMIT 300`).all(city.id);
     const views = visibleFilter(rows, req.user.id).filter((a) => whenMatch(a, req.query.when, city.timezone)).map((a) => activityView(a, req.user.id));
-    res.json({ activities: applyFilters(views, req.query) });
+    // Real day first (soonest first), then "this weekend / this week", then "day to be agreed". Newest first within ties.
+    res.json({ activities: applyFilters(views, req.query).sort(comparePlans) });
   });
 
   r.get('/activities/:id', auth, (req, res) => {
@@ -1241,6 +1244,153 @@ export function createApi(db) {
       push.sendChat(o.user_id, `a${a.id}`, { name: nameOf(req.user.id), plan: a.title, url: `/#/activity/${a.id}/chat`, tag: `chat-${a.id}` });
     }
     res.status(201).json({ id: Number(lastInsertRowid) });
+  });
+
+  // ---------- date suggestions ----------
+  // While a plan has no exact day and time, the people in it can suggest one and say "works for me" to each other's
+  // suggestions. The creator can pick one at any time; if everyone in the plan (at least two people) agrees on the same
+  // suggestion, it is set automatically. Only then does the plan get a real date and move up in the list.
+  const fmtSuggestion = (iso, tz) => {
+    const d = new Date(iso);
+    const day = new Intl.DateTimeFormat('en-GB', { timeZone: tz, weekday: 'short', day: 'numeric', month: 'short' }).format(d);
+    const time = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(d);
+    return `${day}, ${time}`;
+  };
+  const planPeople = (a) => [a.organiser_id, ...db.prepare("SELECT user_id FROM memberships WHERE activity_id = ? AND status = 'accepted'").all(a.id).map((m) => m.user_id)];
+  const suggestionOf = (a, sid) => db.prepare("SELECT * FROM time_suggestions WHERE id = ? AND activity_id = ?").get(Number(sid), a.id) || fail(404, 'not_found', 'This suggestion no longer exists.');
+  const suggestionsOpen = (a) => a.status === 'active' && !isPast(a) && canSuggestTime(a);
+  const insiderActivity = (req) => {
+    requireAccount(req);
+    const a = getActivity(req.params.id);
+    if (!canChat(a, req.user.id)) fail(403, 'forbidden', 'Only people in this plan can suggest a date.');
+    return a;
+  };
+  const openSuggestionCheck = (a) => {
+    if (a.status !== 'active') fail(409, 'cancelled', 'This plan was cancelled.');
+    if (!suggestionsOpen(a)) fail(409, 'state', 'This plan already has a date and time.');
+  };
+
+  /** Gives the plan the suggested date and time and closes the other suggestions. Runs inside a transaction. */
+  function applySuggestion(a, s, how) {
+    const city = cityById(a.city_id);
+    const mins = a.duration_choice && DURATIONS[a.duration_choice] ? DURATIONS[a.duration_choice] : a.duration_min || 180;
+    let endsIso = new Date(new Date(s.starts_at).getTime() + mins * 60e3).toISOString();
+    if (a.duration_choice === 'open') endsIso = [endsIso, localToUtcIso(`${utcToLocalInput(s.starts_at, city.timezone).slice(0, 10)}T23:59`, city.timezone)].sort()[1];
+    db.prepare("UPDATE activities SET day_mode = 'day', time_mode = 'exact', time_window = NULL, starts_at = ?, ends_at = ?, updated_at = ? WHERE id = ?").run(s.starts_at, endsIso, now(), a.id);
+    db.prepare("UPDATE time_suggestions SET status = CASE WHEN id = ? THEN 'chosen' ELSE 'closed' END WHERE activity_id = ? AND status = 'open'").run(s.id, a.id);
+    const when = fmtSuggestion(s.starts_at, city.timezone);
+    systemMsg(a.id, how === 'everyone'
+      ? `Everyone said it works for them, so the plan is now set for ${when}.`
+      : `${nameOf(a.organiser_id)} picked ${when}. The plan now has this date and time.`);
+    notifyMembers(a.id, ['accepted'], 'changed', how === 'everyone' ? null : a.organiser_id, 'time');
+    if (how === 'everyone') notify(a.organiser_id, 'changed', a.id, null, 'time');
+  }
+
+  r.get('/activities/:id/suggestions', auth, (req, res) => {
+    const a = getActivity(req.params.id);
+    const uid = req.user.id;
+    if (!canChat(a, uid)) fail(403, 'forbidden', 'Only people in this plan can see suggestions.');
+    const city = cityById(a.city_id);
+    const blocked = blockedSet(uid);
+    const people = planPeople(a);
+    const rows = suggestionsOpen(a)
+      ? db.prepare("SELECT * FROM time_suggestions WHERE activity_id = ? AND status = 'open' AND starts_at > ? ORDER BY starts_at").all(a.id, now())
+      : [];
+    const suggestions = rows.filter((s) => !blocked.has(s.user_id)).map((s) => {
+      const voters = db.prepare('SELECT user_id FROM time_votes WHERE suggestion_id = ? ORDER BY rowid').all(s.id).map((v) => v.user_id).filter((v) => people.includes(v));
+      return {
+        id: s.id, starts_at: s.starts_at, starts_local: utcToLocalInput(s.starts_at, city.timezone),
+        by: personSummary(profileOf(s.user_id)), mine: s.user_id === uid,
+        votes: voters.length, voters: voters.map((v) => (blocked.has(v) ? 'Someone' : nameOf(v))), i_agree: voters.includes(uid),
+        can_remove: s.user_id === uid || a.organiser_id === uid,
+      };
+    });
+    res.json({ open: suggestionsOpen(a), people: people.length, can_pick: a.organiser_id === uid, timezone: city.timezone, suggestions });
+  });
+
+  r.post('/activities/:id/suggestions', auth, (req, res) => {
+    if (!msgLimit(String(req.user.id))) fail(429, 'rate', 'You are doing that too quickly. Please wait a moment.');
+    const id = tx(db, () => {
+      const a = insiderActivity(req);
+      openSuggestionCheck(a);
+      const city = cityById(a.city_id);
+      const b = req.body || {};
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(b.day || '')) fail(400, 'invalid', 'Please choose a day.');
+      if (!/^\d{2}:\d{2}$/.test(b.time || '')) fail(400, 'invalid', 'Please choose a time.');
+      const iso = localToUtcIso(`${b.day}T${b.time}`, city.timezone) || fail(400, 'invalid', 'Please choose a day.');
+      const t = new Date(iso).getTime();
+      if (t < Date.now() + 5 * 60e3) fail(400, 'invalid', 'That time has already passed.');
+      if (t > Date.now() + 120 * 864e5) fail(400, 'invalid', 'Please suggest a date within the next four months.');
+      const same = db.prepare("SELECT * FROM time_suggestions WHERE activity_id = ? AND status = 'open' AND starts_at = ?").get(a.id, iso);
+      if (same) { // already suggested: count it as "works for me"
+        db.prepare('INSERT OR IGNORE INTO time_votes (suggestion_id, user_id) VALUES (?, ?)').run(same.id, req.user.id);
+        maybeEveryone(a, same);
+        return same.id;
+      }
+      const open = db.prepare("SELECT COUNT(*) AS n, SUM(user_id = ?) AS mine FROM time_suggestions WHERE activity_id = ? AND status = 'open' AND starts_at > ?").get(req.user.id, a.id, now());
+      if ((open.mine || 0) >= 3) fail(409, 'limit', 'You already have 3 suggestions here. Remove one to suggest another.');
+      if (open.n >= 10) fail(409, 'limit', 'There are already 10 suggestions. Agree on one of them or remove some first.');
+      const { lastInsertRowid } = db.prepare('INSERT INTO time_suggestions (activity_id, user_id, starts_at) VALUES (?, ?, ?)').run(a.id, req.user.id, iso);
+      db.prepare('INSERT INTO time_votes (suggestion_id, user_id) VALUES (?, ?)').run(lastInsertRowid, req.user.id);
+      systemMsg(a.id, `${nameOf(req.user.id)} suggested ${fmtSuggestion(iso, city.timezone)}. Tap “Works for me” at the top of the chat if it suits you.`);
+      for (const uid of planPeople(a)) {
+        if (uid === req.user.id || blockedSet(uid).has(req.user.id)) continue;
+        push.sendChat(uid, `a${a.id}`, { name: nameOf(req.user.id), plan: a.title, url: `/#/activity/${a.id}/chat`, tag: `chat-${a.id}` });
+      }
+      maybeEveryone(a, suggestionOf(a, lastInsertRowid));
+      return Number(lastInsertRowid);
+    });
+    res.status(201).json({ id });
+  });
+
+  /** Everyone in the plan (two people or more) agreed on the same suggestion: that's the date. */
+  function maybeEveryone(a, s) {
+    const people = planPeople(a);
+    if (people.length < 2) return false;
+    const voters = new Set(db.prepare('SELECT user_id FROM time_votes WHERE suggestion_id = ?').all(s.id).map((v) => v.user_id));
+    if (!people.every((p) => voters.has(p))) return false;
+    applySuggestion(getActivity(a.id), s, 'everyone');
+    return true;
+  }
+
+  r.post('/activities/:id/suggestions/:sid/vote', auth, (req, res) => {
+    if (!msgLimit(String(req.user.id))) fail(429, 'rate', 'You are doing that too quickly. Please wait a moment.');
+    const result = tx(db, () => {
+      const a = insiderActivity(req);
+      openSuggestionCheck(a);
+      const s = suggestionOf(a, req.params.sid);
+      if (s.status !== 'open') fail(409, 'state', 'This suggestion is closed.');
+      if (req.body?.agree === false) {
+        db.prepare('DELETE FROM time_votes WHERE suggestion_id = ? AND user_id = ?').run(s.id, req.user.id);
+        return { set: false };
+      }
+      db.prepare('INSERT OR IGNORE INTO time_votes (suggestion_id, user_id) VALUES (?, ?)').run(s.id, req.user.id);
+      return { set: maybeEveryone(a, s) };
+    });
+    res.json({ ok: true, ...result });
+  });
+
+  r.post('/activities/:id/suggestions/:sid/pick', auth, (req, res) => {
+    tx(db, () => {
+      const a = insiderActivity(req);
+      if (a.organiser_id !== req.user.id) fail(403, 'forbidden', 'Only the organiser can pick the date.');
+      openSuggestionCheck(a);
+      const s = suggestionOf(a, req.params.sid);
+      if (s.status !== 'open') fail(409, 'state', 'This suggestion is closed.');
+      if (new Date(s.starts_at).getTime() < Date.now()) fail(409, 'past', 'That time has already passed.');
+      applySuggestion(a, s, 'organiser');
+    });
+    res.json({ ok: true });
+  });
+
+  r.delete('/activities/:id/suggestions/:sid', auth, (req, res) => {
+    tx(db, () => {
+      const a = insiderActivity(req);
+      const s = suggestionOf(a, req.params.sid);
+      if (s.user_id !== req.user.id && a.organiser_id !== req.user.id) fail(403, 'forbidden', 'Only the person who suggested it or the organiser can remove it.');
+      if (s.status === 'open') db.prepare("UPDATE time_suggestions SET status = 'removed' WHERE id = ?").run(s.id);
+    });
+    res.json({ ok: true });
   });
 
   // ---------- connections and private chat ----------
