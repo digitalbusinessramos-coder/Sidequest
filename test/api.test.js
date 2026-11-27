@@ -782,7 +782,7 @@ test('R3 team inbox: server-enforced access, report and feedback saved separatel
   const t = client(); await t.post('/auth/signup', { email: `qa-x${Date.now()}@example.com`, password: 'password123' });
   const nums = (await team.get('/team/numbers')).body;
   assert.ok(nums.excluded_test_accounts >= 1);
-  assert.equal(nums.accounts, db.prepare("SELECT COUNT(*) AS n FROM users WHERE is_demo = 0 AND is_guest = 0 AND is_test = 0 AND password_hash != 'deleted'").get().n);
+  assert.equal(nums.accounts, db.prepare("SELECT COUNT(*) AS n FROM users WHERE is_demo = 0 AND is_guest = 0 AND is_test = 0 AND is_admin = 0 AND password_hash != 'deleted'").get().n);
   // Test accounts are invisible to real students.
   const tid = (await t.get('/me')).body.user.id;
   await t.put('/me/profile', { first_name: 'Testy', city: 'las-palmas' });
@@ -1310,4 +1310,35 @@ test('date suggestions: people in the plan suggest a date, say it works, organis
   // Now it sorts with the dated plans.
   const ids = (await org.get('/activities?city=las-palmas&q=Suggest')).body.activities.map((x) => x.id);
   assert.deepEqual(ids, [id2, id]);
+});
+
+test('team numbers leave out the team: accounts, plans, joins, visits, sources and team-browser guests', async () => {
+  process.env.ADMIN_TOKEN = 'team-code-for-tests-123';
+  const team = await user('Eloteam'); await team.post('/team/unlock', { code: process.env.ADMIN_TOKEN });
+  const before = (await team.get('/team/numbers')).body;
+  assert.ok(before.excluded_team.includes('Eloteam'));
+  // Team activity: a visit with a tag, a plan, a join, and a guest visit from a team browser.
+  await team.post('/visit', { src: 'teamcheck' });
+  const tp = await makeActivity(team, { join_mode: 'open' });
+  const s = await user('Stud'); await s.post('/visit', { src: 'teamcheck' });
+  const after1 = (await team.get('/team/numbers')).body;
+  await team.post(`/activities/${await makeActivity(s, { join_mode: 'open' })}/requests`, {});
+  const tg = client(); await tg.post('/auth/guest'); await tg.post('/visit', { team_device: true });
+  await tg.post('/guest-step', { step: 'join_tap', team_device: true });
+  const after = (await team.get('/team/numbers')).body;
+  assert.equal(after.accounts - before.accounts, 1, 'only the student account is new');
+  assert.equal(after.plans - before.plans, 1, "the team's plan is not counted, the student's is");
+  assert.equal(after.joins, after1.joins, "the team's join is not counted");
+  assert.equal(after.visitors.today - before.visitors.today, 1, 'only the student visit is counted');
+  assert.equal(after.guest_steps.last_7_days.join_tap, before.guest_steps.last_7_days.join_tap);
+  assert.equal(after.sources.find((x) => x.src === 'teamcheck').people_7d, 1);
+  assert.ok(tp);
+  // A student joining the team's plan still counts as a join.
+  await s.post(`/activities/${tp}/requests`, {});
+  assert.equal((await team.get('/team/numbers')).body.joins - after.joins, 1);
+  // A normal guest is still counted.
+  const g = client(); await g.post('/auth/guest'); await g.post('/visit', {});
+  assert.equal((await team.get('/team/numbers')).body.visitors.today - after.visitors.today, 1);
+  await team.post('/team/leave');
+  delete process.env.ADMIN_TOKEN;
 });

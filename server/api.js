@@ -660,13 +660,22 @@ export function createApi(db) {
     const u = db.prepare('SELECT email, is_admin, email_verified_at FROM users WHERE id = ?').get(req.user.id);
     return !!u.is_admin || (!!u.email_verified_at && adminEmails().includes(u.email.toLowerCase()));
   };
+  // Team accounts (is_admin, or a confirmed email in ADMIN_EMAILS). Their own activity is left out of the team numbers,
+  // because the team opens the app all the time to check things.
+  const teamIds = () => {
+    const emails = adminEmails();
+    return db.prepare('SELECT id, email, is_admin, email_verified_at FROM users WHERE is_guest = 0').all()
+      .filter((u) => u.is_admin || (u.email_verified_at && emails.includes(String(u.email).toLowerCase()))).map((u) => u.id);
+  };
   const requireAdmin = (req) => { if (!isAdmin(req)) fail(403, 'forbidden', 'Only the project team can open this page.'); };
   const unlockLimit = rateLimiter(5, 60 * 60e3);
   // The app calls this once each time it is opened. Test and example accounts are not counted.
   const canaryDay = (d = new Date()) => utcToLocalInput(d.toISOString(), 'Atlantic/Canary').slice(0, 10);
   r.post('/visit', auth, (req, res) => {
     const u = db.prepare('SELECT is_test, is_demo, is_guest FROM users WHERE id = ?').get(req.user.id);
-    if (u && !u.is_test && !u.is_demo) {
+    // A browser where a team account has been used sends team_device, so the team's guest sessions there are not counted either.
+    const teamGuest = !!u?.is_guest && req.body?.team_device === true;
+    if (u && !u.is_test && !u.is_demo && !teamGuest) {
       db.prepare(`INSERT INTO daily_visits (day, user_id, kind) VALUES (?, ?, ?)
         ON CONFLICT(day, user_id) DO UPDATE SET opens = opens + 1, kind = excluded.kind`).run(canaryDay(), req.user.id, u.is_guest ? 'guest' : 'account');
       // A tagged link (?src=instagram) is counted for the team. Only the tag is kept: no cookies, IPs or outside trackers.
@@ -685,7 +694,7 @@ export function createApi(db) {
   r.post('/guest-step', auth, (req, res) => {
     const step = String(req.body?.step || '');
     // 'signup_done' is counted by the server itself when a guest saves their account, so it can't be sent from outside.
-    if (req.user.is_guest && !req.user.is_demo && ['join_tap', 'signup_open'].includes(step)) countGuestStep(step);
+    if (req.user.is_guest && !req.user.is_demo && req.body?.team_device !== true && ['join_tap', 'signup_open'].includes(step)) countGuestStep(step);
     res.json({ ok: true });
   });
 
@@ -743,10 +752,13 @@ export function createApi(db) {
       created_at: f.created_at, reviewed_at: f.reviewed_at, reviewed_by: f.reviewed_by ? nameOf(f.reviewed_by) : null,
       from: f.user_id ? { id: f.user_id, first_name: nameOf(f.user_id) } : null })) });
   });
-  // Campaign numbers: real people only. Example, demo, guest and test accounts (and their plans) are never counted.
+  // Campaign numbers: real people only. Example, demo, guest, test and team accounts (and their plans) are never counted.
   r.get('/team/numbers', auth, (req, res) => {
     requireAdmin(req);
-    const real = "u.is_demo = 0 AND u.is_guest = 0 AND u.is_test = 0 AND u.password_hash != 'deleted'";
+    const team = teamIds();
+    const notTeam = (col) => `${col} NOT IN (${team.map(Number).join(',') || '-1'})`; // ids come from the database, always integers
+    const real = `u.is_demo = 0 AND u.is_guest = 0 AND u.is_test = 0 AND u.password_hash != 'deleted' AND ${notTeam('u.id')}`;
+    const visits = `daily_visits WHERE ${notTeam('user_id')} AND`;
     const since = (days) => new Date(Date.now() - days * 864e5).toISOString();
     const n = (sql, ...a) => db.prepare(sql).get(...a).n;
     res.json({
@@ -758,6 +770,7 @@ export function createApi(db) {
       reports_open: n("SELECT COUNT(*) AS n FROM reports WHERE status = 'open'"),
       feedback_open: n("SELECT COUNT(*) AS n FROM feedback WHERE status = 'open'"),
       excluded_test_accounts: n('SELECT COUNT(*) AS n FROM users WHERE is_test = 1'),
+      excluded_team: team.map((id) => nameOf(id)),
       guest_steps: (() => {
         const sum = (from) => Object.fromEntries(GUEST_STEPS.map((st) => [st, n('SELECT COALESCE(SUM(n), 0) AS n FROM guest_steps WHERE step = ? AND day >= ?', st, from)]));
         return { last_7_days: sum(canaryDay(new Date(Date.now() - 6 * 864e5))), last_30_days: sum(canaryDay(new Date(Date.now() - 29 * 864e5))),
@@ -766,12 +779,12 @@ export function createApi(db) {
       notifications_on: n(`SELECT COUNT(DISTINCT s.user_id) AS n FROM push_subscriptions s JOIN users u ON u.id = s.user_id WHERE ${real}`),
       visitors: (() => {
         const days = Array.from({ length: 14 }, (_, i) => canaryDay(new Date(Date.now() - i * 864e5)));
-        const uniq = (from) => n('SELECT COUNT(DISTINCT user_id) AS n FROM daily_visits WHERE day >= ?', from);
+        const uniq = (from) => n(`SELECT COUNT(DISTINCT user_id) AS n FROM ${visits} day >= ?`, from);
         return {
           today: uniq(days[0]), last_7_days: uniq(days[6]), last_30_days: uniq(canaryDay(new Date(Date.now() - 29 * 864e5))),
-          opens_7_days: n('SELECT COALESCE(SUM(opens), 0) AS n FROM daily_visits WHERE day >= ?', days[6]),
+          opens_7_days: n(`SELECT COALESCE(SUM(opens), 0) AS n FROM ${visits} day >= ?`, days[6]),
           daily: days.map((day) => {
-            const r2 = db.prepare("SELECT COUNT(*) AS people, COALESCE(SUM(opens), 0) AS opens, SUM(kind = 'guest') AS guests FROM daily_visits WHERE day = ?").get(day);
+            const r2 = db.prepare(`SELECT COUNT(*) AS people, COALESCE(SUM(opens), 0) AS opens, SUM(kind = 'guest') AS guests FROM ${visits} day = ?`).get(day);
             return { day, people: r2.people, guests: r2.guests || 0, accounts: r2.people - (r2.guests || 0), opens: r2.opens };
           }),
           counting_since: db.prepare('SELECT MIN(day) AS d FROM daily_visits').get().d,
@@ -784,7 +797,7 @@ export function createApi(db) {
             COUNT(DISTINCT CASE WHEN s.day >= ? THEN s.user_id END) AS people_7d,
             COUNT(DISTINCT CASE WHEN s.day >= ? THEN s.user_id END) AS people_30d,
             (SELECT COUNT(*) FROM user_sources f JOIN users u ON u.id = f.user_id WHERE f.src = s.src AND ${real}) AS accounts
-          FROM visit_sources s JOIN users vu ON vu.id = s.user_id WHERE vu.is_test = 0 AND vu.is_demo = 0 GROUP BY s.src ORDER BY people_30d DESC, s.src LIMIT 40`).all(d7, d30)
+          FROM visit_sources s JOIN users vu ON vu.id = s.user_id WHERE vu.is_test = 0 AND vu.is_demo = 0 AND ${notTeam('vu.id')} GROUP BY s.src ORDER BY people_30d DESC, s.src LIMIT 40`).all(d7, d30)
           .map((x) => ({ src: x.src, people_7d: x.people_7d, people_30d: x.people_30d, accounts: x.accounts }));
       })(),
     });
