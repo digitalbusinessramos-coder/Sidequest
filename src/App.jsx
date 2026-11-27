@@ -118,7 +118,10 @@ export default function App() {
       if (!u && m.demoMode && store('sq_wants_login') !== '1') {
         try { await api.post('/auth/guest', {}); u = await reloadMe(); } catch { /* fall back to the welcome screen */ }
       }
-      if (u) api.post('/visit', { src: takeLinkTag() }).catch(() => {}); // one count per app open, for the team's visitor numbers
+      // A browser where a team account has been used is remembered, so the team's own guest visits there are left out of the numbers too.
+      if (u?.team) store('sq_team_device', '1');
+      const teamDevice = store('sq_team_device') === '1';
+      if (u) api.post('/visit', { src: takeLinkTag(), team_device: teamDevice }).catch(() => {}); // one count per app open, for the team's visitor numbers
       if (u) syncPush();
       // No popup on arrival: Explore opens directly. “How it works” is one screen under Help.
     } catch (e) { setBootError(e); }
@@ -147,7 +150,7 @@ export default function App() {
     const key = `sq_step_${step}`; const day = new Date().toISOString().slice(0, 10);
     if (store(key) === day) return;
     store(key, day);
-    api.post('/guest-step', { step }).catch(() => {});
+    api.post('/guest-step', { step, team_device: store('sq_team_device') === '1' }).catch(() => {});
   };
   const openAccount = (mode = 'signup', opts = {}) => { if (mode === 'signup') countStep('signup_open'); setAccount({ mode, ...opts }); };
   const openFeedback = () => setFeedback(true);

@@ -159,7 +159,7 @@ function Numbers() {
           ))}
         </tbody>
       </table>
-      <p className="tiny muted">{v.counting_since ? tx('Counting since {date}. Each person counts once per day, however often they open the app. No outside trackers or cookies are used, and test accounts are left out.', { date: dayLabel(v.counting_since) }) : tx('Counting starts with the next visit.')}</p>
+      <p className="tiny muted">{v.counting_since ? tx('Counting since {date}. Each person counts once per day, however often they open the app. No outside trackers or cookies are used. Test accounts, team accounts and guest visits from browsers the team has used are left out.', { date: dayLabel(v.counting_since) }) : tx('Counting starts with the next visit.')}</p>
       <h3>{tx('Where people came from')}</h3>
       {data.sources?.length ? (
         <table className="visits-table">
@@ -182,6 +182,9 @@ function Numbers() {
         {rows.map(([k, v]) => <div key={k} className="person-row" style={{ padding: '10px 14px' }}><span style={{ flex: 1 }}>{tx(k)}</span><strong>{v}</strong></div>)}
       </div>
       <p className="tiny muted">{tx('Real people only. Example plans, guests and {n} test accounts are left out.', { n: data.excluded_test_accounts })}</p>
+      <p className="tiny muted">{data.excluded_team?.length
+        ? tx('Team accounts are left out of every number on this page, with their plans, joins and visits: {names}. Anyone on the team who is not listed should open this page once with the team code.', { names: data.excluded_team.join(', ') })
+        : tx('No team accounts yet.')}</p>
     </div>
   );
 }
@@ -192,7 +195,9 @@ export default function Team() {
   const status = useApi('/team/me');
   const [tab, setTab] = useState('reports');
   const tabs = [['reports', 'Reports'], ['feedback', 'Feedback'], ['profiles', 'Profiles'], ['numbers', 'Numbers']];
-  const leave = async () => { await api.post('/team/leave'); await reloadMe(); status.reload(); };
+  const leave = async () => { await api.post('/team/leave'); try { localStorage.removeItem('sq_team_device'); } catch { /* private mode */ } await reloadMe(); status.reload(); };
+  // Remember this browser as a team browser, so the team's own guest visits here are not counted in the numbers.
+  if (status.data?.admin) { try { localStorage.setItem('sq_team_device', '1'); } catch { /* private mode */ } }
   return (
     <>
       <TopBar title={tx('Team inbox')} />
