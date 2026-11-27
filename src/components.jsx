@@ -213,6 +213,20 @@ export function Spots({ going, max }) {
 }
 
 /** Plan card: what, when, where, and only the details the creator gave. */
+/** "Ana and Max are going": friends (people you connected with) among the participants. */
+export function FriendsGoing({ people }) {
+  const names = people.map((p) => p.first_name);
+  const text = names.length === 1 ? tx('{a} is going', { a: names[0] })
+    : names.length === 2 ? tx('{a} and {b} are going', { a: names[0], b: names[1] })
+      : tx('{a}, {b} and {n} more friends are going', { a: names[0], b: names[1], n: names.length - 2 });
+  return (
+    <span className="friends-going small">
+      <span className="avatar-stack" aria-hidden="true">{people.slice(0, 3).map((p) => <Avatar key={p.id} person={p} size="xs" />)}</span>
+      {text}
+    </span>
+  );
+}
+
 export function ActivityCard({ a, reason }) {
   const cls = a.state === 'cancelled' ? 'is-cancelled' : a.state === 'past' ? 'is-past' : '';
   const status = a.state === 'cancelled' || a.state === 'past' ? a.state : a.my_status;
@@ -220,8 +234,10 @@ export function ActivityCard({ a, reason }) {
   const cost = fmtPlanCost(a);
   const places = fmtPlaces(a);
   const ticket = a.event && !a.event.is_sample;
+  const fresh = (a.unread || 0) + (a.new_updates || 0) > 0;
   return (
-    <a href={`#/activity/${a.id}`} className={`card act-card ${a.photo ? 'has-cover' : 'no-cover'} ${cls}`} aria-label={`${a.title}, ${when}`}>
+    <a href={`#/activity/${a.id}`} className={`card act-card ${a.photo ? 'has-cover' : 'no-cover'} ${cls} ${fresh ? 'has-new' : ''}`} aria-label={`${a.title}, ${when}${fresh ? `, ${tx('New')}` : ''}`}>
+      {fresh && <span className="new-dot" aria-hidden="true" />}
       {a.photo ? <div className="card-cover" aria-hidden="true"><img src={a.photo} alt="" loading="lazy" /><Stamp category={a.category} /></div> : <EmojiBadge a={a} />}
       <div className="stack-sm" style={{ minWidth: 0 }}>
         <div className="row wrap" style={{ gap: 6 }}>
@@ -237,14 +253,16 @@ export function ActivityCard({ a, reason }) {
           {(cost || ticket) && <span><Icon name="euro" size={15} />{ticket ? (cost ? tx('{cost} + event ticket', { cost }) : tx('Event ticket from the organiser')) : cost}</span>}
         </div>
         <div className="row wrap ticket-edge" style={{ gap: 8 }}>
-          {places && <><Spots going={a.going} max={a.max_participants} /><span className="small" style={{ fontWeight: 650 }}>{places}</span></>}
-          {!places && <span className="small muted">{tx('{n} going', { n: a.going })}</span>}
+          {places && <>{a.going != null && <Spots going={a.going} max={a.max_participants} />}<span className="small" style={{ fontWeight: 650 }}>{places}</span></>}
+          {!places && a.going != null && <span className="small muted">{tx('{n} going', { n: a.going })}</span>}
           {a.join_mode === 'open' && <span className="badge badge-open"><Icon name="bolt" size={12} />{tx('Join directly')}</span>}
-          {a.unread > 0 && <span className="badge badge-invited"><Icon name="chat" size={13} />{tx(a.unread === 1 ? '1 new message' : '{n} new messages', { n: a.unread })}</span>}
+          {a.unread > 0 && <span className="badge badge-new"><Icon name="chat" size={13} />{tx(a.unread === 1 ? '1 new message' : '{n} new messages', { n: a.unread })}</span>}
+          {!a.unread && a.new_updates > 0 && <span className="badge badge-new"><Icon name="bell" size={13} />{tx(a.new_updates === 1 ? '1 new update' : '{n} new updates', { n: a.new_updates })}</span>}
           {a.my_status === 'organiser' && a.pending_count > 0 && (
             <span className="badge badge-cancelled">{tx('{n} to review', { n: a.pending_count })}</span>
           )}
         </div>
+        {a.friends_going?.length > 0 && <FriendsGoing people={a.friends_going} />}
         {reason && <span className="reason">{reason}</span>}
       </div>
     </a>

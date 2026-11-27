@@ -669,3 +669,15 @@ fieldset.plain > legend { margin-bottom: 6px; padding: 0; }
 .mobile-brand:has(~ .app .chat) { display: none; }
 /* Date suggestions in a plan chat */
 .date-poll .btn-sm { min-height: 36px; }
+
+/* ---------- plans with something new, friends going ---------- */
+.act-card.has-new { border-color: var(--coral); box-shadow: 0 0 0 1px var(--coral) inset; }
+.act-card .new-dot { position: absolute; top: -5px; right: -5px; width: 14px; height: 14px; border-radius: 50%; background: var(--coral); border: 2px solid var(--paper); z-index: 2; }
+.badge-new { background: var(--coral); color: #fff; }
+.friends-going { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; color: var(--ink-2); }
+.avatar-stack { display: inline-flex; }
+.avatar-stack .avatar { width: 22px; height: 22px; font-size: .68rem; border: 2px solid var(--paper); margin-left: -6px; }
+.avatar-stack .avatar:first-child { margin-left: 0; }
+.updates-jump { align-self: flex-start; }
+/* Explore: the "when" chips keep their full width, so "This week" never slides under "Free". */
+@media (max-width: 599px) { .explore-tools .tools-row.wrap .chips { flex: none; } }

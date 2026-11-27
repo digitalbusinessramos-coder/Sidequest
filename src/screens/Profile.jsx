@@ -67,6 +67,7 @@ function EditProfile() {
 export default function Profile({ sub }) {
   const { me, city, api, reloadMe, toast, lang, openAccount } = useApp();
   const blocks = useApi('/me/blocks');
+  const friends = useApi(me.is_guest ? null : '/connections');
   const [busy, setBusy] = useState(false);
   const [del, setDel] = useState(null);
   const [feedback, setFeedback] = useState(false);
@@ -125,6 +126,15 @@ export default function Profile({ sub }) {
           <div className="row"><h3 id="mail-h" style={{ flex: 1 }}>{tx('Email')}</h3>{me.email_verified && <EmailBadge />}</div>
           <p className="small">{me.email} <span className="tiny muted">{tx('(never shown to others)')}</span></p>
         </section>
+      )}
+
+      {!me.is_guest && (
+        <a className="card card-pad row friends-link" href="#/buddies" style={{ textDecoration: 'none', color: 'inherit', gap: 12 }}>
+          <Icon name="buddies" />
+          <span style={{ flex: 1 }}><strong>{tx('Your friends')}</strong>
+            <span className="tiny muted" style={{ display: 'block' }}>{friends.data ? tx(friends.data.connected.length === 1 ? '1 friend' : '{n} friends', { n: friends.data.connected.length }) : ' '}</span></span>
+          <Icon name="back" size={16} style={{ transform: 'scaleX(-1)' }} />
+        </a>
       )}
 
       <section className="card card-pad stack-sm" aria-labelledby="notify-h" data-tour="notify">

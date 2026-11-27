@@ -70,6 +70,7 @@ export function fmtPlanDuration(a) {
 export function fmtPlaces(a) {
   if (!a.capped || a.max_participants == null) return null;
   if (a.state === 'full') return tx('Full');
+  if (a.spots_left == null) return null; // guests don't see how many are going
   return tx(a.spots_left === 1 ? '1 place left' : '{n} places left', { n: a.spots_left });
 }
 
