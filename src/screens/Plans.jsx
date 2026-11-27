@@ -24,15 +24,17 @@ const NOTE_TEXT = {
 };
 
 /** In-app notifications. Shown in the person's language because the server stores only the kind of event. */
-function Updates() {
+const UPDATES_SHOWN = 3;
+function Updates({ data, reload }) {
   const { api, reloadMe, city } = useApp();
-  const { data, reload } = useApi('/notifications', { poll: 20000 });
   const [showAll, setShowAll] = useState(false);
   if (!data || (data.notifications.length === 0 && !data.chats?.length)) return null;
   const chats = data.chats || [];
   const list = data.notifications;
   const unread = list.filter((n) => !n.read).length;
-  const shown = showAll ? list : list.slice(0, Math.max(3, unread));
+  // A short list by default (new chat messages first); the rest opens with "Show older updates" and closes again.
+  const room = Math.max(1, UPDATES_SHOWN - chats.length);
+  const shown = showAll ? list : list.slice(0, room);
   const markAll = async () => { await api.post('/notifications/read', { all: true }); reload(true); reloadMe(); };
   const open = async (n) => {
     if (!n.read) api.post('/notifications/read', { ids: [n.id] }).then(() => reloadMe()).catch(() => {});
@@ -41,8 +43,9 @@ function Updates() {
     else if (n.question) location.hash = `#/ask/${n.question.id}`;
     else if (n.actor && n.kind.startsWith('connect_')) location.hash = `#/person/${n.actor.id}`;
   };
+  const less = () => { setShowAll(false); document.getElementById('upd-h')?.scrollIntoView({ block: 'start', behavior: 'smooth' }); };
   return (
-    <section className="stack-sm" aria-labelledby="upd-h">
+    <section className="stack-sm" aria-labelledby="upd-h" id="updates">
       <div className="section-title">
         <h2 id="upd-h">{tx('Updates')} {unread > 0 && <span className="tab-badge" style={{ position: 'static', display: 'inline-grid', verticalAlign: 'middle' }}>{unread}</span>}</h2>
         {unread > 0 && <button className="btn btn-ghost btn-sm" onClick={markAll}>{tx('Mark all as read')}</button>}
@@ -70,7 +73,9 @@ function Updates() {
           );
         })}
       </div>
-      {list.length > shown.length && <button className="btn btn-ghost btn-sm" onClick={() => setShowAll(true)}>{tx('Show older updates')}</button>}
+      {list.length > room && (showAll
+        ? <button className="btn btn-ghost btn-sm" onClick={less}>{tx('Show fewer updates')}</button>
+        : <button className="btn btn-ghost btn-sm" onClick={() => setShowAll(true)}>{tx('Show older updates')}</button>)}
     </section>
   );
 }
@@ -208,14 +213,21 @@ export default function Plans() {
   const { data, error, loading, reload } = useApi('/plans', { poll: 15000 });
   const [view, setView] = useState(() => { try { return localStorage.getItem('sq_plans_view') || 'list'; } catch { return 'list'; } });
   const pickView = (v) => { setView(v); try { localStorage.setItem('sq_plans_view', v); } catch { /* ignore */ } };
+  const notes = useApi('/notifications', { poll: 20000 });
   const total = data ? SECTIONS.reduce((n, [k]) => n + data[k].length, 0) + (data.events?.length || 0) : 0;
+  const unreadNotes = notes.data ? notes.data.notifications.filter((n) => !n.read).length : 0;
   return (
     <div className="page">
       <div className="page-head" data-tour="plans-head">
         <div className="stack-sm"><span className="eyebrow">{tx("Your week")}</span><h1>{t('plans.title')}</h1></div>
         <a className="btn btn-primary btn-sm" href="#/create"><Icon name="plus" size={16} />{tx("New plan")}</a>
       </div>
-      <Updates />
+      {/* Your plans come first; updates sit below them. A small link jumps down when there is something new. */}
+      {total > 0 && unreadNotes > 0 && (
+        <a className="btn btn-ghost btn-sm updates-jump" href="#updates" onClick={(e) => { e.preventDefault(); document.getElementById('updates')?.scrollIntoView({ behavior: 'smooth' }); }}>
+          <Icon name="bell" size={15} />{tx(unreadNotes === 1 ? '1 new update' : '{n} new updates', { n: unreadNotes })}
+        </a>
+      )}
       {total > 0 && <NotifyNudge id="sq_notify_nudge_plans" text={tx('Know straight away when someone joins, gets accepted or writes in your plans.')} />}
       {loading && !data ? <Loading /> : error && !data ? <ErrorState error={error} onRetry={reload} /> : total === 0 ? (
         <Empty icon="plans" title={t('plans.empty')} hint={t('plans.emptyHint')}>
@@ -250,6 +262,7 @@ export default function Plans() {
       ))}
       </>}
       </>)}
+      <Updates data={notes.data} reload={notes.reload} />
     </div>
   );
 }

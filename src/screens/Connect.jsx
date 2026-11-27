@@ -77,10 +77,10 @@ export function ConnectActions({ person, connection, onChange }) {
 
 /** Buddies: requests to answer and the people you're connected with. */
 export function Connections() {
-  const { api, toast, reloadMe, city } = useApp();
-  const { data, reload } = useApi('/connections', { poll: 15000 });
+  const { api, toast, reloadMe, city, me } = useApp();
+  const { data, reload } = useApi(me.is_guest ? null : '/connections', { poll: 15000 });
   const [busy, setBusy] = useState(null);
-  if (!data || (!data.incoming.length && !data.connected.length)) return null;
+  if (me.is_guest || !data) return null;
   const answer = async (c, action) => {
     setBusy(c.id);
     try {
@@ -111,9 +111,14 @@ export function Connections() {
           </div>
         </section>
       )}
-      {data.connected.length > 0 && (
-        <section className="stack-sm" aria-labelledby="conn-h">
-          <h2 id="conn-h">{tx('Your connections')}</h2>
+      <section className="stack-sm" aria-labelledby="conn-h" id="friends">
+        <div className="section-title">
+          <h2 id="conn-h">{tx('Your friends')}</h2>
+          {data.connected.length > 0 && <span className="small muted">{data.connected.length}</span>}
+        </div>
+        {data.connected.length === 0 ? (
+          <p className="small muted card card-pad">{tx('No friends here yet. Open a student’s profile and tap Connect. Once they accept, they show up here and you can message each other.')}</p>
+        ) : (
           <div className="card" style={{ padding: 0 }}>
             {data.connected.map((c) => (
               <a key={c.id} href={`#/dm/${c.id}`} className="person-row dm-row" style={{ padding: '10px 14px' }}>
@@ -127,8 +132,20 @@ export function Connections() {
               </a>
             ))}
           </div>
-        </section>
-      )}
+        )}
+        {data.outgoing.length > 0 && (
+          <details className="small">
+            <summary className="muted">{tx(data.outgoing.length === 1 ? '1 request you sent is waiting' : '{n} requests you sent are waiting', { n: data.outgoing.length })}</summary>
+            <div className="card" style={{ padding: 0, marginTop: 6 }}>
+              {data.outgoing.map((c) => (
+                <a key={c.id} href={`#/person/${c.person.id}`} className="person-row" style={{ padding: '8px 14px', color: 'inherit' }}>
+                  <Avatar person={c.person} size="sm" /><span style={{ flex: 1 }}>{c.person.first_name}</span><span className="tiny muted">{tx('Request sent')}</span>
+                </a>
+              ))}
+            </div>
+          </details>
+        )}
+      </section>
     </>
   );
 }

@@ -4,7 +4,7 @@ import { AreaInput, EmojiBadge, ErrorState, Icon, Loading, TopBar, useApp } from
 import { DURATION_LABEL, localDate, tzLabel, useApi } from '../util.js';
 import { CropSheet } from './Crop.jsx';
 import { api as rawApi } from '../api.js';
-import { PLAN_EMOJIS, PLAN_SUGGESTIONS, planEmoji } from '../../shared/catalog.js';
+import { CAT_EMOJI, PLAN_EMOJIS, PLAN_SUGGESTIONS, planEmoji } from '../../shared/catalog.js';
 
 // Nothing is filled in for the student: no default day, time, area, duration, cost or group size.
 const empty = () => ({
@@ -36,7 +36,7 @@ function fromActivity(a) {
 }
 
 export default function ActivityForm({ editId, query = {} }) {
-  const { city, me, api, toast, openAccount } = useApp();
+  const { city, me, meta, api, toast, openAccount } = useApp();
   const [v, setV] = useState(() => (editId ? null : applyQuery(empty(), query)));
   const [loadErr, setLoadErr] = useState(null);
   const [err, setErr] = useState('');
@@ -135,11 +135,7 @@ export default function ActivityForm({ editId, query = {} }) {
         <div className="field">
           <label htmlFor="plan-title" className="create-q">{tx('What do you feel like doing?')}</label>
           <input id="plan-title" className="input input-lg" required maxLength={80} autoFocus={!editId} enterKeyHint="next" value={v.title}
-            onChange={(e) => {
-              // A suggestion sets the kind of plan only while its title is kept; a rewritten title becomes a custom plan.
-              const sug = PLAN_SUGGESTIONS.find((x) => tx(x.title) === v.title && x.category === v.category);
-              set(sug && e.target.value !== v.title ? { title: e.target.value, category: query.category || 'other' } : { title: e.target.value });
-            }} placeholder={tx('e.g. Sunset walk on the promenade')} />
+            onChange={(e) => set({ title: e.target.value })} placeholder={tx('e.g. Sunset walk on the promenade')} />
           {!editId && (
             <div className="suggest-row" role="group" aria-label={tx('Suggestions')}>
               {PLAN_SUGGESTIONS.map((s) => (
@@ -149,6 +145,19 @@ export default function ActivityForm({ editId, query = {} }) {
             </div>
           )}
         </div>
+
+        <fieldset className="field plain">
+          <legend className="label">{tx('Type of plan')}</legend>
+          <div className="suggest-row" role="radiogroup" aria-label={tx('Type of plan')}>
+            {meta.categories.map((c) => (
+              <button key={c.key} type="button" role="radio" aria-checked={v.category === c.key} className={`chip chip-sm ${v.category === c.key ? 'on' : ''}`}
+                onClick={() => set({ category: c.key })}>
+                <span aria-hidden="true">{CAT_EMOJI[c.key]}</span> {tx(c.label)}
+              </button>
+            ))}
+          </div>
+          <span className="hint">{tx('People who filter Explore by this type will find your plan.')}</span>
+        </fieldset>
 
         <fieldset className="field plain">
           <legend className="label">{tx('Day')}</legend>

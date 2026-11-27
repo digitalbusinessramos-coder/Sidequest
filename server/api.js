@@ -207,9 +207,20 @@ export function createApi(db) {
     return area ? { lat: area.lat, lng: area.lng, area: area.name } : null;
   };
 
-  function activityView(a, viewerId) {
+  const isGuestUser = (uid) => !!(uid && db.prepare('SELECT is_guest FROM users WHERE id = ?').get(uid)?.is_guest);
+  // People I'm connected with (both said yes), minus anyone blocked either way.
+  const friendIds = (uid) => {
+    const bl = blockedSet(uid);
+    return new Set(db.prepare("SELECT CASE WHEN requester_id = ? THEN target_id ELSE requester_id END AS other FROM connections WHERE status = 'accepted' AND (requester_id = ? OR target_id = ?)")
+      .all(uid, uid, uid).map((r) => r.other).filter((id) => !bl.has(id)));
+  };
+
+  const viewCtx = (user) => (user?.is_guest ? { guest: true } : { guest: false, friends: user ? friendIds(user.id) : new Set() });
+
+  function activityView(a, viewerId, ctx = {}) {
     const city = cityById(a.city_id);
     const going = goingCount(a.id);
+    const guest = ctx.guest ?? isGuestUser(viewerId);
     const m = viewerId ? membershipOf(a.id, viewerId) : null;
     const isOrg = viewerId === a.organiser_id;
     const past = isPast(a);
@@ -236,7 +247,17 @@ export function createApi(db) {
       welcome_plan: a.welcome_plan, recognise_tip: a.recognise_tip,
       join_mode: a.join_mode === 'open' ? 'open' : 'request', approx: approxSpot(city, a.meeting_area),
     };
+    // Guests (no account) don't see how many people are going: only whether there is still a place.
+    if (guest) { v.going = null; v.spots_left = null; }
+    // Friends who are going, like "followed by people you know". Only for students with an account, only people both sides connected with.
+    if (!guest && viewerId) {
+      const friends = ctx.friends ?? friendIds(viewerId);
+      v.friends_going = friends.size ? db.prepare("SELECT user_id FROM memberships WHERE activity_id = ? AND status = 'accepted' ORDER BY updated_at").all(a.id)
+        .filter((r) => friends.has(r.user_id)).map((r) => personSummary(profileOf(r.user_id))) : [];
+    }
     if (isOrg || m?.status === 'accepted') v.unread = unreadChat(a.id, viewerId);
+    // Unread updates about this plan (someone joined, asked, changed the time…), so the plan itself can show it.
+    if (viewerId && (isOrg || m)) v.new_updates = db.prepare('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND activity_id = ? AND read_at IS NULL').get(viewerId, a.id).n;
     if (isOrg) v.pending_count = db.prepare("SELECT COUNT(*) AS n FROM memberships WHERE activity_id = ? AND status = 'pending'").get(a.id).n;
     return v;
   }
@@ -893,7 +914,8 @@ export function createApi(db) {
     const city = cityBySlug(req.query.city) || fail(404, 'not_found', 'Unknown city.');
     const rows = db.prepare(`SELECT * FROM activities WHERE city_id = ? AND status = 'active' AND is_sample = 0
       AND COALESCE(datetime(ends_at), datetime(starts_at, '+' || duration_min || ' minutes')) > datetime('now') ORDER BY starts_at LIMIT 300`).all(city.id);
-    const views = visibleFilter(rows, req.user.id).filter((a) => whenMatch(a, req.query.when, city.timezone)).map((a) => activityView(a, req.user.id));
+    const ctx = viewCtx(req.user);
+    const views = visibleFilter(rows, req.user.id).filter((a) => whenMatch(a, req.query.when, city.timezone)).map((a) => activityView(a, req.user.id, ctx));
     // Real day first (soonest first), then "this weekend / this week", then "day to be agreed". Newest first within ties.
     res.json({ activities: applyFilters(views, req.query).sort(comparePlans) });
   });
@@ -905,6 +927,8 @@ export function createApi(db) {
     if (blocked.has(a.organiser_id)) fail(404, 'not_found', 'This activity is not available.');
     const v = activityView(a, uid);
     const isOrg = a.organiser_id === uid;
+    // Opening the plan counts as seeing its updates (joins, requests, changes), so they stop piling up in Updates.
+    if (v.new_updates) { db.prepare('UPDATE notifications SET read_at = ? WHERE user_id = ? AND activity_id = ? AND read_at IS NULL').run(now(), uid, a.id); v.new_updates = 0; }
     const insider = canChat(a, uid);
     v.meeting_point = insider ? a.meeting_point : null; // exact meeting point only for confirmed people
     const accepted = db.prepare("SELECT user_id FROM memberships WHERE activity_id = ? AND status = 'accepted' ORDER BY updated_at").all(a.id);
@@ -1546,8 +1570,9 @@ export function createApi(db) {
       UNION ALL SELECT a.*, m.status AS mstatus FROM activities a JOIN memberships m ON m.activity_id = a.id WHERE m.user_id = ?
       AND m.status IN ('pending','accepted','invited','left','removed','declined')`).all(uid, uid);
     const out = { organising: [], confirmed: [], waiting: [], invited: [], history: [] };
+    const ctx = viewCtx(req.user);
     for (const a of rows) {
-      const v = activityView(a, uid);
+      const v = activityView(a, uid, ctx);
       const done = v.state === 'past' || v.state === 'cancelled';
       if (done || ['left', 'removed', 'declined'].includes(a.mstatus)) {
         if (a.mstatus === 'declined' && !done) continue; // a declined request is not a plan; hide it quietly

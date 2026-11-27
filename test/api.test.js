@@ -1342,3 +1342,41 @@ test('team numbers leave out the team: accounts, plans, joins, visits, sources a
   await team.post('/team/leave');
   delete process.env.ADMIN_TOKEN;
 });
+
+test('guests don’t see how many are going; friends going shown to people with an account; plans show unread updates', async () => {
+  const org = await user('Hana'); const fr = await user('Ivo'); const other = await user('Jas');
+  const a = await makeActivity(org, { join_mode: 'open', max_participants: 5 });
+  // Ivo and Jas connect; Ivo joins the plan.
+  const c = await fr.post(`/users/${other.id}/connect`, {});
+  await other.post(`/connections/${c.body.connection.id}/accept`);
+  assert.equal((await fr.post(`/activities/${a}/requests`, {})).status, 201);
+  // A guest sees the plan but not the count.
+  const g = client(); await g.post('/auth/guest');
+  const gv = (await g.get(`/activities/${a}`)).body.activity;
+  assert.equal(gv.going, null); assert.equal(gv.spots_left, null); assert.equal(gv.participants, null); assert.equal(gv.friends_going, undefined);
+  assert.ok((await g.get('/activities?city=las-palmas')).body.activities.filter((x) => x.id === a).every((x) => x.going === null));
+  // Jas (not in the plan) sees the count and that Ivo, a friend, is going, but not the full list.
+  const ov = (await other.get(`/activities/${a}`)).body.activity;
+  assert.equal(ov.going, 2); assert.equal(ov.participants, null);
+  assert.deepEqual(ov.friends_going.map((p) => p.id), [fr.id]);
+  const listed = (await other.get('/activities?city=las-palmas')).body.activities.find((x) => x.id === a);
+  assert.deepEqual(listed.friends_going.map((p) => p.id), [fr.id]);
+  // Organiser: plan shows the unread "joined" update in My Plans until the plan is opened.
+  const mine = () => org.get('/plans').then((r) => r.body.organising.find((x) => x.id === a));
+  assert.equal((await mine()).new_updates, 1);
+  // Hana has no friends going: empty list.
+  assert.deepEqual((await org.get(`/activities/${a}`)).body.activity.friends_going, []);
+  assert.equal((await mine()).new_updates, 0, 'opening the plan marks its updates as read');
+  // A new chat message shows on the plan card too.
+  await fr.post(`/activities/${a}/messages`, { body: 'See you there!' });
+  assert.equal((await mine()).unread, 1);
+});
+
+test('categories: a plan created with a chosen category shows up under that category filter', async () => {
+  const u = await user('Kai');
+  const r = await u.post('/activities', { title: 'Morning run on the promenade', category: 'sports', day: localIn(3).slice(0, 10), time_mode: 'window', time_window: 'morning', meeting_area: 'Las Canteras' });
+  assert.equal(r.status, 201);
+  const found = (await u.get('/activities?city=las-palmas&category=sports')).body.activities.map((x) => x.id);
+  assert.ok(found.includes(r.body.id));
+  assert.ok(!(await u.get('/activities?city=las-palmas&category=coffee')).body.activities.some((x) => x.id === r.body.id));
+});

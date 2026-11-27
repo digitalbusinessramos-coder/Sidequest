@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { t, tx } from '../i18n.js';
-import { Avatar, ErrorState, Icon, Loading, ReportSheet, SampleBadge, Sheet, Stamp, StatusBadge, TopBar, useApp, EmojiBadge, GoogleMap } from '../components.jsx';
+import { Avatar, FriendsGoing, ErrorState, Icon, Loading, ReportSheet, SampleBadge, Sheet, Stamp, StatusBadge, TopBar, useApp, EmojiBadge, GoogleMap } from '../components.jsx';
 import { fmtPlanCost, fmtPlanDuration, fmtPlanWhen, fmtPlaces, tzLabel, useApi } from '../util.js';
 import { ShareButton } from './Share.jsx';
 import { langName } from './ProfileBits.jsx';
@@ -105,8 +105,8 @@ export default function ActivityDetail({ id, query = {} }) {
           <Icon name="pin" /><div><strong>{a.meeting_area}</strong><div className="tiny muted">{insider ? tx('Public meeting area') : tx('Public meeting area. Confirmed participants see the exact meeting point.')}</div></div>
           {cost && <><Icon name="euro" /><div><strong>{cost}</strong>{a.cost_mode === 'estimate' && <div className="tiny muted">{tx('Estimated by the organiser. Everyone pays their own share directly; nothing is paid in the app.')}</div>}</div></>}
           <Icon name="group" /><div>{a.capped
-            ? <><strong>{tx('Up to {n} people, including the organiser', { n: a.max_participants })}</strong> · {tx('{n} going', { n: a.going })} · {places}</>
-            : <strong>{tx('{n} going', { n: a.going })}</strong>}</div>
+            ? <><strong>{tx('Up to {n} people, including the organiser', { n: a.max_participants })}</strong>{a.going != null && <> · {tx('{n} going', { n: a.going })}</>}{places && <> · {places}</>}</>
+            : a.going != null ? <strong>{tx('{n} going', { n: a.going })}</strong> : <strong>{tx('No limit on group size')}</strong>}</div>
           {a.beginner_friendly && <><Icon name="sprout" /><div>{tx('Beginners welcome')}</div></>}
         </div>
 
@@ -146,7 +146,14 @@ export default function ActivityDetail({ id, query = {} }) {
               ))}
               {a.participants.length === 0 && <p className="small muted" style={{ padding: '10px 0' }}>{tx("Nobody confirmed yet.")}</p>}
             </div>
-          ) : <p className="small muted">{tx('{n} going', { n: a.going })}. {t('act.whoHidden')}</p>}
+          ) : a.going == null ? (
+            <p className="small muted">{tx('Create a free account to see how many people are going.')}</p>
+          ) : (
+            <div className="stack-sm">
+              {a.friends_going?.length > 0 && <FriendsGoing people={a.friends_going} />}
+              <p className="small muted">{tx('{n} going', { n: a.going })}. {t('act.whoHidden')}</p>
+            </div>
+          )}
         </section>
 
         {isOrg && (
